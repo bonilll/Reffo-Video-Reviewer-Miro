@@ -1,0 +1,12 @@
+@import "tailwindcss";
+
+@source "./index.html";
+@source "./**/*.{ts,tsx,html}";
+
+@theme {
+  --color-gray-850: #18202F;
+  --color-gray-950: #0C111A;
+  --color-cyan-400: #22d3ee;
+  --color-cyan-500: #06b6d4;
+}
+

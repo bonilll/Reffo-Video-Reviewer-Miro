@@ -1,0 +1,75 @@
+import { defineSchema, defineTable } from "convex/server";
+import { v } from "convex/values";
+
+const pointValidator = v.object({
+  x: v.number(),
+  y: v.number(),
+});
+
+export default defineSchema({
+  users: defineTable({
+    clerkId: v.string(),
+    email: v.string(),
+    name: v.optional(v.string()),
+    avatar: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("byClerkId", ["clerkId"]),
+
+  projects: defineTable({
+    name: v.string(),
+    ownerId: v.id("users"),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("byOwner", ["ownerId"])
+    .searchIndex("search_name", {
+      searchField: "name",
+    }),
+
+  videos: defineTable({
+    projectId: v.optional(v.id("projects")),
+    ownerId: v.id("users"),
+    title: v.string(),
+    description: v.optional(v.string()),
+    storageKey: v.string(),
+    src: v.string(),
+    width: v.number(),
+    height: v.number(),
+    fps: v.number(),
+    duration: v.number(),
+    uploadedAt: v.number(),
+    lastReviewedAt: v.optional(v.number()),
+    thumbnailUrl: v.optional(v.string()),
+  })
+    .index("byOwner", ["ownerId"])
+    .index("byProject", ["projectId"])
+    .index("byOwnerAndProject", ["ownerId", "projectId"]),
+
+  annotations: defineTable({
+    videoId: v.id("videos"),
+    authorId: v.id("users"),
+    frame: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    data: v.any(),
+  })
+    .index("byVideo", ["videoId"])
+    .index("byVideoAndFrame", ["videoId", "frame"]),
+
+  comments: defineTable({
+    videoId: v.id("videos"),
+    authorId: v.id("users"),
+    text: v.string(),
+    frame: v.optional(v.number()),
+    resolved: v.boolean(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    parentId: v.optional(v.id("comments")),
+    position: v.optional(pointValidator),
+  })
+    .index("byVideo", ["videoId"])
+    .index("byParent", ["parentId"])
+    .index("byVideoAndFrame", ["videoId", "frame"]),
+});
+

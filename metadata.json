@@ -1,0 +1,5 @@
+{
+  "name": "SyncSketch Clone - Video Review Tool",
+  "description": "A standalone video review application for frame-by-frame annotations, threaded comments, and advanced playback controls, inspired by SyncSketch. It features a resize-proof canvas for annotations, ensuring they remain perfectly aligned with the video frame regardless of player or window size.",
+  "requestFramePermissions": []
+}
