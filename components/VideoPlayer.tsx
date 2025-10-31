@@ -167,22 +167,24 @@ const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
               className="w-full h-full object-contain"
               onPlay={() => setIsPlaying(true)}
               onPause={() => setIsPlaying(false)}
+              crossOrigin="anonymous"
+              referrerPolicy="no-referrer"
           />
 
         {!isReady && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/40 z-10">
-            <div className="flex items-center gap-3 text-gray-200">
-              <Loader2 className="animate-spin text-cyan-500" />
-              <span className="text-sm">Loading video…</span>
+          <div className="absolute inset-0 flex items-center justify-center bg-black/60 z-10">
+            <div className="flex items-center gap-3 text-white/70">
+              <Loader2 className="animate-spin text-white" />
+              <span className="text-sm uppercase tracking-[0.4em]">Loading</span>
             </div>
           </div>
         )}
 
         <div 
-          className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/70 to-transparent z-10"
+          className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 via-black/40 to-transparent z-10"
           onClick={(e) => e.stopPropagation()}
         >
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-3">
             <Timeline
                 currentTime={videoRef.current?.currentTime || 0}
                 duration={duration}
@@ -191,48 +193,44 @@ const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
                 annotations={annotations}
                 comments={comments}
             />
+            <div className="flex items-center justify-between text-white/80 text-xs uppercase tracking-[0.3em]">
+                <button onClick={() => setTimeDisplayMode(mode => mode === 'frame' ? 'time' : 'frame')} className="px-3 py-1 rounded-full bg-white/10 hover:bg-white/20 text-white/70">
+                    {timeDisplayMode === 'frame' ? `${currentFrame} f` : formatTime(videoRef.current?.currentTime || 0)}
+                </button>
+                <span>{video.width}×{video.height} • {video.fps} fps</span>
+            </div>
             <div className="flex items-center justify-between text-white">
-                <div className="flex items-center gap-3">
-                    <button onClick={() => stepFrame(-1)} className="hover:text-cyan-400"><Rewind size={20} /></button>
-                    <button onClick={togglePlayPause} className="hover:text-cyan-400">
-                        {isPlaying ? <Pause size={24} /> : <Play size={24} />}
+                <div className="flex items-center gap-2">
+                    <button onClick={() => stepFrame(-1)} className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white/80"><Rewind size={18} /></button>
+                    <button onClick={() => stepFrame(-video.fps)} className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white/80"><SkipBack size={18} /></button>
+                    <button onClick={togglePlayPause} className="p-3 rounded-full bg-white text-black hover:bg-white/90">
+                        {isPlaying ? <Pause size={22} /> : <Play size={22} />}
                     </button>
-                    <button onClick={() => stepFrame(1)} className="hover:text-cyan-400"><FastForward size={20} /></button>
-                    <div className="group flex items-center gap-2 relative">
-                      <button onClick={() => setIsMuted(m => !m)}>
-                        {isMuted || volume === 0 ? <VolumeX size={20} /> : <Volume2 size={20} />}
-                      </button>
-                      <input
-                        type="range"
-                        min="0"
-                        max="1"
-                        step="0.05"
-                        value={volume}
-                        onChange={(e) => {
-                          setVolume(parseFloat(e.target.value));
-                          setIsMuted(parseFloat(e.target.value) === 0);
-                        }}
-                        className="w-20 accent-cyan-500"
-                      />
-                    </div>
+                    <button onClick={() => stepFrame(video.fps)} className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white/80"><SkipForward size={18} /></button>
+                    <button onClick={() => stepFrame(1)} className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white/80"><FastForward size={18} /></button>
                 </div>
-
-                <div className="flex items-center gap-4">
-                  <button onClick={() => handleJump('prev')} className="hover:text-cyan-400" title="Previous Note"><SkipBack size={20} /></button>
-                  <button 
-                    onClick={() => setTimeDisplayMode(m => m === 'frame' ? 'time' : 'frame')}
-                    className="font-mono text-lg tabular-nums w-40 text-center"
-                    title="Toggle time/frame display"
-                  >
-                    {timeDisplayMode === 'frame' ? `${currentFrame} / ${totalFrames}` : formatTime(videoRef.current?.currentTime || 0)}
-                  </button>
-                  <button onClick={() => handleJump('next')} className="hover:text-cyan-400" title="Next Note"><SkipForward size={20} /></button>
-                </div>
-                
-                <div className="flex items-center gap-3">
-                  <button onClick={toggleFullscreen} className="hover:text-cyan-400" title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}>
-                    {isFullscreen ? <Minimize size={20} /> : <Maximize size={20} />}
-                  </button>
+                <div className="flex items-center gap-3 text-white/70">
+                    <button onClick={() => setIsMuted(m => !m)} className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white">
+                        {isMuted || volume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}
+                    </button>
+                    <input
+                      type="range"
+                      min={0}
+                      max={1}
+                      step={0.01}
+                      value={isMuted ? 0 : volume}
+                      onChange={(e) => {
+                        const value = Number(e.target.value);
+                        setVolume(value);
+                        setIsMuted(value === 0);
+                      }}
+                      className="w-24 accent-white"
+                    />
+                    <button onClick={() => handleJump('prev')} className="px-3 py-1 rounded-full bg-white/10 hover:bg-white/20 text-white/70">Prev mark</button>
+                    <button onClick={() => handleJump('next')} className="px-3 py-1 rounded-full bg-white/10 hover:bg-white/20 text-white/70">Next mark</button>
+                    <button onClick={toggleFullscreen} className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white">
+                        {isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
+                    </button>
                 </div>
             </div>
           </div>

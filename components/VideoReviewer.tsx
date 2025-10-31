@@ -80,12 +80,12 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
   const convertAnnotationFromServer = useCallback((doc: any): Annotation => {
     const { id, videoId: docVideoId, authorId, createdAt, ...rest } = doc;
     return {
-      ...(rest as Omit<Annotation, 'id' | 'videoId' | 'authorId' | 'createdAt'>),
+      ...(rest as Partial<Annotation>),
       id,
       videoId: docVideoId,
       authorId,
       createdAt: new Date(createdAt ?? Date.now()).toISOString(),
-    };
+    } as Annotation;
   }, []);
 
   const convertCommentFromServer = useCallback((doc: any): Comment => ({
@@ -343,27 +343,27 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
 
 
   return (
-    <div className="w-full h-full flex flex-col">
-      <header className="flex-shrink-0 bg-gray-900 border-b border-gray-800 px-4 py-2 flex items-center justify-between z-20">
+    <div className="w-full h-full flex flex-col bg-black/50">
+      <header className="flex-shrink-0 bg-black/70 border-b border-white/10 px-8 py-4 flex items-center justify-between z-20 backdrop-blur">
         <div className="flex items-center gap-4">
-            <button onClick={onGoBack} className="p-1 rounded-md hover:bg-gray-700 transition-colors flex items-center gap-1 text-sm">
+            <button onClick={onGoBack} className="inline-flex items-center gap-2 text-xs font-semibold tracking-[0.3em] uppercase text-white/60 hover:text-white hover:bg-white/10 px-3 py-1.5 rounded-full">
                 <ChevronLeft size={18} /> Back
             </button>
-            <h1 className="text-lg font-semibold text-white">{video.title}</h1>
+            <h1 className="text-xl font-semibold text-white">{video.title}</h1>
         </div>
-        <div className="flex items-center space-x-4">
-          <button onClick={() => setShowAnnotations(s => !s)} title={showAnnotations ? 'Hide Annotations' : 'Show Annotations'} className="p-1.5 rounded-md hover:bg-gray-700 transition-colors">
-            {showAnnotations ? <EyeOff size={20} /> : <Eye size={20} />}
+        <div className="flex items-center space-x-3">
+          <button onClick={() => setShowAnnotations(s => !s)} title={showAnnotations ? 'Hide Annotations' : 'Show Annotations'} className="p-2 text-white/60 hover:text-white hover:bg-white/10 rounded-full transition-colors">
+            {showAnnotations ? <EyeOff size={18} /> : <Eye size={18} />}
           </button>
-          <button className="text-sm bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded-md">Share</button>
-          <button onClick={() => setIsCommentsPaneOpen(o => !o)} title={isCommentsPaneOpen ? "Hide Comments" : "Show Comments"} className="p-1.5 rounded-md hover:bg-gray-700 transition-colors">
-            {isCommentsPaneOpen ? <PanelRightClose size={20} /> : <PanelRightOpen size={20} />}
+          <button className="text-xs font-semibold text-black bg-white hover:bg-white/90 px-4 py-2 rounded-full">Share</button>
+          <button onClick={() => setIsCommentsPaneOpen(o => !o)} title={isCommentsPaneOpen ? "Hide Comments" : "Show Comments"} className="p-2 text-white/60 hover:text-white hover:bg-white/10 rounded-full transition-colors">
+            {isCommentsPaneOpen ? <PanelRightClose size={18} /> : <PanelRightOpen size={18} />}
           </button>
-          <div className="w-8 h-8 rounded-full bg-cyan-500 flex items-center justify-center text-white font-bold">A</div>
+          <div className="w-8 h-8 rounded-full bg-white/10 border border-white/20 flex items-center justify-center text-white font-bold">A</div>
         </div>
       </header>
       <div className="w-full h-full flex flex-1 overflow-hidden">
-        <div className="flex-1 flex flex-col bg-black relative">
+        <div className="flex-1 flex flex-col bg-black/60 relative">
           <Toolbar 
             activeTool={activeTool} 
             setActiveTool={setActiveTool}
@@ -417,7 +417,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
             />
           </div>
         </div>
-        <div className={`flex-shrink-0 h-full bg-gray-900 border-l border-gray-800 overflow-hidden transition-all duration-300 ease-in-out ${isCommentsPaneOpen ? 'w-[360px]' : 'w-0 border-l-0'}`}>
+        <div className={`flex-shrink-0 h-full bg-transparent overflow-hidden transition-all duration-300 ease-in-out ${isCommentsPaneOpen ? 'w-[360px]' : 'w-0'}`}>
           <CommentsPane
             comments={comments}
             currentFrame={currentFrame}

@@ -99,6 +99,7 @@ export interface Video {
   title: string;
   src: string;
   storageKey?: string;
+  thumbnailUrl?: string;
   width: number;
   height: number;
   fps: number;

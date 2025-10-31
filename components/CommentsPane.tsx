@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Comment } from '../types';
-import { MessageSquare, CornerDownRight, CheckCircle2, Circle, Trash2 } from 'lucide-react';
+import { MessageSquare, CheckCircle2, Circle, Trash2 } from 'lucide-react';
 
 interface CommentProps {
   comment: Comment;
@@ -44,51 +44,55 @@ const CommentItem: React.FC<CommentProps> = ({ comment, replies, onAddComment, o
 
   return (
     <div 
-        className={`p-3 border-b border-gray-800 transition-colors ${isActive ? 'bg-cyan-900/30' : 'hover:bg-gray-850'}`}
+        className={`p-4 border-b border-white/10 transition-colors ${isActive ? 'bg-white/10' : 'hover:bg-white/5'}`}
         onClick={setActive}
     >
-      <div className="flex items-start space-x-3">
-        <img src={comment.authorAvatar} alt={comment.authorName} className="w-8 h-8 rounded-full" />
-        <div className="flex-1">
+      <div className="flex items-start gap-3">
+        <img src={comment.authorAvatar} alt={comment.authorName} className="w-8 h-8 rounded-full border border-white/10" />
+        <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between">
-            <span className="font-semibold text-white text-sm">{comment.authorName}</span>
-            <span className="text-xs text-gray-400">{timeAgo(comment.createdAt)}</span>
+            <span className="font-semibold text-white text-sm truncate">{comment.authorName}</span>
+            <span className="text-xs text-white/40 whitespace-nowrap">{timeAgo(comment.createdAt)}</span>
           </div>
           <p
-            className="text-sm text-gray-300 mt-1 whitespace-pre-wrap break-words"
+            className="text-sm text-white/70 mt-2 whitespace-pre-wrap break-words"
             style={{ hyphens: 'auto', wordBreak: 'break-word', overflowWrap: 'anywhere' }}
           >
             {comment.text}
           </p>
-          <div className="flex items-center space-x-4 text-xs text-gray-400 mt-2">
+          <div className="flex flex-wrap items-center gap-4 text-xs text-white/50 mt-3">
             {comment.frame !== undefined && (
-              <button onClick={() => onJumpToFrame(comment.frame)} className="hover:text-cyan-400">Frame {comment.frame}</button>
+              <button onClick={() => onJumpToFrame(comment.frame)} className="hover:text-white">
+                Frame {comment.frame}
+              </button>
             )}
-            <button onClick={() => setShowReply(s => !s)} className="hover:text-cyan-400">Reply</button>
-            <button onClick={() => onToggleResolve(comment.id)} className={`flex items-center gap-1 ${comment.resolved ? 'text-green-500' : 'hover:text-cyan-400'}`}>
+            <button onClick={() => setShowReply((s) => !s)} className="hover:text-white">
+              Reply
+            </button>
+            <button onClick={() => onToggleResolve(comment.id)} className={`flex items-center gap-1 ${comment.resolved ? 'text-white' : 'hover:text-white'}`}>
               {comment.resolved ? <CheckCircle2 size={14} /> : <Circle size={14} />}
               {comment.resolved ? 'Resolved' : 'Resolve'}
             </button>
-            <button onClick={() => onDeleteComment(comment.id)} className="hover:text-red-400 flex items-center gap-1">
+            <button onClick={() => onDeleteComment(comment.id)} className="flex items-center gap-1 hover:text-red-300">
               <Trash2 size={14}/> Delete
             </button>
           </div>
         </div>
       </div>
       {showReply && (
-        <form onSubmit={handleReplySubmit} className="ml-11 mt-2 flex gap-2">
+        <form onSubmit={handleReplySubmit} className="ml-11 mt-3 flex gap-2">
             <input 
                 type="text"
                 value={replyText}
                 onChange={e => setReplyText(e.target.value)}
                 placeholder="Write a reply..."
-                className="w-full bg-gray-800 border border-gray-700 rounded-md px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-cyan-500"
+                className="w-full bg-white/5 border border-white/10 rounded-full px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-white"
             />
-            <button type="submit" className="bg-cyan-600 hover:bg-cyan-500 px-3 rounded-md text-sm">Send</button>
+            <button type="submit" className="bg-white text-black px-4 rounded-full text-xs font-semibold hover:bg-white/90">Send</button>
         </form>
       )}
       {replies.length > 0 && (
-        <div className="ml-6 mt-3 pl-4 border-l-2 border-gray-700 space-y-3">
+        <div className="ml-6 mt-4 pl-4 border-l border-white/10 space-y-3">
           {replies.map(reply => (
             <CommentItem 
               key={reply.id} 
@@ -98,7 +102,7 @@ const CommentItem: React.FC<CommentProps> = ({ comment, replies, onAddComment, o
               onToggleResolve={onToggleResolve}
               onJumpToFrame={onJumpToFrame}
               onDeleteComment={onDeleteComment}
-              isActive={false} // Replies are not individually selectable for now
+              isActive={false}
               setActive={() => {}}
             />
           ))}
@@ -164,13 +168,15 @@ const CommentsPane: React.FC<CommentsPaneProps> = ({ comments, currentFrame, onA
   }, [activeCommentId]);
 
   return (
-    <div className="h-full flex flex-col">
-      <div className="p-4 border-b border-gray-800">
-        <h2 className="text-lg font-semibold text-white flex items-center gap-2"><MessageSquare size={20}/> Comments</h2>
-        <div className="mt-3 flex gap-2 text-sm">
-            <button onClick={() => setFilter('all')} className={`px-3 py-1 rounded-full ${filter === 'all' ? 'bg-cyan-600 text-white' : 'bg-gray-700 text-gray-300'}`}>All</button>
-            <button onClick={() => setFilter('open')} className={`px-3 py-1 rounded-full ${filter === 'open' ? 'bg-cyan-600 text-white' : 'bg-gray-700 text-gray-300'}`}>Open</button>
-            <button onClick={() => setFilter('resolved')} className={`px-3 py-1 rounded-full ${filter === 'resolved' ? 'bg-cyan-600 text-white' : 'bg-gray-700 text-gray-300'}`}>Resolved</button>
+    <div className="h-full flex flex-col bg-black/60 border-l border-white/10">
+      <div className="px-6 py-5 border-b border-white/10">
+        <h2 className="text-sm font-semibold tracking-[0.4em] text-white/50 uppercase flex items-center gap-2">
+          <MessageSquare size={18}/> Comments
+        </h2>
+        <div className="mt-4 inline-flex items-center gap-2 bg-white/5 border border-white/10 rounded-full p-1">
+            <button onClick={() => setFilter('all')} className={`px-4 py-1.5 rounded-full text-xs font-semibold ${filter === 'all' ? 'bg-white text-black' : 'text-white/60 hover:bg-white/10'}`}>All</button>
+            <button onClick={() => setFilter('open')} className={`px-4 py-1.5 rounded-full text-xs font-semibold ${filter === 'open' ? 'bg-white text-black' : 'text-white/60 hover:bg-white/10'}`}>Open</button>
+            <button onClick={() => setFilter('resolved')} className={`px-4 py-1.5 rounded-full text-xs font-semibold ${filter === 'resolved' ? 'bg-white text-black' : 'text-white/60 hover:bg-white/10'}`}>Resolved</button>
         </div>
       </div>
       <div className="flex-1 overflow-y-auto">
@@ -189,16 +195,16 @@ const CommentsPane: React.FC<CommentsPaneProps> = ({ comments, currentFrame, onA
           </div>
         ))}
       </div>
-      <div className="p-4 border-t border-gray-800">
-        <form onSubmit={handleSubmitComment}>
+      <div className="px-6 py-5 border-t border-white/10">
+        <form onSubmit={handleSubmitComment} className="space-y-3">
           <textarea
             value={newCommentText}
             onChange={(e) => setNewCommentText(e.target.value)}
             placeholder={`Add general comment at frame ${currentFrame}...`}
-            className="w-full bg-gray-800 border border-gray-700 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-cyan-500 resize-none"
+            className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-white resize-none"
             rows={3}
           />
-          <button type="submit" className="w-full mt-2 bg-cyan-600 hover:bg-cyan-500 text-white font-semibold py-2 rounded-md transition-colors">
+          <button type="submit" className="w-full bg-white text-black font-semibold py-2.5 rounded-full hover:bg-white/90">
             Add Comment
           </button>
         </form>

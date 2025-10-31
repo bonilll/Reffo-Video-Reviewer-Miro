@@ -74,13 +74,12 @@ const NewCommentPopover: React.FC<NewCommentPopoverProps> = ({ position, rendere
   }, [text]);
 
   return (
-    <div ref={popoverRef} style={style} className="w-80 bg-gray-900 rounded-xl shadow-2xl border border-gray-700/50 flex flex-col relative max-w-[90vw]" onClick={e => e.stopPropagation()}>
-        {/* Caret */}
-        <div className="absolute left-1/2 -top-[5px] -ml-[5px] w-2.5 h-2.5 bg-gray-900 border-t border-l border-gray-700/50 transform rotate-45"></div>
+    <div ref={popoverRef} style={style} className="w-80 bg-black/80 border border-white/10 rounded-2xl shadow-2xl flex flex-col relative max-w-[90vw] backdrop-blur" onClick={e => e.stopPropagation()}>
+        <div className="absolute left-1/2 -top-[5px] -ml-[5px] w-2.5 h-2.5 bg-black/80 border-t border-l border-white/10 transform rotate-45"></div>
         
-        <form onSubmit={handleSubmit} className="p-3 flex flex-col gap-3">
-            <div className="flex items-start space-x-2.5">
-                <img src={avatar} alt={displayName} className="w-7 h-7 rounded-full mt-0.5" />
+        <form onSubmit={handleSubmit} className="p-4 flex flex-col gap-4">
+            <div className="flex items-start gap-3">
+                <img src={avatar} alt={displayName} className="w-8 h-8 rounded-full border border-white/10" />
                 <div className="flex-1">
                     <div className="font-semibold text-white text-sm">{displayName}</div>
                     <textarea
@@ -88,7 +87,7 @@ const NewCommentPopover: React.FC<NewCommentPopoverProps> = ({ position, rendere
                         value={text}
                         onChange={e => setText(e.target.value)}
                         placeholder="Add comment..."
-                        className="w-full bg-transparent focus:outline-none text-sm text-gray-300 resize-none mt-1 max-h-[50vh]"
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 mt-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-white resize-none max-h-[50vh]"
                         style={{ height: 'auto' }}
                         onKeyDown={(e) => {
                             if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
@@ -98,11 +97,11 @@ const NewCommentPopover: React.FC<NewCommentPopoverProps> = ({ position, rendere
                     />
                 </div>
             </div>
-            <div className="flex justify-end items-center gap-2">
-                 <button type="button" onClick={onCancel} className="px-3 py-1 rounded-md text-sm font-semibold text-gray-300 hover:bg-gray-800">
+            <div className="flex justify-end items-center gap-3">
+                 <button type="button" onClick={onCancel} className="px-4 py-2 rounded-full text-xs font-semibold text-white/70 bg-white/10 hover:bg-white/20">
                     Cancel
                 </button>
-                <button type="submit" className="bg-cyan-600 hover:bg-cyan-500 px-3 py-1 rounded-md text-sm text-white font-semibold disabled:opacity-50" disabled={!text.trim()}>
+                <button type="submit" className="px-4 py-2 rounded-full text-xs font-semibold text-black bg-white hover:bg-white/90 disabled:opacity-40" disabled={!text.trim()}>
                     Post
                 </button>
             </div>

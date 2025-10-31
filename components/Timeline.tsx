@@ -95,11 +95,7 @@ const Timeline: React.FC<TimelineProps> = ({ currentTime, duration, onSeek, vide
         onMouseDown={handleMouseDown}
       >
         <div 
-            className="absolute top-0 left-0 h-full bg-gray-500 rounded-full" 
-            style={{ width: `${progress}%` }}
-        />
-        <div 
-            className="absolute top-0 left-0 h-full bg-cyan-500 rounded-full" 
+            className="absolute top-0 left-0 h-full bg-white rounded-full" 
             style={{ width: `${progress}%` }}
         />
         <div
@@ -109,7 +105,7 @@ const Timeline: React.FC<TimelineProps> = ({ currentTime, duration, onSeek, vide
         {markers.map(({ frame, position }) => (
             <div 
                 key={`note-marker-${frame}`}
-                className="absolute -top-1 h-4 w-0.5 bg-yellow-400"
+                className="absolute -top-1 h-4 w-0.5 bg-gray-300"
                 style={{ left: `${position}%` }}
                 title={`Note at frame ${frame}`}
             />

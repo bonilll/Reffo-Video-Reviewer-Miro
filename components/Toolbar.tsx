@@ -37,26 +37,26 @@ const Toolbar: React.FC<ToolbarProps> = ({
   const isTextTool = activeTool === AnnotationTool.TEXT;
 
   return (
-    <div className="absolute top-4 left-4 z-10 bg-gray-850 p-2 rounded-lg shadow-lg flex items-center gap-4 text-gray-300">
+    <div className="absolute top-6 left-1/2 -translate-x-1/2 z-10 bg-black/70 border border-white/10 backdrop-blur px-4 py-3 rounded-full shadow-lg flex items-center gap-4 text-white/70">
       <div className="flex items-center gap-1">
         {tools.map(tool => (
           <button
             key={tool.id}
             title={tool.name}
             onClick={() => setActiveTool(tool.id)}
-            className={`p-2 rounded-md transition-colors ${activeTool === tool.id ? 'bg-cyan-600 text-white' : 'hover:bg-gray-700'}`}
+            className={`p-2 rounded-full transition-colors ${activeTool === tool.id ? 'bg-white text-black' : 'hover:bg-white/10 text-white/80'}`}
           >
             <tool.icon size={20} />
           </button>
         ))}
       </div>
-      <div className="w-px h-8 bg-gray-700" />
+      <div className="w-px h-8 bg-white/10" />
        <div className="flex items-center gap-1">
         <button
           title="Undo (Ctrl+Z)"
           onClick={undo}
           disabled={!canUndo}
-          className="p-2 rounded-md transition-colors hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="p-2 rounded-full transition-colors hover:bg-white/10 text-white/80 disabled:opacity-40 disabled:cursor-not-allowed"
         >
           <Undo size={20} />
         </button>
@@ -64,26 +64,26 @@ const Toolbar: React.FC<ToolbarProps> = ({
           title="Redo (Ctrl+Y)"
           onClick={redo}
           disabled={!canRedo}
-          className="p-2 rounded-md transition-colors hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="p-2 rounded-full transition-colors hover:bg-white/10 text-white/80 disabled:opacity-40 disabled:cursor-not-allowed"
         >
           <Redo size={20} />
         </button>
       </div>
-      <div className="w-px h-8 bg-gray-700" />
+      <div className="w-px h-8 bg-white/10" />
       <div className="flex items-center gap-2">
         {colors.map(color => (
           <button
             key={color}
             onClick={() => setBrushColor(color)}
-            className={`w-6 h-6 rounded-full transition-transform transform hover:scale-110 ${brushColor === color ? 'ring-2 ring-offset-2 ring-offset-gray-850 ring-white' : ''}`}
+            className={`w-6 h-6 rounded-full transition-transform transform hover:scale-110 ${brushColor === color ? 'ring-2 ring-offset-2 ring-offset-black ring-white' : ''}`}
             style={{ backgroundColor: color }}
           />
         ))}
       </div>
       {(isDrawingTool || isTextTool) && <>
-        <div className="w-px h-8 bg-gray-700" />
+        <div className="w-px h-8 bg-white/10" />
         <div className="flex items-center gap-2">
-          <label htmlFor="size" className="text-sm">Size:</label>
+          <span className="text-xs uppercase tracking-[0.3em] text-white/50">Size</span>
           {isDrawingTool && (
             <input
                 id="size"
@@ -92,7 +92,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
                 max="20"
                 value={brushSize}
                 onChange={e => setBrushSize(Number(e.target.value))}
-                className="w-24 h-1 accent-cyan-500"
+                className="w-24 h-1 accent-white"
             />
           )}
           {isTextTool && (
@@ -103,7 +103,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
                 max="48"
                 value={fontSize}
                 onChange={e => setFontSize(Number(e.target.value))}
-                className="w-24 h-1 accent-cyan-500"
+                className="w-24 h-1 accent-white"
             />
           )}
         </div>

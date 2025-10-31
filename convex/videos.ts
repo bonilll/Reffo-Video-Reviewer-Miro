@@ -80,6 +80,7 @@ export const completeUpload = mutation({
     fps: v.number(),
     duration: v.number(),
     projectId: v.optional(v.id("projects")),
+    thumbnailUrl: v.optional(v.string()),
   },
   async handler(ctx, args) {
     const user = await getCurrentUserOrThrow(ctx);
@@ -105,7 +106,7 @@ export const completeUpload = mutation({
       duration: args.duration,
       uploadedAt: now,
       lastReviewedAt: undefined,
-      thumbnailUrl: undefined,
+      thumbnailUrl: args.thumbnailUrl ?? undefined,
     });
 
     const video = await ctx.db.get(videoId);
@@ -196,6 +197,10 @@ export const remove = mutation({
     await ctx.scheduler.runAfter(0, internal.storage.deleteObject, {
       storageKey: video.storageKey,
     });
+    if (video.thumbnailUrl) {
+      await ctx.scheduler.runAfter(0, internal.storage.deleteObjectByPublicUrl, {
+        publicUrl: video.thumbnailUrl,
+      });
+    }
   },
 });
-

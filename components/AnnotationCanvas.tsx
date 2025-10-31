@@ -616,7 +616,7 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
       />
 
       {isDraggingOver && (
-        <div className="absolute inset-0 bg-black/50 border-4 border-dashed border-cyan-500 rounded-lg flex items-center justify-center pointer-events-none z-50">
+        <div className="absolute inset-0 bg-black/50 border-4 border-dashed border-white rounded-lg flex items-center justify-center pointer-events-none z-50">
           <div className="text-center text-white">
             <UploadCloud size={64} className="mx-auto" />
             <p className="mt-4 text-xl font-semibold">Drop image to upload</p>

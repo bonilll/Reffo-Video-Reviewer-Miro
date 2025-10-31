@@ -89,6 +89,7 @@ const App: React.FC = () => {
       title: video.title,
       src: video.src,
       storageKey: video.storageKey,
+      thumbnailUrl: (video as any).thumbnailUrl ?? undefined,
       width: video.width,
       height: video.height,
       fps: video.fps,
@@ -140,39 +141,38 @@ const App: React.FC = () => {
   }, []);
 
   return (
-    <div className="w-screen h-screen bg-gray-950 text-gray-200 flex flex-col font-sans">
+    <div className="min-h-screen flex flex-col text-gray-100">
       <SignedOut>
         <div className="flex-1 flex items-center justify-center p-6">
-          <div className="bg-gray-900 border border-gray-800 rounded-xl p-8 w-full max-w-md text-center space-y-4">
-            <h1 className="text-2xl font-semibold text-white">Video Review Workspace</h1>
-            <p className="text-gray-400">
+          <div className="bg-black/70 border border-white/10 rounded-3xl p-10 w-full max-w-md text-center space-y-5 shadow-2xl backdrop-blur">
+            <h1 className="text-2xl font-semibold text-white tracking-tight">Video Review Workspace</h1>
+            <p className="text-white/60">
               Accedi con il tuo account per gestire progetti, video e revisioni.
             </p>
             <SignInButton mode="modal">
-              <button className="w-full bg-cyan-600 hover:bg-cyan-500 text-white font-semibold py-2 rounded-lg transition-colors">
+              <button className="w-full bg-white text-black font-semibold py-2.5 rounded-full transition hover:bg-white/90">
                 Accedi con Clerk
               </button>
             </SignInButton>
           </div>
         </div>
       </SignedOut>
-
       <SignedIn>
         {currentUser === undefined || isEnsuringUser ? (
           <div className="flex-1 flex items-center justify-center p-6">
-            <div className="flex flex-col items-center gap-4">
-              <Loader2 className="animate-spin text-cyan-500" size={32} />
-              <p className="text-gray-400">Collego il tuo account...</p>
+            <div className="flex flex-col items-center gap-4 text-white/70">
+              <Loader2 className="animate-spin text-white" size={32} />
+              <p>Collego il tuo account…</p>
             </div>
           </div>
         ) : currentUser === null ? (
           <div className="flex-1 flex items-center justify-center p-6">
-            <div className="bg-gray-900 border border-gray-800 rounded-xl p-8 w-full max-w-md text-center space-y-4">
+            <div className="bg-black/70 border border-white/10 rounded-3xl p-10 w-full max-w-md text-center space-y-4 shadow-2xl backdrop-blur">
               <h2 className="text-xl font-semibold text-white">Errore di sincronizzazione</h2>
-              <p className="text-gray-400">{ensureError ?? 'Impossibile collegare il tuo account in questo momento.'}</p>
+              <p className="text-white/60">{ensureError ?? 'Impossibile collegare il tuo account in questo momento.'}</p>
               <button
                 onClick={handleRetryEnsureUser}
-                className="w-full bg-cyan-600 hover:bg-cyan-500 text-white font-semibold py-2 rounded-lg transition-colors"
+                className="w-full bg-white text-black font-semibold py-2.5 rounded-full transition hover:bg-white/90"
                 disabled={isEnsuringUser}
               >
                 Riprova
@@ -180,8 +180,8 @@ const App: React.FC = () => {
             </div>
           </div>
         ) : dataLoading ? (
-          <div className="flex-1 flex items-center justify-center">
-            <Loader2 className="animate-spin text-cyan-500" size={32} />
+          <div className="flex-1 flex items-center justify-center text-white/70">
+            <Loader2 className="animate-spin text-white" size={32} />
           </div>
         ) : view === 'dashboard' ? (
           <Dashboard
@@ -207,17 +207,34 @@ const App: React.FC = () => {
               await updateVideoMetadata({ videoId: videoId as Id<'videos'>, title });
             }}
             onCompleteUpload={async (payload) => {
-              return await completeUpload({
+              const created = await completeUpload({
                 ...payload,
                 projectId: payload.projectId
                   ? (payload.projectId as Id<'projects'>)
                   : undefined,
               });
+              return {
+                id: created.id,
+                title: created.title,
+                src: created.src,
+                storageKey: created.storageKey ?? undefined,
+                thumbnailUrl: (created as any).thumbnailUrl ?? undefined,
+                width: created.width,
+                height: created.height,
+                fps: created.fps,
+                duration: created.duration,
+                projectId: created.projectId ?? undefined,
+                uploadedAt: new Date(created.uploadedAt).toISOString(),
+                lastReviewedAt: created.lastReviewedAt
+                  ? new Date(created.lastReviewedAt).toISOString()
+                  : undefined,
+              } satisfies Video;
             }}
             onRemoveVideo={async (videoId) => {
               await removeVideo({ videoId: videoId as Id<'videos'> });
             }}
             onGenerateUploadUrl={generateUploadUrl}
+            onGetDownloadUrl={getDownloadUrl}
             userButton={<UserButton afterSignOutUrl="/" />} 
           />
         ) : (

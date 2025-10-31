@@ -46,11 +46,29 @@ const buildStorageKey = (userId: string, fileName?: string) => {
   const extension = safeFileName?.includes(".")
     ? safeFileName.slice(safeFileName.lastIndexOf("."))
     : "";
-  return `users/${userId}/${Date.now()}-${randomUUID()}${extension}`;
+  return `video_review/users/${userId}/caricamenti/${Date.now()}-${randomUUID()}${extension}`;
 };
 
 const buildPublicUrl = (storageKey: string) =>
   `${PUBLIC_BASE.replace(/\/$/, "")}/${storageKey}`;
+
+const publicUrlToKey = (url: string): string | null => {
+  const base = PUBLIC_BASE.replace(/\/$/, "");
+  if (url.startsWith(base + "/")) {
+    return url.slice(base.length + 1);
+  }
+  try {
+    const u = new URL(url);
+    // Try to find the <bucket>/<key> in the pathname
+    const path = u.pathname.replace(/^\//, "");
+    if (!path) return null;
+    // If path starts with the bucket, strip it
+    const p = path.startsWith(BUCKET + "/") ? path.slice(BUCKET.length + 1) : path;
+    return p || null;
+  } catch {
+    return null;
+  }
+};
 
 export const generateVideoUploadUrl = action({
   args: {
@@ -93,6 +111,16 @@ export const deleteObject = internalAction({
       Bucket: BUCKET,
       Key: storageKey,
     });
+    await s3Client.send(command);
+  },
+});
+
+export const deleteObjectByPublicUrl = internalAction({
+  args: { publicUrl: v.string() },
+  async handler(_ctx, { publicUrl }) {
+    const key = publicUrlToKey(publicUrl);
+    if (!key) return;
+    const command = new DeleteObjectCommand({ Bucket: BUCKET, Key: key });
     await s3Client.send(command);
   },
 });
