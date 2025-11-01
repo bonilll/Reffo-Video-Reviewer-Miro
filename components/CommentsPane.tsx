@@ -262,7 +262,7 @@ const CommentItem: React.FC<CommentProps & { friends?: Array<{ id: string; conta
               isActive={false}
               setActive={() => {}}
               isReply
-              friends={contacts}
+              friends={friends}
             />
           ))}
           {/* Quick reply box after the first reply */}
