@@ -209,10 +209,10 @@ const NewCommentPopover: React.FC<NewCommentPopoverProps> = ({ position, rendere
                       type="button"
                       onMouseDown={(ev) => ev.preventDefault()}
                       onClick={() => applySuggestion(s.label)}
-                      className={`flex w-full items-center justify-between px-3 py-2 text-left ${isDark ? 'hover:bg-white/10' : 'hover:bg-gray-50'}`}
+                      className={`flex w-full items-center justify-between gap-2 px-2.5 py-1.5 text-left text-xs ${isDark ? 'hover:bg-white/10' : 'hover:bg-gray-50'}`}
                     >
-                      <span>{s.label}</span>
-                      <span className={`${isDark ? 'text-white/40' : 'text-gray-500'}`}>@{s.email}</span>
+                      <span className="min-w-0 truncate">{s.label}</span>
+                      <span className={`${isDark ? 'text-white/40' : 'text-gray-500'} shrink-0`}>@{s.email}</span>
                     </button>
                   ))}
                 </div>
