@@ -83,7 +83,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
       {(isDrawingTool || isTextTool) && <>
         <div className="w-px h-8 bg-white/10" />
         <div className="flex items-center gap-2">
-          <span className="text-xs uppercase tracking-[0.3em] text-white/50">Size</span>
+          <span className="text-xs uppercase text-white/50">Size</span>
           {isDrawingTool && (
             <input
                 id="size"

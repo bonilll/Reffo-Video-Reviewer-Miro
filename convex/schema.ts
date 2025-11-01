@@ -14,7 +14,9 @@ export default defineSchema({
     avatar: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
-  }).index("byClerkId", ["clerkId"]),
+  })
+    .index("byClerkId", ["clerkId"])
+    .index("byEmail", ["email"]),
 
   projects: defineTable({
     name: v.string(),
@@ -71,5 +73,73 @@ export default defineSchema({
     .index("byVideo", ["videoId"])
     .index("byParent", ["parentId"])
     .index("byVideoAndFrame", ["videoId", "frame"]),
-});
 
+  shareGroups: defineTable({
+    ownerId: v.id("users"),
+    name: v.string(),
+    description: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("byOwner", ["ownerId"]),
+
+  shareGroupMembers: defineTable({
+    groupId: v.id("shareGroups"),
+    email: v.string(),
+    userId: v.optional(v.id("users")),
+    role: v.string(),
+    status: v.string(),
+    invitedAt: v.number(),
+    acceptedAt: v.optional(v.number()),
+  })
+    .index("byGroup", ["groupId"])
+    .index("byEmail", ["email"]),
+
+  contentShares: defineTable({
+    ownerId: v.id("users"),
+    videoId: v.optional(v.id("videos")),
+    projectId: v.optional(v.id("projects")),
+    groupId: v.optional(v.id("shareGroups")),
+    linkToken: v.optional(v.string()),
+    allowDownload: v.boolean(),
+    allowComments: v.boolean(),
+    isActive: v.boolean(),
+    createdAt: v.number(),
+    expiresAt: v.optional(v.number()),
+  })
+    .index("byOwner", ["ownerId"])
+    .index("byLinkToken", ["linkToken"])
+    .index("byVideo", ["videoId"])
+    .index("byProject", ["projectId"]),
+
+  userSettings: defineTable({
+    userId: v.id("users"),
+    notifications: v.object({
+      reviewUpdates: v.boolean(),
+      commentMentions: v.boolean(),
+      weeklyDigest: v.boolean(),
+      productUpdates: v.boolean(),
+    }),
+    security: v.object({
+      twoFactorEnabled: v.boolean(),
+      loginAlerts: v.boolean(),
+      backupEmail: v.optional(v.string()),
+    }),
+    workspace: v.object({
+      defaultProjectId: v.optional(v.id("projects")),
+      autoShareGroupIds: v.array(v.id("shareGroups")),
+      theme: v.string(),
+    }),
+    integrations: v.object({
+      slackWebhook: v.optional(v.string()),
+      notionWorkspaceUrl: v.optional(v.string()),
+      frameIoAccount: v.optional(v.string()),
+    }),
+    billing: v.object({
+      plan: v.string(),
+      seats: v.number(),
+      renewalDate: v.number(),
+    }),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("byUser", ["userId"]),
+});

@@ -1,6 +1,6 @@
 import { mutation, query } from "./_generated/server";
-import { ConvexError } from "convex/values";
-import { getCurrentUserDoc, getIdentityOrThrow } from "./utils/auth";
+import { ConvexError, v } from "convex/values";
+import { getCurrentUserDoc, getIdentityOrThrow, getCurrentUserOrThrow } from "./utils/auth";
 
 const sanitizeUser = (user: Awaited<ReturnType<typeof getCurrentUserDoc>>) => {
   if (!user) return null;
@@ -74,3 +74,17 @@ export const current = query({
   },
 });
 
+export const updateProfile = mutation({
+  args: {
+    name: v.optional(v.string()),
+    avatar: v.optional(v.string()),
+  },
+  async handler(ctx, { name, avatar }) {
+    const user = await getCurrentUserOrThrow(ctx);
+    await ctx.db.patch(user._id, {
+      name: name ?? user.name,
+      avatar: avatar ?? user.avatar,
+      updatedAt: Date.now(),
+    });
+  },
+});

@@ -187,10 +187,15 @@ export const remove = mutation({
       .query("comments")
       .withIndex("byVideo", (q) => q.eq("videoId", videoId))
       .collect();
+    const shares = await ctx.db
+      .query("contentShares")
+      .withIndex("byVideo", (q) => q.eq("videoId", videoId))
+      .collect();
 
     await Promise.all([
       ...annotations.map((a) => ctx.db.delete(a._id)),
       ...comments.map((c) => ctx.db.delete(c._id)),
+      ...shares.map((s) => ctx.db.delete(s._id)),
     ]);
 
     await ctx.db.delete(videoId);

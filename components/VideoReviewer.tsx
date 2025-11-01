@@ -346,7 +346,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
     <div className="w-full h-full flex flex-col bg-black/50">
       <header className="flex-shrink-0 bg-black/70 border-b border-white/10 px-8 py-4 flex items-center justify-between z-20 backdrop-blur">
         <div className="flex items-center gap-4">
-            <button onClick={onGoBack} className="inline-flex items-center gap-2 text-xs font-semibold tracking-[0.3em] uppercase text-white/60 hover:text-white hover:bg-white/10 px-3 py-1.5 rounded-full">
+            <button onClick={onGoBack} className="inline-flex items-center gap-2 text-xs font-semibold uppercase text-white/60 hover:text-white hover:bg-white/10 px-3 py-1.5 rounded-full">
                 <ChevronLeft size={18} /> Back
             </button>
             <h1 className="text-xl font-semibold text-white">{video.title}</h1>

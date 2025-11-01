@@ -170,7 +170,7 @@ const CommentsPane: React.FC<CommentsPaneProps> = ({ comments, currentFrame, onA
   return (
     <div className="h-full flex flex-col bg-black/60 border-l border-white/10">
       <div className="px-6 py-5 border-b border-white/10">
-        <h2 className="text-sm font-semibold tracking-[0.4em] text-white/50 uppercase flex items-center gap-2">
+        <h2 className="text-sm font-semibold text-white/50 uppercase flex items-center gap-2">
           <MessageSquare size={18}/> Comments
         </h2>
         <div className="mt-4 inline-flex items-center gap-2 bg-white/5 border border-white/10 rounded-full p-1">

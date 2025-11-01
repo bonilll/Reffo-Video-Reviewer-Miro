@@ -2,6 +2,7 @@ import { mutation, query } from "./_generated/server";
 import { ConvexError, v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import { getCurrentUserDoc, getCurrentUserOrThrow } from "./utils/auth";
+import { internal } from "./_generated/api";
 
 export const list = query({
   args: {},
@@ -78,15 +79,52 @@ export const remove = mutation({
       throw new ConvexError("FORBIDDEN");
     }
 
-    // Unassign project from videos
+    // Remove project-level shares
+    const projectShares = await ctx.db
+      .query("contentShares")
+      .withIndex("byProject", (q) => q.eq("projectId", projectId))
+      .collect();
+    await Promise.all(projectShares.map((s) => ctx.db.delete(s._id)));
+
+    // Load all videos in the project
     const videos = await ctx.db
       .query("videos")
       .withIndex("byProject", (q) => q.eq("projectId", projectId))
       .collect();
 
-    await Promise.all(
-      videos.map((video) => ctx.db.patch(video._id, { projectId: undefined }))
-    );
+    // Delete related data and storage for each video
+    for (const video of videos) {
+      const anns = await ctx.db
+        .query("annotations")
+        .withIndex("byVideo", (q) => q.eq("videoId", video._id))
+        .collect();
+      const comments = await ctx.db
+        .query("comments")
+        .withIndex("byVideo", (q) => q.eq("videoId", video._id))
+        .collect();
+      const shares = await ctx.db
+        .query("contentShares")
+        .withIndex("byVideo", (q) => q.eq("videoId", video._id))
+        .collect();
+
+      await Promise.all([
+        ...anns.map((a) => ctx.db.delete(a._id)),
+        ...comments.map((c) => ctx.db.delete(c._id)),
+        ...shares.map((s) => ctx.db.delete(s._id)),
+      ]);
+
+      await ctx.db.delete(video._id);
+
+      await ctx.scheduler.runAfter(0, internal.storage.deleteObject, {
+        storageKey: video.storageKey,
+      });
+
+      if (video.thumbnailUrl) {
+        await ctx.scheduler.runAfter(0, internal.storage.deleteObjectByPublicUrl, {
+          publicUrl: video.thumbnailUrl,
+        });
+      }
+    }
 
     await ctx.db.delete(projectId);
   },
@@ -123,4 +161,3 @@ export const setProjectForVideo = mutation({
     await ctx.db.patch(videoId, { projectId });
   },
 });
-

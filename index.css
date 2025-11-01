@@ -13,11 +13,42 @@
 @layer base {
   body {
     font-family: "Inter", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    min-height: 100vh;
+  }
+
+  body.theme-dark {
     background: radial-gradient(circle at top left, rgba(255, 255, 255, 0.08), transparent 45%),
                 radial-gradient(circle at bottom right, rgba(255, 255, 255, 0.05), transparent 40%),
                 #050505;
-    min-height: 100vh;
+    color: #f9fafb;
   }
+
+  body.theme-light {
+    background: radial-gradient(circle at top left, rgba(15, 23, 42, 0.06), transparent 45%),
+                radial-gradient(circle at bottom right, rgba(15, 23, 42, 0.04), transparent 40%),
+                #f5f6f8;
+    color: #0f172a;
+  }
+
+  body.theme-light .text-white { color: #0f172a !important; }
+  body.theme-light .text-white\/80 { color: rgba(15, 23, 42, 0.8) !important; }
+  body.theme-light .text-white\/70 { color: rgba(15, 23, 42, 0.7) !important; }
+  body.theme-light .text-white\/60 { color: rgba(15, 23, 42, 0.6) !important; }
+  body.theme-light .text-white\/50 { color: rgba(15, 23, 42, 0.5) !important; }
+  body.theme-light .text-white\/40 { color: rgba(15, 23, 42, 0.4) !important; }
+  body.theme-light .text-white\/30 { color: rgba(15, 23, 42, 0.3) !important; }
+
+  body.theme-light .bg-white\/5 { background-color: rgba(15, 23, 42, 0.05) !important; }
+  body.theme-light .bg-white\/10 { background-color: rgba(15, 23, 42, 0.08) !important; }
+  body.theme-light .bg-black\/40 { background-color: rgba(15, 23, 42, 0.12) !important; }
+  body.theme-light .bg-black\/30 { background-color: rgba(15, 23, 42, 0.1) !important; }
+  body.theme-light .bg-black\/20 { background-color: rgba(15, 23, 42, 0.06) !important; }
+  body.theme-light .bg-black\/70 { background-color: rgba(15, 23, 42, 0.18) !important; }
+
+  body.theme-light .border-white\/10 { border-color: rgba(15, 23, 42, 0.1) !important; }
+  body.theme-light .border-white\/20 { border-color: rgba(15, 23, 42, 0.2) !important; }
+
+  body.theme-light .text-white\/90 { color: rgba(15, 23, 42, 0.9) !important; }
 
   ::selection {
     background: rgba(255, 255, 255, 0.15);
@@ -38,4 +69,3 @@
     border-radius: 999px;
   }
 }
-

@@ -638,7 +638,7 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
               <div
                 key={comment.id}
                 className={`absolute flex items-center justify-center w-8 h-8 rounded-full cursor-pointer transition-all duration-200 pointer-events-auto select-none transform -translate-x-1/2 -translate-y-1/2
-                  ${isActive ? 'ring-2 ring-cyan-400 ring-offset-2 ring-offset-black/50 shadow-lg scale-110' : 'hover:scale-110 hover:shadow-lg'}
+                  ${isActive ? 'ring-2 ring-white ring-offset-2 ring-offset-black/50 shadow-lg scale-110' : 'hover:scale-110 hover:shadow-lg'}
                   ${comment.resolved ? 'grayscale' : ''}
                 `}
                 style={{

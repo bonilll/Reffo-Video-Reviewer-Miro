@@ -175,7 +175,7 @@ const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
           <div className="absolute inset-0 flex items-center justify-center bg-black/60 z-10">
             <div className="flex items-center gap-3 text-white/70">
               <Loader2 className="animate-spin text-white" />
-              <span className="text-sm uppercase tracking-[0.4em]">Loading</span>
+              <span className="text-sm uppercase">Loading</span>
             </div>
           </div>
         )}
@@ -193,7 +193,7 @@ const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
                 annotations={annotations}
                 comments={comments}
             />
-            <div className="flex items-center justify-between text-white/80 text-xs uppercase tracking-[0.3em]">
+            <div className="flex items-center justify-between text-white/80 text-xs uppercase">
                 <button onClick={() => setTimeDisplayMode(mode => mode === 'frame' ? 'time' : 'frame')} className="px-3 py-1 rounded-full bg-white/10 hover:bg-white/20 text-white/70">
                     {timeDisplayMode === 'frame' ? `${currentFrame} f` : formatTime(videoRef.current?.currentTime || 0)}
                 </button>

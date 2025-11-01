@@ -102,7 +102,7 @@ const CommentPopover: React.FC<CommentPopoverProps> = ({ comment, comments, onAd
         <div className="absolute left-1/2 -top-[5px] -ml-[5px] w-2.5 h-2.5 bg-black/80 border-t border-l border-white/10 transform rotate-45" />
 
         <div className="flex items-center justify-between px-3 py-2 border-b border-white/10">
-            <span className="text-xs font-semibold tracking-[0.3em] uppercase text-white/40">Thread</span>
+            <span className="text-xs font-semibold uppercase text-white/40">Thread</span>
             <button onClick={onClose} className="p-1 text-white/50 hover:text-white rounded-full hover:bg-white/10 transition-colors" title="Close">
                 <X size={16} />
             </button>

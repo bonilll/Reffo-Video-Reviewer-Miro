@@ -109,6 +109,70 @@ export interface Video {
   lastReviewedAt?: string;
 }
 
+export interface ShareGroupMember {
+  id: string;
+  email: string;
+  userId?: string | null;
+  role: 'owner' | 'admin' | 'editor' | 'viewer';
+  status: 'active' | 'pending';
+  invitedAt: string;
+  acceptedAt?: string | null;
+}
+
+export interface ShareGroup {
+  id: string;
+  name: string;
+  description?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  members: ShareGroupMember[];
+}
+
+export interface ContentShare {
+  id: string;
+  videoId?: string | null;
+  projectId?: string | null;
+  groupId?: string | null;
+  linkToken?: string | null;
+  allowDownload: boolean;
+  allowComments: boolean;
+  isActive: boolean;
+  createdAt: string;
+  expiresAt?: string | null;
+}
+
+export interface UserSettings {
+  id: string;
+  notifications: {
+    reviewUpdates: boolean;
+    commentMentions: boolean;
+    weeklyDigest: boolean;
+    productUpdates: boolean;
+  };
+  security: {
+    twoFactorEnabled: boolean;
+    loginAlerts: boolean;
+    backupEmail?: string | null;
+  };
+  workspace: {
+    defaultProjectId?: string | null;
+    autoShareGroupIds: string[];
+    theme: 'light' | 'dark' | 'system';
+  };
+  integrations: {
+    slackWebhook?: string | null;
+    notionWorkspaceUrl?: string | null;
+    frameIoAccount?: string | null;
+  };
+  billing: {
+    plan: string;
+    seats: number;
+    renewalDate: string;
+  };
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface VideoFrameData {
   presentedFrames: number;
   mediaTime: number;
