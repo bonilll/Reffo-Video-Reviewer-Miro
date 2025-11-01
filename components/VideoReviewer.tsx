@@ -4,12 +4,14 @@ import VideoPlayer from './VideoPlayer';
 import AnnotationCanvas from './AnnotationCanvas';
 import CommentsPane from './CommentsPane';
 import Toolbar from './Toolbar';
-import { ChevronLeft, Eye, EyeOff, Play, Pause, Volume2, VolumeX, SkipBack, SkipForward, Rewind, FastForward, Maximize, Minimize } from 'lucide-react';
+import { ChevronLeft, Eye, EyeOff, Play, Pause, Volume2, VolumeX, SkipBack, SkipForward, Rewind, FastForward, Maximize, Minimize, Share2 } from 'lucide-react';
 import Timeline from './Timeline';
 import { useQuery, useMutation, useAction } from 'convex/react';
 import { api } from '../convex/_generated/api';
 import type { Id } from '../convex/_generated/dataModel';
 import { useThemePreference, ThemePref } from '../useTheme';
+import { ShareModal } from './Dashboard';
+import { useUser } from '@clerk/clerk-react';
 
 interface VideoReviewerProps {
   video: Video;
@@ -20,6 +22,7 @@ interface VideoReviewerProps {
 
 const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBack, theme = 'system' }) => {
   const isDark = useThemePreference(theme);
+  const { user: clerkUser } = useUser();
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const [comments, setComments] = useState<Comment[]>([]);
   
@@ -58,6 +61,13 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
   const updateCommentPositionMutation = useMutation(api.comments.updatePosition);
   const getDownloadUrlAction = useAction(api.storage.getDownloadUrl);
   const syncFriends = useMutation(api.shareGroups.syncFriendsFromGroups);
+  // Sharing data (reuse Dashboard flows)
+  const shareGroups = useQuery(api.shareGroups.list, clerkUser ? {} : undefined);
+  const shareRecords = useQuery(api.shares.list, clerkUser ? {} : undefined);
+  const generateShareLink = useMutation(api.shares.generateLink);
+  const shareToGroup = useMutation(api.shares.shareToGroup);
+  const revokeShare = useMutation(api.shares.revoke);
+  const [shareOpen, setShareOpen] = useState(false);
 
   const [playbackUrl, setPlaybackUrl] = useState<string | null>(null);
   const [duration, setDuration] = useState(0);
@@ -443,6 +453,27 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
     return () => window.removeEventListener('resize', onResize);
   }, [recalcHeights]);
 
+  // Share helpers
+  const activeShares = useMemo(() => {
+    if (!shareRecords) return [] as any[];
+    return shareRecords.filter((s: any) => s.isActive);
+  }, [shareRecords]);
+
+  const existingVideoShares = useMemo(() => activeShares.filter((s: any) => s.videoId === (video.id as any)), [activeShares, video.id]);
+
+  const handleShareToGroup = useCallback(async ({ groupId, allowDownload, allowComments }: { groupId: string; allowDownload: boolean; allowComments: boolean; }) => {
+    await shareToGroup({ groupId: groupId as any, videoId: video.id as any, allowDownload, allowComments });
+  }, [shareToGroup, video.id]);
+
+  const handleGenerateLink = useCallback(async ({ allowDownload, allowComments }: { allowDownload: boolean; allowComments: boolean; }) => {
+    const token = await generateShareLink({ videoId: video.id as any, allowDownload, allowComments });
+    return token;
+  }, [generateShareLink, video.id]);
+
+  const handleUnshare = useCallback(async (shareId: string) => {
+    await revokeShare({ shareId: shareId as any });
+  }, [revokeShare]);
+
   return (
     <div className={"w-full h-full flex flex-col"}>
       <header ref={headerEl} className={`flex-shrink-0 border-b px-8 py-4 flex items-center justify-between z-20 backdrop-blur ${isDark ? 'bg-black/20 border-white/10 text-white' : 'bg-white/80 border-gray-200 text-gray-900'}`}>
@@ -456,8 +487,14 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
           <button onClick={() => setShowAnnotations(s => !s)} title={showAnnotations ? 'Hide Annotations' : 'Show Annotations'} className="p-2 text-white/60 hover:text-white hover:bg-white/10 rounded-full transition-colors">
             {showAnnotations ? <EyeOff size={18} /> : <Eye size={18} />}
           </button>
-          <button className="text-xs font-semibold text-black bg-white hover:bg-white/90 px-4 py-2 rounded-full">Share</button>
-          <div className="w-8 h-8 rounded-full bg-white/10 border border-white/20 flex items-center justify-center text-white font-bold">A</div>
+          <button onClick={() => setShareOpen(true)} className="inline-flex items-center gap-2 text-xs font-semibold text-black bg-white hover:bg-white/90 px-4 py-2 rounded-full">
+            <Share2 size={14} /> Share
+          </button>
+          {clerkUser?.imageUrl ? (
+            <img src={clerkUser.imageUrl} alt={clerkUser.fullName ?? clerkUser.emailAddresses[0]?.emailAddress ?? 'User'} className="w-8 h-8 rounded-full border border-white/20 object-cover" />
+          ) : (
+            <div className="w-8 h-8 rounded-full bg-white/10 border border-white/20 flex items-center justify-center text-white font-bold">{(clerkUser?.firstName?.[0] ?? 'U').toUpperCase()}</div>
+          )}
         </div>
       </header>
       <div className="w-full flex flex-1 overflow-hidden" ref={containerRef} style={availableHeight != null ? { height: availableHeight, maxHeight: availableHeight } : undefined}>
@@ -491,6 +528,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
               currentFrame={currentFrame}
               externalControls
               onDuration={setDuration}
+              loopEnabled={loopEnabled}
             />
             <AnnotationCanvas
               video={video}
@@ -549,7 +587,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
                   <div className="flex items-center gap-3 justify-start">
                     <button
                       onClick={() => setLoopEnabled((v) => !v)}
-                      className={`${loopEnabled ? (isDark ? 'bg-white text-black' : 'bg-black text-white') : (isDark ? 'bg-white/10 text-white hover:bg-white/20' : 'bg-black/5 text-gray-800 hover:bg-black/10')} px-3 py-1 rounded-full text-xs font-semibold`}
+                      className={`${loopEnabled ? (isDark ? 'bg-white text-black' : 'bg-transparent ring-2 ring-black text-gray-900') : (isDark ? 'bg-white/10 text-white hover:bg-white/20' : 'bg-black/5 text-gray-800 hover:bg-black/10')} px-3 py-1 rounded-full text-xs font-semibold`}
                     >
                       Loop {loopEnabled ? 'On' : 'Off'}
                     </button>
@@ -610,6 +648,18 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
           />
         </div>
       </div>
+      {shareOpen && shareGroups && (
+        <ShareModal
+          video={video}
+          groups={shareGroups as any}
+          existingShares={existingVideoShares as any}
+          isDark={isDark}
+          onShareToGroup={(args) => handleShareToGroup(args)}
+          onGenerateLink={(args) => handleGenerateLink(args as any)}
+          onUnshare={(id) => handleUnshare(id)}
+          onClose={() => setShareOpen(false)}
+        />
+      )}
     </div>
   );
 };

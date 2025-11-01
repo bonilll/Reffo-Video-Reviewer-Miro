@@ -1668,7 +1668,7 @@ interface ShareModalProps {
   onClose: () => void;
 }
 
-const ShareModal: React.FC<ShareModalProps> = ({
+export const ShareModal: React.FC<ShareModalProps> = ({
   video,
   project,
   groups,

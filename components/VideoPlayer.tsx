@@ -16,10 +16,11 @@ interface VideoPlayerProps {
   currentFrame: number;
   externalControls?: boolean;
   onDuration?: (duration: number) => void;
+  loopEnabled?: boolean;
 }
 
 const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
-  ({ video, sourceUrl, isPlaying, setIsPlaying, onTimeUpdate, annotations, comments, onSeek, currentFrame, externalControls, onDuration }, ref) => {
+  ({ video, sourceUrl, isPlaying, setIsPlaying, onTimeUpdate, annotations, comments, onSeek, currentFrame, externalControls, onDuration, loopEnabled }, ref) => {
     const localRef = useRef<HTMLVideoElement>(null);
     const videoRef = (ref || localRef) as React.RefObject<HTMLVideoElement>;
     const containerRef = useRef<HTMLDivElement>(null);
@@ -168,6 +169,17 @@ const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
               src={sourceUrl ?? video.src}
               preload="auto"
               playsInline
+              loop={!!loopEnabled}
+              onEnded={() => {
+                // Ensure seamless loop even if browser stops at 'ended'
+                if (loopEnabled && videoRef.current) {
+                  videoRef.current.currentTime = 0;
+                  const p = videoRef.current.play();
+                  if (p && typeof p.catch === 'function') {
+                    p.catch(() => undefined);
+                  }
+                }
+              }}
               className="w-full h-full object-contain"
               onPlay={() => setIsPlaying(true)}
               onPause={() => setIsPlaying(false)}
