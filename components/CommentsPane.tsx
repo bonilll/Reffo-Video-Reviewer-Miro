@@ -25,6 +25,7 @@ const CommentItem: React.FC<CommentProps & { friends?: Array<{ id: string; conta
   const [q, setQ] = useState('');
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState(comment.text);
+  const [quickReply, setQuickReply] = useState('');
   const [saving, setSaving] = useState(false);
   const [showReplies, setShowReplies] = useState(false);
   const updateText = useMutation(api.comments.updateText);
@@ -129,15 +130,17 @@ const CommentItem: React.FC<CommentProps & { friends?: Array<{ id: string; conta
             <span className="text-[11px] text-white/40 whitespace-nowrap">{timeAgo(comment.createdAt)}</span>
           </div>
           {isEditing ? (
-            <form onSubmit={handleEditSubmit} className="mt-1.5 flex items-end gap-2">
+            <form onSubmit={handleEditSubmit} className="mt-1.5 flex flex-col gap-2">
               <textarea
                 value={editText}
                 onChange={(e) => setEditText(e.target.value)}
                 className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-white resize-none"
                 rows={2}
               />
-              <button type="submit" disabled={saving || !editText.trim()} className="px-3 py-1.5 rounded-full text-[11px] font-semibold bg-white text-black hover:bg-white/90 disabled:opacity-40">Save</button>
-              <button type="button" onClick={() => { setIsEditing(false); setEditText(comment.text); }} className="px-3 py-1.5 rounded-full text-[11px] font-semibold bg-white/10 text-white/70 hover:bg-white/20">Cancel</button>
+              <div className="flex items-center gap-2">
+                <button type="submit" disabled={saving || !editText.trim()} className="px-3 py-1.5 rounded-full text-[11px] font-semibold bg-white text-black hover:bg-white/90 disabled:opacity-40">Save</button>
+                <button type="button" onClick={() => { setIsEditing(false); setEditText(comment.text); }} className="px-3 py-1.5 rounded-full text-[11px] font-semibold bg-white/10 text-white/70 hover:bg-white/20">Cancel</button>
+              </div>
             </form>
           ) : (
             <p
@@ -215,6 +218,20 @@ const CommentItem: React.FC<CommentProps & { friends?: Array<{ id: string; conta
               isReply
             />
           ))}
+          {/* Quick reply box after the first reply */}
+          <form
+            onSubmit={(e) => { e.preventDefault(); if (!quickReply.trim()) return; onAddComment(quickReply.trim(), comment.id); setQuickReply(''); }}
+            className="flex items-end gap-2"
+          >
+            <input
+              type="text"
+              value={quickReply}
+              onChange={(e) => setQuickReply(e.target.value)}
+              placeholder="Write a reply..."
+              className="w-full bg-white/5 border border-white/10 rounded-full px-3 py-1.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-white"
+            />
+            <button type="submit" className="bg-white text-black px-3 py-1.5 rounded-full text-xs font-semibold hover:bg-white/90">Send</button>
+          </form>
         </div>
       )}
     </div>
