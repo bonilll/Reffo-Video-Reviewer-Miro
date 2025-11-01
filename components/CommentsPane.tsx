@@ -14,10 +14,11 @@ interface CommentProps {
   onDeleteComment: (id: string) => void;
   isActive: boolean;
   setActive: () => void;
+  isReply?: boolean;
 }
 
 const CommentItem: React.FC<CommentProps & { friends?: Array<{ id: string; contactEmail: string; contactName: string | null }> }>
- = ({ comment, replies, onAddComment, onToggleResolve, onJumpToFrame, onDeleteComment, isActive, setActive, friends }) => {
+ = ({ comment, replies, onAddComment, onToggleResolve, onJumpToFrame, onDeleteComment, isActive, setActive, friends, isReply = false }) => {
   const [showReply, setShowReply] = useState(false);
   const [replyText, setReplyText] = useState('');
   const [open, setOpen] = useState(false);
@@ -117,56 +118,56 @@ const CommentItem: React.FC<CommentProps & { friends?: Array<{ id: string; conta
 
   return (
     <div 
-        className={`p-4 border-b border-white/10 transition-colors ${isActive ? 'bg-white/10' : 'hover:bg-white/5'}`}
+        className={`${isReply ? 'p-2' : 'p-3'} border-b border-white/10 transition-colors ${isActive ? 'bg-white/10' : 'hover:bg-white/5'}`}
         onClick={setActive}
     >
-      <div className="flex items-start gap-3">
-        <img src={comment.authorAvatar} alt={comment.authorName} className="w-8 h-8 rounded-full border border-white/10" />
+      <div className="flex items-start gap-2.5">
+        <img src={comment.authorAvatar} alt={comment.authorName} className={`${isReply ? 'w-6 h-6' : 'w-7 h-7'} rounded-full border border-white/10`} />
         <div className="flex-1 min-w-0">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-2">
             <span className="font-semibold text-white text-sm truncate">{comment.authorName}</span>
-            <span className="text-xs text-white/40 whitespace-nowrap">{timeAgo(comment.createdAt)}</span>
+            <span className="text-[11px] text-white/40 whitespace-nowrap">{timeAgo(comment.createdAt)}</span>
           </div>
           {isEditing ? (
-            <form onSubmit={handleEditSubmit} className="mt-2 flex items-end gap-2">
+            <form onSubmit={handleEditSubmit} className="mt-1.5 flex items-end gap-2">
               <textarea
                 value={editText}
                 onChange={(e) => setEditText(e.target.value)}
-                className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-white resize-none"
+                className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-white resize-none"
                 rows={2}
               />
-              <button type="submit" disabled={saving || !editText.trim()} className="px-3 py-2 rounded-full text-xs font-semibold bg-white text-black hover:bg-white/90 disabled:opacity-40">Save</button>
-              <button type="button" onClick={() => { setIsEditing(false); setEditText(comment.text); }} className="px-3 py-2 rounded-full text-xs font-semibold bg-white/10 text-white/70 hover:bg-white/20">Cancel</button>
+              <button type="submit" disabled={saving || !editText.trim()} className="px-3 py-1.5 rounded-full text-[11px] font-semibold bg-white text-black hover:bg-white/90 disabled:opacity-40">Save</button>
+              <button type="button" onClick={() => { setIsEditing(false); setEditText(comment.text); }} className="px-3 py-1.5 rounded-full text-[11px] font-semibold bg-white/10 text-white/70 hover:bg-white/20">Cancel</button>
             </form>
           ) : (
             <p
-              className="text-sm text-white/70 mt-2 whitespace-pre-wrap break-words"
+              className="text-sm text-white/80 mt-1 whitespace-pre-wrap break-words"
               style={{ hyphens: 'auto', wordBreak: 'break-word', overflowWrap: 'anywhere' }}
             >
               {editText}
             </p>
           )}
-          <div className="flex flex-wrap items-center gap-4 text-xs text-white/50 mt-3">
-            {comment.frame !== undefined && (
-              <button onClick={() => onJumpToFrame(comment.frame)} className="hover:text-white">
-                Frame {comment.frame}
-              </button>
+          <div className="flex flex-wrap items-center gap-2 text-[11px] text-white/60 mt-2">
+            {!isReply && comment.frame !== undefined && (
+              <button onClick={() => onJumpToFrame(comment.frame)} className="hover:text-white">Frame {comment.frame}</button>
             )}
-            <button onClick={() => setShowReply((s) => !s)} className="hover:text-white">
-              Reply
-            </button>
+            {!isReply && (
+              <button onClick={() => setShowReply((s) => !s)} className="hover:text-white">Reply</button>
+            )}
             <button onClick={() => setIsEditing((v) => !v)} className="flex items-center gap-1 hover:text-white" title="Edit">
               <Pencil size={14} /> Edit
             </button>
-            <button onClick={() => onToggleResolve(comment.id)} className={`flex items-center gap-1 ${comment.resolved ? 'text-white' : 'hover:text-white'}`}>
-              {comment.resolved ? <CheckCircle2 size={14} /> : <Circle size={14} />}
-              {comment.resolved ? 'Resolved' : 'Resolve'}
-            </button>
+            {!isReply && (
+              <button onClick={() => onToggleResolve(comment.id)} className={`flex items-center gap-1 ${comment.resolved ? 'text-white' : 'hover:text-white'}`}>
+                {comment.resolved ? <CheckCircle2 size={14} /> : <Circle size={14} />}
+                {comment.resolved ? 'Resolved' : 'Resolve'}
+              </button>
+            )}
             <button onClick={() => onDeleteComment(comment.id)} className="flex items-center gap-1 hover:text-red-300" title="Delete">
               <Trash2 size={14}/>
             </button>
           </div>
-          {replies.length > 0 && (
+          {!isReply && replies.length > 0 && (
             <div className="mt-2">
               <button onClick={() => setShowReplies(v => !v)} className="inline-flex items-center gap-1 text-xs text-white/60 hover:text-white">
                 {showReplies ? <ChevronUp size={14}/> : <ChevronDown size={14}/>} {showReplies ? 'Hide replies' : `Show replies (${replies.length})`}
@@ -198,7 +199,7 @@ const CommentItem: React.FC<CommentProps & { friends?: Array<{ id: string; conta
             )}
         </form>
       )}
-      {replies.length > 0 && showReplies && (
+      {!isReply && replies.length > 0 && showReplies && (
         <div className="ml-6 mt-4 pl-4 border-l border-white/10 space-y-3">
           {replies.map(reply => (
             <CommentItem 
@@ -211,6 +212,7 @@ const CommentItem: React.FC<CommentProps & { friends?: Array<{ id: string; conta
               onDeleteComment={onDeleteComment}
               isActive={false}
               setActive={() => {}}
+              isReply
             />
           ))}
         </div>
