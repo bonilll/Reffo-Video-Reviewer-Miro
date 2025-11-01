@@ -28,6 +28,7 @@ type UploadPayload = {
 const App: React.FC = () => {
   const [view, setView] = useState<'dashboard' | 'reviewer' | 'profile' | 'project'>('dashboard');
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
+  const [sharedSelectedVideo, setSharedSelectedVideo] = useState<Video | null>(null);
   const [selectedVideoId, setSelectedVideoId] = useState<string | null>(null);
   const [reviewSourceUrl, setReviewSourceUrl] = useState<string | null>(null);
   const [isEnsuringUser, setIsEnsuringUser] = useState(false);
@@ -38,6 +39,16 @@ const App: React.FC = () => {
   const userSettings = useQuery(api.settings.getOrNull, currentUser ? {} : undefined);
   const projectsQuery = useQuery(api.projects.list, currentUser ? {} : undefined);
   const videosQuery = useQuery(api.videos.list, currentUser ? { projectId: undefined } : undefined);
+  const sharedProjectsQuery = useQuery(api.shares.projectsSharedWithMe, currentUser ? {} : undefined);
+  const sharedVideosQuery = useQuery(api.shares.videosSharedWithMe, currentUser ? {} : undefined);
+
+  // Share-link handling
+  const shareToken = useMemo(() => {
+    const m = window.location.pathname.match(/^\/share\/(.+)$/);
+    return m ? m[1] : null;
+  }, []);
+  const shareResolution = useQuery(api.shares.resolveToken, shareToken ? { token: shareToken } : undefined);
+  const shareVideo = useQuery(api.videos.getByShareToken, shareToken && shareResolution && shareResolution?.videoId ? { token: shareToken } : undefined);
 
   const ensureUser = useMutation(api.users.ensure);
   const createProject = useMutation(api.projects.create);
@@ -174,42 +185,66 @@ const App: React.FC = () => {
   }, [attemptEnsureUser, isEnsuringUser]);
 
   const projects: Project[] = useMemo(() => {
-    if (!projectsQuery) return [];
-    return projectsQuery.map((project) => ({
-      id: project._id,
-      name: project.name,
-      createdAt: new Date(project.createdAt).toISOString(),
-    }));
-  }, [projectsQuery]);
+    const own = projectsQuery
+      ? projectsQuery.map((project) => ({ id: project._id, name: project.name, createdAt: new Date(project.createdAt).toISOString() }))
+      : [];
+    const shared = sharedProjectsQuery
+      ? sharedProjectsQuery.map((project: any) => ({ id: project._id, name: project.name, createdAt: new Date(project.createdAt).toISOString() }))
+      : [];
+    const byId = new Map<string, Project>();
+    [...own, ...shared].forEach((p) => byId.set(p.id, p));
+    return Array.from(byId.values());
+  }, [projectsQuery, sharedProjectsQuery]);
 
   const videos: Video[] = useMemo(() => {
-    if (!videosQuery) return [];
-    return videosQuery.map((video) => ({
-      id: video.id,
-      title: video.title,
-      src: video.src,
-      storageKey: video.storageKey,
-      thumbnailUrl: (video as any).thumbnailUrl ?? undefined,
-      width: video.width,
-      height: video.height,
-      fps: video.fps,
-      duration: video.duration,
-      projectId: video.projectId ?? undefined,
-      uploadedAt: new Date(video.uploadedAt).toISOString(),
-      lastReviewedAt: video.lastReviewedAt ? new Date(video.lastReviewedAt).toISOString() : undefined,
-    }));
-  }, [videosQuery]);
+    const own = videosQuery
+      ? videosQuery.map((video) => ({
+          id: video.id,
+          title: video.title,
+          src: video.src,
+          storageKey: video.storageKey,
+          thumbnailUrl: (video as any).thumbnailUrl ?? undefined,
+          width: video.width,
+          height: video.height,
+          fps: video.fps,
+          duration: video.duration,
+          projectId: video.projectId ?? undefined,
+          uploadedAt: new Date(video.uploadedAt).toISOString(),
+          lastReviewedAt: video.lastReviewedAt ? new Date(video.lastReviewedAt).toISOString() : undefined,
+        }))
+      : [];
+    const shared = sharedVideosQuery
+      ? sharedVideosQuery.map((video: any) => ({
+          id: video.id,
+          title: video.title,
+          src: video.src,
+          storageKey: video.storageKey,
+          thumbnailUrl: (video as any).thumbnailUrl ?? undefined,
+          width: video.width,
+          height: video.height,
+          fps: video.fps,
+          duration: video.duration,
+          projectId: video.projectId ?? undefined,
+          uploadedAt: new Date(video.uploadedAt).toISOString(),
+          lastReviewedAt: video.lastReviewedAt ? new Date(video.lastReviewedAt).toISOString() : undefined,
+        }))
+      : [];
+    const byId = new Map<string, Video>();
+    [...own, ...shared].forEach((v) => byId.set(v.id, v));
+    return Array.from(byId.values());
+  }, [videosQuery, sharedVideosQuery]);
 
   const dataLoading = Boolean(currentUser) && (projectsQuery === undefined || videosQuery === undefined);
 
   const currentVideo = useMemo(() => {
     if (!selectedVideoId) return null;
-    return videos.find((video) => video.id === selectedVideoId) ?? null;
-  }, [videos, selectedVideoId]);
+    return videos.find((video) => video.id === selectedVideoId) ?? sharedSelectedVideo;
+  }, [videos, selectedVideoId, sharedSelectedVideo]);
 
   const handleStartReview = useCallback(
     async (video: Video) => {
       setSelectedVideoId(video.id);
+      setSharedSelectedVideo(null);
       setView('reviewer');
       setReviewSourceUrl(null);
       try {
@@ -231,6 +266,37 @@ const App: React.FC = () => {
     },
     [updateVideoMetadata, getDownloadUrl]
   );
+
+  // If landing on /share/:token, open the linked review
+  useEffect(() => {
+    if (!shareToken) return;
+    if (shareResolution === undefined) return; // loading
+    if (shareResolution === null) return; // invalid or expired
+    if (shareResolution && (shareResolution as any).projectId) {
+      setActiveProjectId((shareResolution as any).projectId as string);
+      setView('project');
+      return;
+    }
+    if (shareVideo) {
+      const v: Video = {
+        id: (shareVideo as any).id,
+        title: (shareVideo as any).title,
+        src: (shareVideo as any).src,
+        storageKey: (shareVideo as any).storageKey,
+        thumbnailUrl: (shareVideo as any).thumbnailUrl ?? undefined,
+        width: (shareVideo as any).width,
+        height: (shareVideo as any).height,
+        fps: (shareVideo as any).fps,
+        duration: (shareVideo as any).duration,
+        projectId: (shareVideo as any).projectId ?? undefined,
+        uploadedAt: new Date((shareVideo as any).uploadedAt).toISOString(),
+        lastReviewedAt: (shareVideo as any).lastReviewedAt ? new Date((shareVideo as any).lastReviewedAt).toISOString() : undefined,
+      };
+      setSharedSelectedVideo(v);
+      setSelectedVideoId(v.id);
+      setView('reviewer');
+    }
+  }, [shareToken, shareResolution, shareVideo]);
 
   const handleGoBackToDashboard = useCallback(() => {
     setView('dashboard');

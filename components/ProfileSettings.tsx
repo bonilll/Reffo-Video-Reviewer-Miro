@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useMutation, useQuery } from 'convex/react';
+import { useAction, useMutation, useQuery } from 'convex/react';
 import { api } from '../convex/_generated/api';
 import { Project, ShareGroup, UserSettings } from '../types';
 import {
@@ -40,9 +40,12 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
   const updateSettings = useMutation(api.settings.update);
   const ensureSettings = useMutation(api.settings.ensure);
   const updateProfile = useMutation(api.users.updateProfile);
+  const generateAvatarUpload = useAction(api.storage.generateProfileImageUploadUrl);
 
   const [displayName, setDisplayName] = useState(user.name ?? '');
   const [avatarUrl, setAvatarUrl] = useState(user.avatar ?? '');
+  const [useAuthAvatar, setUseAuthAvatar] = useState<boolean>(Boolean(user.avatar));
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [localSettings, setLocalSettings] = useState<UserSettings | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [profileSaving, setProfileSaving] = useState(false);
@@ -148,10 +151,10 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
   };
 
   const renderAvatar = () => {
-    if (avatarUrl) {
+    if (!useAuthAvatar && avatarUrl) {
       return <img src={avatarUrl} alt={displayName || user.email} className="h-14 w-14 rounded-full object-cover" />;
     }
-    if (user.avatar) {
+    if (useAuthAvatar && user.avatar) {
       return <img src={user.avatar} alt={displayName || user.email} className="h-14 w-14 rounded-full object-cover" />;
     }
     const letters = (displayName || user.email).slice(0, 2).toUpperCase();
@@ -229,13 +232,64 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
                 placeholder="Add your name"
                 className="w-full rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-white/60"
               />
-              <label className="block text-xs font-semibold uppercase text-white/40">Avatar URL</label>
-              <input
-                value={avatarUrl}
-                onChange={(event) => setAvatarUrl(event.target.value)}
-                placeholder="https://…"
-                className="w-full rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-white/60"
-              />
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-black/20 p-3">
+                  <input
+                    type="radio"
+                    name="avatar-source"
+                    checked={useAuthAvatar}
+                    onChange={() => setUseAuthAvatar(true)}
+                  />
+                  <span className="text-sm">Use sign-in profile image</span>
+                </label>
+                <label className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-black/20 p-3">
+                  <input
+                    type="radio"
+                    name="avatar-source"
+                    checked={!useAuthAvatar}
+                    onChange={() => setUseAuthAvatar(false)}
+                  />
+                  <span className="text-sm">Upload a custom image</span>
+                </label>
+              </div>
+              {!useAuthAvatar && (
+                <div className="flex flex-wrap items-center gap-3">
+                  <input
+                    id="avatar-file"
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      setUploadingAvatar(true);
+                      try {
+                        // Resize client-side to max 512px
+                        const blob = await resizeImage(file, 512, 0.85);
+                        const meta = await generateAvatarUpload({ contentType: 'image/jpeg', fileName: file.name });
+                        await uploadBlob(meta.uploadUrl, blob, 'image/jpeg');
+                        setAvatarUrl(meta.publicUrl);
+                        await updateProfile({ name: displayName || undefined, avatar: meta.publicUrl });
+                      } catch (err) {
+                        console.error('Avatar upload failed', err);
+                      } finally {
+                        setUploadingAvatar(false);
+                        e.currentTarget.value = '';
+                      }
+                    }}
+                  />
+                  <label
+                    htmlFor="avatar-file"
+                    className="inline-flex cursor-pointer items-center gap-2 rounded-full bg-white/10 px-4 py-2 text-sm text-white hover:bg-white/20"
+                  >
+                    {uploadingAvatar ? <Loader2 size={16} className="animate-spin" /> : null}
+                    {uploadingAvatar ? 'Uploading…' : 'Choose image'}
+                  </label>
+                  {avatarUrl && (
+                    <span className="text-xs text-white/50 truncate max-w-[60ch]">{avatarUrl}</span>
+                  )}
+                </div>
+              )}
               <div className="flex justify-end">
                 <button
                   onClick={handleSaveProfile}
@@ -249,6 +303,8 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
             </div>
           </article>
 
+          {/* Notifications panel hidden */}
+          {false && (
           <article className="rounded-3xl border border-white/10 bg-white/5 p-6">
             <div className="flex items-center gap-3 text-white">
               <Bell size={18} />
@@ -316,7 +372,10 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
               />
             </div>
           </article>
+          )}
 
+          {/* Security panel hidden */}
+          {false && (
           <article className="rounded-3xl border border-white/10 bg-white/5 p-6">
             <div className="flex items-center gap-3 text-white">
               <Lock size={18} />
@@ -374,6 +433,7 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
               </div>
             </div>
           </article>
+          )}
         </div>
 
         <aside className="space-y-6">
@@ -480,6 +540,8 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
             </div>
           </article>
 
+          {/* Integrations panel hidden */}
+          {false && (
           <article className="rounded-3xl border border-white/10 bg-white/5 p-6">
             <div className="flex items-center gap-3 text-white">
               <Layers size={18} />
@@ -524,30 +586,17 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
               />
             </div>
           </article>
+          )}
 
           <article className="rounded-3xl border border-white/10 bg-white/5 p-6">
             <div className="flex items-center gap-3 text-white">
               <ExternalLink size={18} />
               <h2 className="text-lg font-semibold">Billing</h2>
             </div>
-            <p className="mt-2 text-sm text-white/60">
-              Plan information for your workspace.
-            </p>
-            <div className="mt-4 space-y-3 text-sm text-white/70">
-              <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                <p className="text-xs uppercase text-white/40">Plan</p>
-                <p className="text-base font-semibold text-white">{localSettings?.billing.plan ?? 'Pro Trial'}</p>
-              </div>
-              <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                <p className="text-xs uppercase text-white/40">Seats</p>
-                <p className="text-base font-semibold text-white">{localSettings?.billing.seats ?? 10}</p>
-              </div>
-              <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                <p className="text-xs uppercase text-white/40">Renewal date</p>
-                <p className="text-base font-semibold text-white">
-                  {localSettings ? new Date(localSettings.billing.renewalDate).toLocaleDateString() : '—'}
-                </p>
-              </div>
+            <div className="mt-3 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-white/70">
+              <p className="text-base font-semibold text-white">Beta program</p>
+              <p className="mt-1">Reffo is currently in beta testing and free to use.</p>
+              <p className="mt-1">Pricing will be announced later, and you’ll be notified well in advance.</p>
             </div>
           </article>
         </aside>
@@ -600,3 +649,28 @@ const IntegrationField: React.FC<IntegrationFieldProps> = ({ label, placeholder,
 );
 
 export default ProfileSettings;
+
+// Helpers
+async function resizeImage(file: File, maxSize: number, quality = 0.85): Promise<Blob> {
+  const bitmap = await createImageBitmap(file);
+  const ratio = Math.min(1, maxSize / Math.max(bitmap.width, bitmap.height));
+  const targetW = Math.round(bitmap.width * ratio);
+  const targetH = Math.round(bitmap.height * ratio);
+  const canvas = document.createElement('canvas');
+  canvas.width = targetW;
+  canvas.height = targetH;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Canvas not supported');
+  ctx.drawImage(bitmap, 0, 0, targetW, targetH);
+  return await new Promise<Blob>((resolve) => canvas.toBlob((b) => resolve(b as Blob), 'image/jpeg', quality));
+}
+
+async function uploadBlob(url: string, blob: Blob, contentType: string): Promise<void> {
+  await fetch(url, {
+    method: 'PUT',
+    headers: { 'Content-Type': contentType },
+    body: blob,
+  }).then((r) => {
+    if (!r.ok) throw new Error('Upload failed');
+  });
+}

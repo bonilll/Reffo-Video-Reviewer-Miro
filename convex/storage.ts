@@ -49,6 +49,14 @@ const buildStorageKey = (userId: string, fileName?: string) => {
   return `video_review/users/${userId}/caricamenti/${Date.now()}-${randomUUID()}${extension}`;
 };
 
+const buildAvatarKey = (userId: string, fileName?: string) => {
+  const safeFileName = fileName?.replace(/[^a-zA-Z0-9_.-]/g, "avatar");
+  const extension = safeFileName?.includes(".")
+    ? safeFileName.slice(safeFileName.lastIndexOf("."))
+    : ".jpg";
+  return `video_review/users/${userId}/profile/avatar-${Date.now()}${extension}`;
+};
+
 const buildPublicUrl = (storageKey: string) =>
   `${PUBLIC_BASE.replace(/\/$/, "")}/${storageKey}`;
 
@@ -99,6 +107,32 @@ export const generateVideoUploadUrl = action({
       uploadUrl,
       publicUrl: buildPublicUrl(storageKey),
     };
+  },
+});
+
+export const generateProfileImageUploadUrl = action({
+  args: {
+    contentType: v.string(),
+    fileName: v.optional(v.string()),
+  },
+  async handler(ctx, { contentType, fileName }) {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new ConvexError("NOT_AUTHENTICATED");
+    }
+
+    const userId = await ctx.runMutation(api.users.ensure);
+    const storageKey = buildAvatarKey(userId, fileName ?? undefined);
+
+    const command = new PutObjectCommand({
+      Bucket: BUCKET,
+      Key: storageKey,
+      ContentType: contentType,
+      ACL: undefined,
+    });
+
+    const uploadUrl = await getSignedUrl(s3Client, command, { expiresIn: 60 * 5 });
+    return { storageKey, uploadUrl, publicUrl: buildPublicUrl(storageKey) };
   },
 });
 
@@ -159,4 +193,3 @@ export const getDownloadUrl = action({
     return url;
   },
 });
-

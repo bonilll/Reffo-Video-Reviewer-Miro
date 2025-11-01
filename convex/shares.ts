@@ -1,6 +1,7 @@
 import { mutation, query } from "./_generated/server";
 import { ConvexError, v } from "convex/values";
 import { getCurrentUserOrThrow } from "./utils/auth";
+import type { Id } from "./_generated/dataModel";
 
 const sanitizeShare = (share: any) => ({
   id: share._id,
@@ -149,6 +150,56 @@ export const resolveToken = query({
     }
 
     return sanitizeShare(share);
+  },
+});
+
+export const videosSharedWithMe = query({
+  args: {},
+  async handler(ctx) {
+    const user = await getCurrentUserOrThrow(ctx);
+    const memberships = await ctx.db
+      .query('shareGroupMembers')
+      .withIndex('byEmail', (q) => q.eq('email', user.email))
+      .collect();
+    if (!memberships.length) return [] as any[];
+    const groupIds = new Set(memberships.map((m) => m.groupId));
+    const shares = await ctx.db.query('contentShares').collect();
+    const eligible = shares.filter(s => s.isActive && s.groupId && groupIds.has(s.groupId as Id<'shareGroups'>) && s.videoId);
+    const uniqueVideoIds = Array.from(new Set(eligible.map(s => s.videoId as Id<'videos'>)));
+    const videos = await Promise.all(uniqueVideoIds.map(id => ctx.db.get(id)));
+    return videos.filter(Boolean).map((video: any) => ({
+      id: video._id,
+      title: video.title,
+      description: video.description ?? null,
+      src: video.src,
+      storageKey: video.storageKey,
+      width: video.width,
+      height: video.height,
+      fps: video.fps,
+      duration: video.duration,
+      projectId: video.projectId ?? null,
+      uploadedAt: video.uploadedAt,
+      lastReviewedAt: video.lastReviewedAt ?? null,
+      thumbnailUrl: video.thumbnailUrl ?? null,
+    }));
+  },
+});
+
+export const projectsSharedWithMe = query({
+  args: {},
+  async handler(ctx) {
+    const user = await getCurrentUserOrThrow(ctx);
+    const memberships = await ctx.db
+      .query('shareGroupMembers')
+      .withIndex('byEmail', (q) => q.eq('email', user.email))
+      .collect();
+    if (!memberships.length) return [] as any[];
+    const groupIds = new Set(memberships.map((m) => m.groupId));
+    const shares = await ctx.db.query('contentShares').collect();
+    const eligible = shares.filter(s => s.isActive && s.groupId && groupIds.has(s.groupId as Id<'shareGroups'>) && s.projectId);
+    const uniqueProjectIds = Array.from(new Set(eligible.map(s => s.projectId as Id<'projects'>)));
+    const projects = await Promise.all(uniqueProjectIds.map(id => ctx.db.get(id)));
+    return projects.filter(Boolean).map((p: any) => ({ _id: p._id, name: p.name, createdAt: p.createdAt, updatedAt: p.updatedAt }));
   },
 });
 

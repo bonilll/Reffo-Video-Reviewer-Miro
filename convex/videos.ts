@@ -2,6 +2,7 @@ import { mutation, query } from "./_generated/server";
 import { ConvexError, v } from "convex/values";
 import { getCurrentUserDoc, getCurrentUserOrThrow } from "./utils/auth";
 import { api, internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 
 export const list = query({
   args: {
@@ -65,6 +66,47 @@ export const get = query({
       uploadedAt: video.uploadedAt,
       lastReviewedAt: video.lastReviewedAt ?? null,
       thumbnailUrl: video.thumbnailUrl ?? null,
+    };
+  },
+});
+
+export const getByShareToken = query({
+  args: {
+    token: v.string(),
+  },
+  async handler(ctx, { token }) {
+    const share = await ctx.db
+      .query("contentShares")
+      .withIndex("byLinkToken", (q) => q.eq("linkToken", token))
+      .unique();
+    if (!share || !share.isActive || (share.expiresAt && share.expiresAt < Date.now())) {
+      throw new ConvexError("SHARE_NOT_FOUND");
+    }
+    if (!share.videoId) {
+      throw new ConvexError("NOT_A_VIDEO_LINK");
+    }
+    const video = await ctx.db.get(share.videoId as Id<'videos'>);
+    if (!video) {
+      throw new ConvexError("NOT_FOUND");
+    }
+    return {
+      id: video._id,
+      title: video.title,
+      description: video.description ?? null,
+      src: video.src,
+      storageKey: video.storageKey,
+      width: video.width,
+      height: video.height,
+      fps: video.fps,
+      duration: video.duration,
+      projectId: video.projectId ?? null,
+      uploadedAt: video.uploadedAt,
+      lastReviewedAt: video.lastReviewedAt ?? null,
+      thumbnailUrl: video.thumbnailUrl ?? null,
+      permissions: {
+        canComment: share.allowComments,
+        canDownload: share.allowDownload,
+      },
     };
   },
 });

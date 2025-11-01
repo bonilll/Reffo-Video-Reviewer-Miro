@@ -692,7 +692,8 @@ const Dashboard: React.FC<DashboardProps> = ({
               recentVideos.map((video) => (
                 <div
                   key={video.id}
-                  className="group relative overflow-hidden rounded-xl border border-white/10 bg-black/40"
+                  className="group relative overflow-hidden rounded-xl border border-white/10 bg-black/40 cursor-pointer"
+                  onClick={() => onStartReview(video)}
                 >
                   <div className="relative aspect-video">
                     <ThumbnailPreview video={video} />
@@ -700,6 +701,8 @@ const Dashboard: React.FC<DashboardProps> = ({
                       onClick={() => onStartReview(video)}
                       className="absolute bottom-2 right-2 rounded-full bg-white/10 p-2 text-white opacity-90 hover:bg-white/20"
                       title="Open"
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onClickCapture={(e) => { e.stopPropagation(); onStartReview(video); }}
                     >
                       <PlayCircle size={20} />
                     </button>
@@ -1772,24 +1775,30 @@ const ShareModal: React.FC<ShareModalProps> = ({
             <p className="mt-1 text-xs text-white/60">
               Generate a link that grants access to this {assetKind} without inviting collaborators one by one.
             </p>
-            <div className="mt-4 flex flex-wrap items-center gap-3">
-              <label className="flex items-center gap-2 text-xs text-white/70">
+            <div className="mt-4 grid gap-2 text-xs text-white/70 sm:grid-cols-2">
+              <label className="flex items-center gap-2 rounded-xl border border-white/10 bg-black/20 px-3 py-2">
                 <input
-                  type="checkbox"
-                  checked={allowComments}
-                  onChange={(event) => setAllowComments(event.target.checked)}
-                  className="h-4 w-4 rounded border-white/20 bg-black/40"
+                  type="radio"
+                  name="access-level"
+                  checked={!allowComments}
+                  onChange={() => setAllowComments(false)}
                 />
-                Allow comments
+                <div>
+                  <p className="font-semibold text-white">Viewer</p>
+                  <p className="text-white/50">Can view only</p>
+                </div>
               </label>
-              <label className="flex items-center gap-2 text-xs text-white/70">
+              <label className="flex items-center gap-2 rounded-xl border border-white/10 bg-black/20 px-3 py-2">
                 <input
-                  type="checkbox"
-                  checked={allowDownload}
-                  onChange={(event) => setAllowDownload(event.target.checked)}
-                  className="h-4 w-4 rounded border-white/20 bg-black/40"
+                  type="radio"
+                  name="access-level"
+                  checked={allowComments}
+                  onChange={() => setAllowComments(true)}
                 />
-                Allow downloads
+                <div>
+                  <p className="font-semibold text-white">Editor</p>
+                  <p className="text-white/50">Can add comments</p>
+                </div>
               </label>
             </div>
             <div className="mt-4 flex flex-wrap items-center gap-2">
