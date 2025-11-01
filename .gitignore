@@ -15,7 +15,6 @@ pnpm-debug.log*
 .env.*
 .env.local
 
-convex/_generated/
 
 *.local
 .vercel
