@@ -64,6 +64,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
   const [volume, setVolume] = useState(1);
   const [isMuted, setIsMuted] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [loopEnabled, setLoopEnabled] = useState(false);
 
   useEffect(() => {
     // Ensure 'Friends' are synced from groups even when landing directly in reviewer.
@@ -193,6 +194,14 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
   const handleTimeUpdate = (time: number, frame: number) => {
     setCurrentTime(time);
     setCurrentFrame(frame);
+    if (loopEnabled && duration > 0) {
+      // Fallback epsilon equals one frame duration
+      const epsilon = 1 / Math.max(1, video.fps);
+      if (time >= duration - epsilon) {
+        handleSeek(0);
+        if (!isPlaying) setIsPlaying(true);
+      }
+    }
   };
   
   const handleSeek = (time: number) => {
@@ -513,17 +522,32 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
             <span>{video.width}×{video.height} • {video.fps} fps</span>
           </div>
         </div>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <button onClick={() => stepFrame(-1)} className={`p-2 rounded-full ${isDark ? 'bg-white/10 hover:bg-white/20 text-white/80' : 'bg-black/5 hover:bg-black/10 text-gray-800'}`}><Rewind size={18} /></button>
-            <button onClick={() => stepFrame(-video.fps)} className={`p-2 rounded-full ${isDark ? 'bg-white/10 hover:bg-white/20 text-white/80' : 'bg-black/5 hover:bg-black/10 text-gray-800'}`}><SkipBack size={18} /></button>
-            <button onClick={() => setIsPlaying(p => !p)} className={`${isDark ? 'bg-white text-black hover:bg-white/90' : 'bg-black text-white hover:bg-black/90'} p-3 rounded-full`}>
-              {isPlaying ? <Pause size={22} /> : <Play size={22} />}
+        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-4">
+          {/* Left side: Loop toggle (improves symmetry + feature) */}
+          <div className="flex items-center gap-3 justify-start">
+            <button
+              onClick={() => setLoopEnabled((v) => !v)}
+              className={`${loopEnabled ? (isDark ? 'bg-white text-black' : 'bg-black text-white') : (isDark ? 'bg-white/10 text-white hover:bg-white/20' : 'bg-black/5 text-gray-800 hover:bg-black/10')} px-3 py-1 rounded-full text-xs font-semibold`}
+            >
+              Loop {loopEnabled ? 'On' : 'Off'}
             </button>
-            <button onClick={() => stepFrame(video.fps)} className={`p-2 rounded-full ${isDark ? 'bg-white/10 hover:bg-white/20 text-white/80' : 'bg-black/5 hover:bg-black/10 text-gray-800'}`}><SkipForward size={18} /></button>
-            <button onClick={() => stepFrame(1)} className={`p-2 rounded-full ${isDark ? 'bg-white/10 hover:bg-white/20 text-white/80' : 'bg-black/5 hover:bg-black/10 text-gray-800'}`}><FastForward size={18} /></button>
           </div>
-          <div className="flex items-center gap-3">
+          {/* Center cluster: prev mark | transport | next mark */}
+          <div className="flex items-center justify-center gap-3">
+            <button onClick={() => handleJump('prev')} className={`${isDark ? 'px-3 py-1 rounded-full bg-white/10 hover:bg-white/20 text-white/80' : 'px-3 py-1 rounded-full bg-black/5 hover:bg-black/10 text-gray-800'}`}>Prev</button>
+            <div className="flex items-center gap-2">
+              <button onClick={() => stepFrame(-1)} className={`p-2 rounded-full ${isDark ? 'bg-white/10 hover:bg-white/20 text-white/80' : 'bg-black/5 hover:bg-black/10 text-gray-800'}`}><Rewind size={18} /></button>
+              <button onClick={() => stepFrame(-video.fps)} className={`p-2 rounded-full ${isDark ? 'bg-white/10 hover:bg-white/20 text-white/80' : 'bg-black/5 hover:bg-black/10 text-gray-800'}`}><SkipBack size={18} /></button>
+              <button onClick={() => setIsPlaying(p => !p)} className={`${isDark ? 'bg-white text-black hover:bg-white/90' : 'bg-black text-white hover:bg-black/90'} p-3 rounded-full`}>
+                {isPlaying ? <Pause size={22} /> : <Play size={22} />}
+              </button>
+              <button onClick={() => stepFrame(video.fps)} className={`p-2 rounded-full ${isDark ? 'bg-white/10 hover:bg-white/20 text-white/80' : 'bg-black/5 hover:bg-black/10 text-gray-800'}`}><SkipForward size={18} /></button>
+              <button onClick={() => stepFrame(1)} className={`p-2 rounded-full ${isDark ? 'bg-white/10 hover:bg-white/20 text-white/80' : 'bg-black/5 hover:bg-black/10 text-gray-800'}`}><FastForward size={18} /></button>
+            </div>
+            <button onClick={() => handleJump('next')} className={`${isDark ? 'px-3 py-1 rounded-full bg-white/10 hover:bg-white/20 text-white/80' : 'px-3 py-1 rounded-full bg-black/5 hover:bg-black/10 text-gray-800'}`}>Next</button>
+          </div>
+          {/* Right side: volume & fullscreen */}
+          <div className="flex items-center gap-3 justify-end">
             <button onClick={() => { const next = !isMuted; setIsMuted(next); if (videoRef.current) videoRef.current.muted = next; }} className={`p-2 rounded-full ${isDark ? 'bg-white/10 hover:bg-white/20 text-white' : 'bg-black/5 hover:bg-black/10 text-gray-800'}`}>
               {isMuted || volume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}
             </button>
@@ -541,8 +565,6 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
               }}
               className={`w-24 ${isDark ? 'accent-white' : 'accent-black'}`}
             />
-            <button onClick={() => handleJump('prev')} className={`${isDark ? 'px-3 py-1 rounded-full bg-white/10 hover:bg-white/20 text-white/70' : 'px-3 py-1 rounded-full bg-black/5 hover:bg-black/10 text-gray-700'}`}>Prev mark</button>
-            <button onClick={() => handleJump('next')} className={`${isDark ? 'px-3 py-1 rounded-full bg-white/10 hover:bg-white/20 text-white/70' : 'px-3 py-1 rounded-full bg-black/5 hover:bg-black/10 text-gray-700'}`}>Next mark</button>
             <button onClick={toggleFullscreen} className={`p-2 rounded-full ${isDark ? 'bg-white/10 hover:bg-white/20 text-white' : 'bg-black/5 hover:bg-black/10 text-gray-800'}`}>
               {isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
             </button>
