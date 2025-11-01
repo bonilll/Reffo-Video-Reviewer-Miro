@@ -30,6 +30,8 @@ const CommentItem: React.FC<CommentProps & { friends?: Array<{ id: string; conta
   const [showReplies, setShowReplies] = useState(false);
   const updateText = useMutation(api.comments.updateText);
   const inputRef = useRef<HTMLInputElement>(null);
+  const [quickOpen, setQuickOpen] = useState(false);
+  const [quickQuery, setQuickQuery] = useState('');
   const sugg = useMemo(() => {
     if (!open) return [] as Array<{ id: string; label: string; email: string }>;
     const list = (friends ?? []).map((f) => ({ id: f.id, label: (f.contactName ?? f.contactEmail) as string, email: f.contactEmail }));
@@ -63,6 +65,50 @@ const CommentItem: React.FC<CommentProps & { friends?: Array<{ id: string; conta
     } finally {
       setSaving(false);
     }
+  };
+
+  const quickSuggestions = useMemo(() => {
+    if (!quickOpen) return [] as Array<{ id: string; label: string; email: string }>;
+    const base = (friends ?? []).map((f) => ({ id: f.id, label: (f.contactName ?? f.contactEmail) as string, email: f.contactEmail }));
+    if (!quickQuery) return base.slice(0, 5);
+    const q = quickQuery.toLowerCase();
+    return base.filter((s) => s.label.toLowerCase().includes(q) || s.email.toLowerCase().includes(q)).slice(0, 5);
+  }, [friends, quickOpen, quickQuery]);
+
+  const onQuickChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setQuickReply(value);
+    const pos = e.target.selectionStart ?? value.length;
+    const upto = value.slice(0, pos);
+    const at = upto.lastIndexOf('@');
+    if (at >= 0) {
+      const tail = upto.slice(at + 1);
+      if (/^[\w .-]{0,32}$/.test(tail)) {
+        setQuickQuery(tail.toLowerCase());
+        setQuickOpen(true);
+        return;
+      }
+    }
+    setQuickOpen(false);
+  };
+
+  const applyQuickSuggestion = (label: string, el: HTMLInputElement | null) => {
+    if (!el) return;
+    const value = quickReply;
+    const pos = el.selectionStart ?? value.length;
+    const upto = value.slice(0, pos);
+    const at = upto.lastIndexOf('@');
+    if (at < 0) return;
+    const before = value.slice(0, at + 1);
+    const after = value.slice(pos);
+    const next = `${before}${label} ${after}`;
+    setQuickReply(next);
+    setQuickOpen(false);
+    requestAnimationFrame(() => {
+      const caret = (before + label + ' ').length;
+      el.setSelectionRange(caret, caret);
+      el.focus();
+    });
   };
 
   const onReplyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -216,20 +262,39 @@ const CommentItem: React.FC<CommentProps & { friends?: Array<{ id: string; conta
               isActive={false}
               setActive={() => {}}
               isReply
+              friends={contacts}
             />
           ))}
           {/* Quick reply box after the first reply */}
           <form
-            onSubmit={(e) => { e.preventDefault(); if (!quickReply.trim()) return; onAddComment(quickReply.trim(), comment.id); setQuickReply(''); }}
+            onSubmit={(e) => { e.preventDefault(); if (!quickReply.trim()) return; onAddComment(quickReply.trim(), comment.id); setQuickReply(''); setQuickOpen(false); }}
             className="flex items-end gap-2"
           >
-            <input
-              type="text"
-              value={quickReply}
-              onChange={(e) => setQuickReply(e.target.value)}
-              placeholder="Write a reply..."
-              className="w-full bg-white/5 border border-white/10 rounded-full px-3 py-1.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-white"
-            />
+            <div className="relative flex-1">
+              <input
+                type="text"
+                value={quickReply}
+                onChange={onQuickChange}
+                placeholder="Write a reply..."
+                className="w-full bg-white/5 border border-white/10 rounded-full px-3 py-1.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-white"
+              />
+              {quickOpen && quickSuggestions.length > 0 && (
+                <div className="absolute left-0 bottom-full mb-2 max-h-48 w-full overflow-auto rounded-xl border border-white/10 bg-black/90 text-sm text-white shadow-2xl z-40">
+                  {quickSuggestions.map((s) => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      onMouseDown={(ev) => ev.preventDefault()}
+                      onClick={(ev) => applyQuickSuggestion(s.label, ev.currentTarget.parentElement?.previousElementSibling as HTMLInputElement)}
+                      className="flex w-full items-center justify-between px-3 py-2 text-left hover:bg-white/10"
+                    >
+                      <span>{s.label}</span>
+                      <span className="text-white/40">@{s.email}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
             <button type="submit" className="bg-white text-black px-3 py-1.5 rounded-full text-xs font-semibold hover:bg-white/90">Send</button>
           </form>
         </div>
@@ -256,6 +321,18 @@ const CommentsPane: React.FC<CommentsPaneProps> = ({ comments, currentFrame, onA
   const activeCommentRef = useRef<HTMLDivElement>(null);
   const friends = useQuery(api.friends.list, {});
   const groups = useQuery(api.shareGroups.list, {});
+  const contacts = useMemo(() => {
+    const map = new Map<string, { id: string; contactEmail: string; contactName: string | null }>();
+    (friends ?? []).forEach((f: any) => {
+      map.set(f.contactEmail, { id: f.id, contactEmail: f.contactEmail, contactName: f.contactName ?? null });
+    });
+    (groups ?? []).forEach((g: any) => {
+      (g.members ?? []).forEach((m: any) => {
+        if (!map.has(m.email)) map.set(m.email, { id: `${g.id}:${m.email}`, contactEmail: m.email, contactName: (m.email || '').split('@')[0] });
+      });
+    });
+    return Array.from(map.values());
+  }, [friends, groups]);
   const [mentionOpen, setMentionOpen] = useState(false);
   const [mentionQuery, setMentionQuery] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -374,6 +451,7 @@ const CommentsPane: React.FC<CommentsPaneProps> = ({ comments, currentFrame, onA
                 onDeleteComment={onDeleteComment}
                 isActive={comment.id === activeCommentId}
                 setActive={() => setActiveCommentId(comment.id)}
+                friends={contacts}
              />
           </div>
         ))}
