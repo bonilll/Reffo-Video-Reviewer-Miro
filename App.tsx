@@ -259,16 +259,19 @@ const App: React.FC = () => {
       } catch (e) {
         console.warn('Prefetch playback URL failed, will fallback in reviewer', e);
       }
-      try {
-        await updateVideoMetadata({
-          videoId: video.id as Id<'videos'>,
-          lastReviewedAt: Date.now(),
-        });
-      } catch (error) {
-        console.error('Failed to update last reviewed timestamp', error);
+      // Only attempt to update lastReviewedAt if user is signed in
+      if (currentUser) {
+        try {
+          await updateVideoMetadata({
+            videoId: video.id as Id<'videos'>,
+            lastReviewedAt: Date.now(),
+          });
+        } catch (error) {
+          console.error('Failed to update last reviewed timestamp', error);
+        }
       }
     },
-    [updateVideoMetadata, getDownloadUrl]
+    [updateVideoMetadata, getDownloadUrl, currentUser]
   );
 
   // If landing on /share/:token, open the linked review

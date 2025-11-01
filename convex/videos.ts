@@ -186,15 +186,59 @@ export const updateMetadata = mutation({
   async handler(ctx, { videoId, title, description, projectId, lastReviewedAt }) {
     const user = await getCurrentUserOrThrow(ctx);
     const video = await ctx.db.get(videoId);
-    if (!video || video.ownerId !== user._id) {
-      throw new ConvexError("NOT_FOUND");
+    if (!video) throw new ConvexError("NOT_FOUND");
+    const isOwner = video.ownerId === user._id;
+    // Determine if user can at least view (via share)
+    let canView = isOwner;
+    if (!canView) {
+      // video-level shares
+      const shares = await ctx.db
+        .query('contentShares')
+        .withIndex('byVideo', (q) => q.eq('videoId', videoId))
+        .collect();
+      const u = await ctx.db.get(user._id);
+      if (u) {
+        for (const s of shares) {
+          if (s.groupId) {
+            const member = await ctx.db
+              .query('shareGroupMembers')
+              .withIndex('byGroup', (q) => q.eq('groupId', s.groupId))
+              .filter((q) => q.eq(q.field('email'), u.email))
+              .first();
+            if (member) { canView = true; break; }
+          }
+        }
+      }
+      if (!canView && video.projectId) {
+        const projShares = await ctx.db
+          .query('contentShares')
+          .withIndex('byProject', (q) => q.eq('projectId', video.projectId as Id<'projects'>))
+          .collect();
+        if (u) {
+          for (const s of projShares) {
+            if (s.groupId) {
+              const member = await ctx.db
+                .query('shareGroupMembers')
+                .withIndex('byGroup', (q) => q.eq('groupId', s.groupId))
+                .filter((q) => q.eq(q.field('email'), u.email))
+                .first();
+              if (member) { canView = true; break; }
+            }
+          }
+        }
+      }
     }
+    if (!canView) throw new ConvexError("FORBIDDEN");
 
     let nextProjectId = video.projectId;
 
     if (projectId === null) {
       nextProjectId = undefined;
     } else if (projectId !== undefined) {
+      // Only owner can reassign project
+      if (!isOwner) {
+        throw new ConvexError("FORBIDDEN");
+      }
       const project = await ctx.db.get(projectId);
       if (!project || project.ownerId !== user._id) {
         throw new ConvexError("FORBIDDEN");
