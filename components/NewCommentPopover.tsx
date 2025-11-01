@@ -1,5 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useUser } from '@clerk/clerk-react';
+import { useQuery } from 'convex/react';
+import { api } from '../convex/_generated/api';
 import { Point } from '../types';
 import { RenderedRect, normalizedToCanvas } from '../utils/geometry';
 
@@ -15,9 +17,13 @@ const NewCommentPopover: React.FC<NewCommentPopoverProps> = ({ position, rendere
   const popoverRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [text, setText] = useState('');
+  const [mentionOpen, setMentionOpen] = useState(false);
+  const [mentionQuery, setMentionQuery] = useState('');
   const { user } = useUser();
   const avatar = user?.imageUrl || '';
   const displayName = user?.fullName || user?.primaryEmailAddress?.emailAddress || 'You';
+  const friends = useQuery(api.friends.list, {});
+  const groups = useQuery(api.shareGroups.list, {});
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -74,39 +80,115 @@ const NewCommentPopover: React.FC<NewCommentPopoverProps> = ({ position, rendere
     el.style.height = Math.min(el.scrollHeight, Math.round(window.innerHeight * 0.5)) + 'px';
   }, [text]);
 
+  // Compute mention suggestions (friends + group members, unique by email)
+  const suggestions = useMemo(() => {
+    if (!mentionOpen) return [] as Array<{ id: string; label: string; email: string }>;
+    const friendList = (friends ?? []).map((f: any) => ({ id: f.id, label: (f.contactName ?? f.contactEmail) as string, email: f.contactEmail }));
+    const groupMembers = (groups ?? []).flatMap((g: any) => g.members.map((m: any) => ({ id: `${g.id}:${m.email}`, label: m.email.split('@')[0], email: m.email })));
+    const merged = new Map<string, { id: string; label: string; email: string }>();
+    [...friendList, ...groupMembers].forEach((p) => { if (!merged.has(p.email)) merged.set(p.email, p); });
+    const list = Array.from(merged.values());
+    if (!mentionQuery) return list.slice(0, 5);
+    const q = mentionQuery.toLowerCase();
+    return list.filter((s) => s.label.toLowerCase().includes(q) || s.email.toLowerCase().includes(q)).slice(0, 5);
+  }, [mentionOpen, mentionQuery, friends, groups]);
+
+  const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const value = e.target.value;
+    setText(value);
+    const pos = e.target.selectionStart ?? value.length;
+    const upto = value.slice(0, pos);
+    const at = upto.lastIndexOf('@');
+    if (at >= 0) {
+      const tail = upto.slice(at + 1);
+      if (/^[\w .-]{0,32}$/.test(tail)) {
+        setMentionQuery(tail.toLowerCase());
+        setMentionOpen(true);
+        return;
+      }
+    }
+    setMentionOpen(false);
+  };
+
+  const applySuggestion = (label: string) => {
+    const el = textareaRef.current;
+    if (!el) return;
+    const value = text;
+    const pos = el.selectionStart ?? value.length;
+    const upto = value.slice(0, pos);
+    const at = upto.lastIndexOf('@');
+    if (at < 0) return;
+    const before = value.slice(0, at + 1);
+    const after = value.slice(pos);
+    const next = `${before}${label} ${after}`;
+    setText(next);
+    setMentionOpen(false);
+    requestAnimationFrame(() => {
+      const caret = (before + label + ' ').length;
+      el.setSelectionRange(caret, caret);
+      el.focus();
+    });
+  };
+
   return (
-    <div ref={popoverRef} style={style} className={`w-80 rounded-2xl shadow-2xl flex flex-col relative max-w-[90vw] backdrop-blur border ${isDark ? 'bg-black/80 border-white/10' : 'bg-white border-gray-200'}`} onClick={e => e.stopPropagation()}>
-        <div className={`absolute left-1/2 -top-[5px] -ml-[5px] w-2.5 h-2.5 transform rotate-45 ${isDark ? 'bg-black/80 border-t border-l border-white/10' : 'bg-white border-t border-l border-gray-200'}`}></div>
-        
-        <form onSubmit={handleSubmit} className="p-4 flex flex-col gap-4">
-            <div className="flex items-start gap-3">
-                <img src={avatar} alt={displayName} className="w-8 h-8 rounded-full border border-white/10" />
-                <div className="flex-1">
-                    <div className="font-semibold text-white text-sm">{displayName}</div>
-                    <textarea
-                        ref={textareaRef}
-                        value={text}
-                        onChange={e => setText(e.target.value)}
-                        placeholder="Add comment..."
-                        className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 mt-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-white resize-none max-h-[50vh]"
-                        style={{ height: 'auto' }}
-                        onKeyDown={(e) => {
-                            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-                                handleSubmit(e);
-                            }
-                        }}
-                    />
+    <div
+      ref={popoverRef}
+      style={style}
+      className={`w-96 rounded-3xl shadow-2xl flex flex-col relative max-w-[90vw] backdrop-blur border ${isDark ? 'bg-black/80 border-white/10' : 'bg-white border-gray-200'}`}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div className={`absolute left-1/2 -top-[5px] -ml-[5px] w-2.5 h-2.5 transform rotate-45 ${isDark ? 'bg-black/80 border-t border-l border-white/10' : 'bg-white border-t border-l border-gray-200'}`} />
+      <div className={`px-4 py-2 border-b ${isDark ? 'border-white/10' : 'border-gray-200'}`}>
+        <span className={`text-xs font-semibold uppercase ${isDark ? 'text-white/50' : 'text-gray-600'}`}>New comment</span>
+      </div>
+      <form onSubmit={handleSubmit} className="p-4 pt-3 flex flex-col gap-3 relative">
+        <div className="flex items-start gap-3">
+          <img src={avatar} alt={displayName} className={`w-8 h-8 rounded-full ${isDark ? 'border border-white/10' : 'border border-gray-200'}`} />
+          <div className="flex-1">
+            <div className={`font-semibold text-sm ${isDark ? 'text-white' : 'text-gray-900'}`}>{displayName}</div>
+            <div className="relative mt-2">
+              <textarea
+                ref={textareaRef}
+                value={text}
+                onChange={handleTextChange}
+                placeholder="Add comment..."
+                className={`w-full rounded-xl px-3 py-2 text-sm resize-none max-h-[50vh] focus:outline-none focus:ring-2 ${isDark ? 'bg-white/5 border border-white/10 text-white focus:ring-white' : 'bg-gray-50 border border-gray-300 text-gray-900 focus:ring-gray-900'}`}
+                style={{ height: 'auto' }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                    handleSubmit(e);
+                  }
+                }}
+              />
+              {mentionOpen && suggestions.length > 0 && (
+                <div className={`absolute left-0 top-full mt-2 z-10 max-h-48 w-full overflow-auto rounded-xl border shadow-2xl ${isDark ? 'border-white/10 bg-black/90 text-white' : 'border-gray-200 bg-white text-gray-900'}`}>
+                  {suggestions.map((s) => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      onMouseDown={(ev) => ev.preventDefault()}
+                      onClick={() => applySuggestion(s.label)}
+                      className={`flex w-full items-center justify-between px-3 py-2 text-left ${isDark ? 'hover:bg-white/10' : 'hover:bg-gray-50'}`}
+                    >
+                      <span>{s.label}</span>
+                      <span className={`${isDark ? 'text-white/40' : 'text-gray-500'}`}>@{s.email}</span>
+                    </button>
+                  ))}
                 </div>
+              )}
             </div>
-            <div className="flex justify-end items-center gap-3">
-                 <button type="button" onClick={onCancel} className="px-4 py-2 rounded-full text-xs font-semibold text-white/70 bg-white/10 hover:bg-white/20">
-                    Cancel
-                </button>
-                <button type="submit" className="px-4 py-2 rounded-full text-xs font-semibold text-black bg-white hover:bg-white/90 disabled:opacity-40" disabled={!text.trim()}>
-                    Post
-                </button>
-            </div>
-        </form>
+            <div className={`mt-1 text-[10px] ${isDark ? 'text-white/40' : 'text-gray-500'}`}>Press ⌘/Ctrl + Enter to post</div>
+          </div>
+        </div>
+        <div className="flex justify-end items-center gap-2 pt-1">
+          <button type="button" onClick={onCancel} className={`${isDark ? 'text-white/70 bg-white/10 hover:bg-white/20' : 'text-gray-700 bg-gray-200 hover:bg-gray-300'} px-4 py-2 rounded-full text-xs font-semibold`}>
+            Cancel
+          </button>
+          <button type="submit" className={`${isDark ? 'text-black bg-white hover:bg-white/90' : 'text-white bg-black hover:bg-black/90'} px-4 py-2 rounded-full text-xs font-semibold disabled:opacity-40`} disabled={!text.trim()}>
+            Post
+          </button>
+        </div>
+      </form>
     </div>
   );
 };

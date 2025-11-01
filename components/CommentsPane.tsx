@@ -324,16 +324,16 @@ const CommentsPane: React.FC<CommentsPaneProps> = ({ comments, currentFrame, onA
               ref={textareaRef}
             />
             {mentionOpen && suggestions.length > 0 && (
-              <div className="absolute left-0 top-full mt-2 max-h-48 w-full overflow-auto rounded-xl border border-white/10 bg-black/80 text-sm text-white shadow-2xl z-10">
+              <div className={`absolute left-0 bottom-full mb-2 max-h-48 w-full overflow-auto rounded-xl border text-sm shadow-2xl z-40 ${isDark ? 'border-white/10 bg-black/90 text-white' : 'border-gray-200 bg-white text-gray-900'}`}>
                 {suggestions.map((s) => (
                   <button
                     key={s.id}
                     type="button"
                     onClick={() => applySuggestion(s.label)}
-                    className="flex w-full items-center justify-between px-3 py-2 text-left hover:bg-white/10"
+                    className={`flex w-full items-center justify-between px-3 py-2 text-left ${isDark ? 'hover:bg-white/10' : 'hover:bg-gray-50'}`}
                   >
                     <span>{s.label}</span>
-                    <span className="text-white/40">@{s.email}</span>
+                    <span className={`${isDark ? 'text-white/40' : 'text-gray-500'}`}>@{s.email}</span>
                   </button>
                 ))}
               </div>
