@@ -171,7 +171,7 @@ const CommentPopover: React.FC<CommentPopoverProps> = ({ comment, comments, onAd
         </div>
 
         <div className="px-3 py-2 border-t border-white/10 bg-black/70">
-            <form onSubmit={handleReplySubmit} className="flex gap-2 items-center">
+            <form onSubmit={handleReplySubmit} className="flex gap-2 items-center relative">
                  <img src={avatar} alt="You" className="w-7 h-7 rounded-full border border-white/10" />
                  <input 
                     type="text"
