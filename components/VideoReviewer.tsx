@@ -499,19 +499,21 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
           isDark ? 'bg-black/30 border-white/10 text-white' : 'bg-white/80 border-gray-200 text-gray-900'
         }`}
       >
-        {/* Left column (aligned with video area): back + title centered */}
-        <div className="flex items-center justify-center gap-3 min-w-0">
-          <button
-            onClick={onGoBack}
-            className={`${
-              isDark
-                ? 'text-white/70 hover:text-white hover:bg-white/10'
-                : 'text-gray-700 hover:text-gray-900 hover:bg-gray-100'
-            } inline-flex items-center gap-2 text-[11px] font-semibold uppercase px-3 py-1.5 rounded-full transition`}
-          >
-            <ChevronLeft size={16} /> Back
-          </button>
-          <div className="min-w-0 text-center">
+        {/* Left column (aligned with video area): back at left, title centered */}
+        <div className="grid grid-cols-3 items-center min-w-0">
+          <div className="justify-self-start">
+            <button
+              onClick={onGoBack}
+              className={`${
+                isDark
+                  ? 'text-white/70 hover:text-white hover:bg-white/10'
+                  : 'text-gray-700 hover:text-gray-900 hover:bg-gray-100'
+              } inline-flex items-center gap-2 text-[11px] font-semibold uppercase px-3 py-1.5 rounded-full transition`}
+            >
+              <ChevronLeft size={16} /> Back
+            </button>
+          </div>
+          <div className="min-w-0 text-center col-start-2">
             <h1
               className={`${isDark ? 'text-white' : 'text-gray-900'} text-base md:text-lg font-semibold truncate`}
               title={video.title}
@@ -522,6 +524,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
               {video.width}×{video.height} • {video.fps} fps • {formatClock(headerDuration)}
             </div>
           </div>
+          <div />
         </div>
         {/* Right column (aligned with comments): actions centered */}
         <div className="flex items-center justify-center gap-2 md:gap-3">
