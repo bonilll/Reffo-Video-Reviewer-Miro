@@ -411,9 +411,28 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
     return () => document.removeEventListener('fullscreenchange', onFsChange);
   }, []);
 
+  const headerEl = useRef<HTMLDivElement>(null);
+  const controlsEl = useRef<HTMLDivElement>(null);
+  const [availableHeight, setAvailableHeight] = useState<number | null>(null);
+
+  const recalcHeights = useCallback(() => {
+    const headerH = headerEl.current?.getBoundingClientRect().height ?? 0;
+    const controlsH = controlsEl.current?.getBoundingClientRect().height ?? 0;
+    const vh = window.innerHeight;
+    const next = Math.max(0, vh - headerH - controlsH);
+    setAvailableHeight(next);
+  }, []);
+
+  useEffect(() => {
+    recalcHeights();
+    const onResize = () => recalcHeights();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [recalcHeights]);
+
   return (
     <div className={"w-full h-full flex flex-col"}>
-      <header className={`flex-shrink-0 border-b px-8 py-4 flex items-center justify-between z-20 backdrop-blur ${isDark ? 'bg-black/20 border-white/10 text-white' : 'bg-white/80 border-gray-200 text-gray-900'}`}>
+      <header ref={headerEl} className={`flex-shrink-0 border-b px-8 py-4 flex items-center justify-between z-20 backdrop-blur ${isDark ? 'bg-black/20 border-white/10 text-white' : 'bg-white/80 border-gray-200 text-gray-900'}`}>
         <div className="flex items-center gap-4">
             <button onClick={onGoBack} className="inline-flex items-center gap-2 text-xs font-semibold uppercase text-white/60 hover:text-white hover:bg-white/10 px-3 py-1.5 rounded-full">
                 <ChevronLeft size={18} /> Back
@@ -428,7 +447,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
           <div className="w-8 h-8 rounded-full bg-white/10 border border-white/20 flex items-center justify-center text-white font-bold">A</div>
         </div>
       </header>
-      <div className="w-full h-full flex flex-1 overflow-hidden" ref={containerRef}>
+      <div className="w-full flex flex-1 overflow-hidden" ref={containerRef} style={availableHeight != null ? { height: availableHeight, maxHeight: availableHeight } : undefined}>
         <div className={`flex-1 flex flex-col relative ${isDark ? 'bg-black/60' : 'bg-white'}`}>
           <Toolbar 
             activeTool={activeTool} 
@@ -487,7 +506,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
             />
           </div>
         </div>
-        <div className={`flex-shrink-0 h-full overflow-hidden w-[360px]`}>
+        <div className={`flex-shrink-0 overflow-hidden w-[360px]`} style={{ height: '100%', maxHeight: '100%' }}>
           <CommentsPane
             comments={comments}
             currentFrame={currentFrame}
@@ -502,7 +521,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
         </div>
       </div>
       {/* External Controls Bar */}
-      <div className={`${isDark ? 'bg-gray-900/80 border-t border-white/10 text-white' : 'bg-gray-100 border-t border-gray-200 text-gray-900'} flex flex-col gap-3 px-6 py-3 h-28 flex-none`}> 
+      <div ref={controlsEl} className={`${isDark ? 'bg-gray-900/80 border-t border-white/10 text-white' : 'bg-gray-100 border-t border-gray-200 text-gray-900'} flex flex-col gap-3 px-6 py-3 h-28 flex-none`}> 
         <div className="flex-1 flex flex-col">
           <Timeline
             currentTime={currentTime}
