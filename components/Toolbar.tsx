@@ -45,9 +45,13 @@ const Toolbar: React.FC<ToolbarProps> = ({
             key={tool.id}
             title={tool.name}
             onClick={() => setActiveTool(tool.id)}
-            className={`p-2 rounded-full transition-colors ${
+            className={`p-2 rounded-full transition ${
               activeTool === tool.id
-                ? (isDark ? 'bg-white text-black' : 'bg-black text-white')
+                ? (
+                    isDark
+                      ? 'bg-transparent text-white ring-2 ring-white ring-offset-2 ring-offset-black/50'
+                      : 'bg-transparent text-black ring-2 ring-black ring-offset-2 ring-offset-white'
+                  )
                 : (isDark ? 'hover:bg-white/10 text-white/80' : 'hover:bg-black/5 text-gray-800')
             }`}
           >
