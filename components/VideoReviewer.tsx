@@ -65,11 +65,17 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
   const [isMuted, setIsMuted] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [loopEnabled, setLoopEnabled] = useState(false);
+  const [videoWidthPx, setVideoWidthPx] = useState(0);
 
   useEffect(() => {
     // Ensure 'Friends' are synced from groups even when landing directly in reviewer.
     void syncFriends({}).catch(() => undefined);
   }, [syncFriends]);
+
+  const updateVideoWidth = useCallback(() => {
+    const w = videoRef.current?.getBoundingClientRect().width ?? 0;
+    setVideoWidthPx(w);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -89,8 +95,10 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
       }
     };
     setup();
+    // Measure display width once source/metadata stabilize
+    setTimeout(updateVideoWidth, 50);
     return () => { cancelled = true; };
-  }, [video.id, video.storageKey, video.src, sourceUrl, getDownloadUrlAction]);
+  }, [video.id, video.storageKey, video.src, sourceUrl, getDownloadUrlAction, updateVideoWidth]);
 
   const convertAnnotationFromServer = useCallback((doc: any): Annotation => {
     const { id, videoId: docVideoId, authorId, createdAt, ...rest } = doc;
@@ -411,15 +419,20 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
     return () => document.removeEventListener('fullscreenchange', onFsChange);
   }, []);
 
+  useEffect(() => {
+    const onResize = () => updateVideoWidth();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [updateVideoWidth]);
+
   const headerEl = useRef<HTMLDivElement>(null);
   const controlsEl = useRef<HTMLDivElement>(null);
   const [availableHeight, setAvailableHeight] = useState<number | null>(null);
 
   const recalcHeights = useCallback(() => {
     const headerH = headerEl.current?.getBoundingClientRect().height ?? 0;
-    const controlsH = controlsEl.current?.getBoundingClientRect().height ?? 0;
     const vh = window.innerHeight;
-    const next = Math.max(0, vh - headerH - controlsH);
+    const next = Math.max(0, vh - headerH);
     setAvailableHeight(next);
   }, []);
 
@@ -505,8 +518,85 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
               isDark={isDark}
             />
           </div>
+          {/* Left Controls: restricted to video display width and not under comments */}
+          <div className="flex-none">
+            <div className={`flex items-stretch justify-center px-0 pb-6 ${isDark ? 'bg-black' : 'bg-gray-100'}`}>
+              <div
+                ref={controlsEl}
+                className={`${isDark ? 'bg-black border-t border-white/10 text-white' : 'bg-gray-100 border-t border-gray-200 text-gray-900'} flex flex-col gap-3 px-6 py-3 h-28`}
+                style={{ width: videoWidthPx ? `${videoWidthPx}px` : '100%' }}
+              >
+                <div className="flex-1 flex flex-col">
+                  <Timeline
+                    currentTime={currentTime}
+                    duration={duration}
+                    onSeek={handleSeek}
+                    video={video}
+                    annotations={annotations}
+                    comments={comments}
+                    isDark={isDark}
+                  />
+                  <div className={`mt-2 grid grid-cols-[1fr_auto_1fr] items-center text-xs uppercase ${isDark ? 'text-white/70' : 'text-gray-600'}`}>
+                    <div />
+                    <span className={`${isDark ? 'px-3 py-1 rounded-full border border-white/10 bg-white/10 text-white/70' : 'px-3 py-1 rounded-full border border-gray-300 bg-white text-gray-700'}`}>{currentFrame} f</span>
+                    <div className="justify-self-end">
+                      <span>{video.width}×{video.height} • {video.fps} fps</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-4">
+                  {/* Left side: Loop toggle */}
+                  <div className="flex items-center gap-3 justify-start">
+                    <button
+                      onClick={() => setLoopEnabled((v) => !v)}
+                      className={`${loopEnabled ? (isDark ? 'bg-white text-black' : 'bg-black text-white') : (isDark ? 'bg-white/10 text-white hover:bg-white/20' : 'bg-black/5 text-gray-800 hover:bg-black/10')} px-3 py-1 rounded-full text-xs font-semibold`}
+                    >
+                      Loop {loopEnabled ? 'On' : 'Off'}
+                    </button>
+                  </div>
+                  {/* Center cluster: prev mark | transport | next mark */}
+                  <div className="flex items-center justify-center gap-3">
+                    <button onClick={() => handleJump('prev')} className={`${isDark ? 'px-3 py-1 rounded-full bg-white/10 hover:bg-white/20 text-white/80' : 'px-3 py-1 rounded-full bg-black/5 hover:bg-black/10 text-gray-800'}`}>Prev</button>
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => stepFrame(-1)} className={`p-2 rounded-full ${isDark ? 'bg-white/10 hover:bg-white/20 text-white/80' : 'bg-black/5 hover:bg-black/10 text-gray-800'}`}><Rewind size={18} /></button>
+                      <button onClick={() => stepFrame(-video.fps)} className={`p-2 rounded-full ${isDark ? 'bg-white/10 hover:bg-white/20 text-white/80' : 'bg-black/5 hover:bg-black/10 text-gray-800'}`}><SkipBack size={18} /></button>
+                      <button onClick={() => setIsPlaying(p => !p)} className={`p-3 rounded-full ${isDark ? 'bg-white text-black hover:bg-white/90 ring-2 ring-white/20' : 'bg-white text-black hover:bg-white/90 ring-2 ring-black/10'}`}>
+                        {isPlaying ? <Pause size={22} /> : <Play size={22} />}
+                      </button>
+                      <button onClick={() => stepFrame(video.fps)} className={`p-2 rounded-full ${isDark ? 'bg-white/10 hover:bg-white/20 text-white/80' : 'bg-black/5 hover:bg-black/10 text-gray-800'}`}><SkipForward size={18} /></button>
+                      <button onClick={() => stepFrame(1)} className={`p-2 rounded-full ${isDark ? 'bg-white/10 hover:bg-white/20 text-white/80' : 'bg-black/5 hover:bg-black/10 text-gray-800'}`}><FastForward size={18} /></button>
+                    </div>
+                    <button onClick={() => handleJump('next')} className={`${isDark ? 'px-3 py-1 rounded-full bg-white/10 hover:bg-white/20 text-white/80' : 'px-3 py-1 rounded-full bg-black/5 hover:bg-black/10 text-gray-800'}`}>Next</button>
+                  </div>
+                  {/* Right side: volume & fullscreen */}
+                  <div className="flex items-center gap-3 justify-end">
+                    <button onClick={() => { const next = !isMuted; setIsMuted(next); if (videoRef.current) videoRef.current.muted = next; }} className={`p-2 rounded-full ${isDark ? 'bg-white/10 hover:bg-white/20 text-white' : 'bg-black/5 hover:bg-black/10 text-gray-800'}`}>
+                      {isMuted || volume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}
+                    </button>
+                    <input
+                      type="range"
+                      min={0}
+                      max={1}
+                      step={0.01}
+                      value={isMuted ? 0 : volume}
+                      onChange={(e) => {
+                        const value = Number(e.target.value);
+                        setVolume(value);
+                        if (videoRef.current) { videoRef.current.volume = value; videoRef.current.muted = value === 0; }
+                        setIsMuted(value === 0);
+                      }}
+                      className={`w-24 ${isDark ? 'accent-white' : 'accent-black'}`}
+                    />
+                    <button onClick={toggleFullscreen} className={`p-2 rounded-full ${isDark ? 'bg-white/10 hover:bg-white/20 text-white' : 'bg-black/5 hover:bg-black/10 text-gray-800'}`}>
+                      {isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
-        <div className={`flex-shrink-0 overflow-hidden w-[360px]`} style={{ height: '100%', maxHeight: '100%' }}>
+        <div className={`flex-shrink-0 overflow-hidden w-[360px] min-h-[93vh]`} style={{ minHeight: '93vh' }}>
           <CommentsPane
             comments={comments}
             currentFrame={currentFrame}
@@ -518,75 +608,6 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
             onDeleteComment={handleDeleteComment}
             isDark={isDark}
           />
-        </div>
-      </div>
-      {/* External Controls Bar */}
-      <div ref={controlsEl} className={`${isDark ? 'bg-gray-900/80 border-t border-white/10 text-white' : 'bg-gray-100 border-t border-gray-200 text-gray-900'} flex flex-col gap-3 px-6 py-3 h-28 flex-none`}> 
-        <div className="flex-1 flex flex-col">
-          <Timeline
-            currentTime={currentTime}
-            duration={duration}
-            onSeek={handleSeek}
-            video={video}
-            annotations={annotations}
-            comments={comments}
-            isDark={isDark}
-          />
-          <div className={`mt-2 grid grid-cols-[1fr_auto_1fr] items-center text-xs uppercase ${isDark ? 'text-white/70' : 'text-gray-600'}`}>
-            <div />
-            <span className={`${isDark ? 'px-3 py-1 rounded-full border border-white/10 bg-white/10 text-white/70' : 'px-3 py-1 rounded-full border border-gray-300 bg-white text-gray-700'}`}>{currentFrame} f</span>
-            <div className="justify-self-end">
-            <span>{video.width}×{video.height} • {video.fps} fps</span>
-            </div>
-          </div>
-        </div>
-        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-4">
-          {/* Left side: Loop toggle (improves symmetry + feature) */}
-          <div className="flex items-center gap-3 justify-start">
-            <button
-              onClick={() => setLoopEnabled((v) => !v)}
-              className={`${loopEnabled ? (isDark ? 'bg-white text-black' : 'bg-black text-white') : (isDark ? 'bg-white/10 text-white hover:bg-white/20' : 'bg-black/5 text-gray-800 hover:bg-black/10')} px-3 py-1 rounded-full text-xs font-semibold`}
-            >
-              Loop {loopEnabled ? 'On' : 'Off'}
-            </button>
-          </div>
-          {/* Center cluster: prev mark | transport | next mark */}
-          <div className="flex items-center justify-center gap-3">
-            <button onClick={() => handleJump('prev')} className={`${isDark ? 'px-3 py-1 rounded-full bg-white/10 hover:bg-white/20 text-white/80' : 'px-3 py-1 rounded-full bg-black/5 hover:bg-black/10 text-gray-800'}`}>Prev</button>
-            <div className="flex items-center gap-2">
-              <button onClick={() => stepFrame(-1)} className={`p-2 rounded-full ${isDark ? 'bg-white/10 hover:bg-white/20 text-white/80' : 'bg-black/5 hover:bg-black/10 text-gray-800'}`}><Rewind size={18} /></button>
-              <button onClick={() => stepFrame(-video.fps)} className={`p-2 rounded-full ${isDark ? 'bg-white/10 hover:bg-white/20 text-white/80' : 'bg-black/5 hover:bg-black/10 text-gray-800'}`}><SkipBack size={18} /></button>
-            <button onClick={() => setIsPlaying(p => !p)} className={`p-3 rounded-full ${isDark ? 'bg-white text-black hover:bg-white/90 ring-2 ring-white/20' : 'bg-white text-black hover:bg-white/90 ring-2 ring-black/10'}`}>
-              {isPlaying ? <Pause size={22} /> : <Play size={22} />}
-            </button>
-              <button onClick={() => stepFrame(video.fps)} className={`p-2 rounded-full ${isDark ? 'bg-white/10 hover:bg-white/20 text-white/80' : 'bg-black/5 hover:bg-black/10 text-gray-800'}`}><SkipForward size={18} /></button>
-              <button onClick={() => stepFrame(1)} className={`p-2 rounded-full ${isDark ? 'bg-white/10 hover:bg-white/20 text-white/80' : 'bg-black/5 hover:bg-black/10 text-gray-800'}`}><FastForward size={18} /></button>
-            </div>
-            <button onClick={() => handleJump('next')} className={`${isDark ? 'px-3 py-1 rounded-full bg-white/10 hover:bg-white/20 text-white/80' : 'px-3 py-1 rounded-full bg-black/5 hover:bg-black/10 text-gray-800'}`}>Next</button>
-          </div>
-          {/* Right side: volume & fullscreen */}
-          <div className="flex items-center gap-3 justify-end">
-            <button onClick={() => { const next = !isMuted; setIsMuted(next); if (videoRef.current) videoRef.current.muted = next; }} className={`p-2 rounded-full ${isDark ? 'bg-white/10 hover:bg-white/20 text-white' : 'bg-black/5 hover:bg-black/10 text-gray-800'}`}>
-              {isMuted || volume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}
-            </button>
-            <input
-              type="range"
-              min={0}
-              max={1}
-              step={0.01}
-              value={isMuted ? 0 : volume}
-              onChange={(e) => {
-                const value = Number(e.target.value);
-                setVolume(value);
-                if (videoRef.current) { videoRef.current.volume = value; videoRef.current.muted = value === 0; }
-                setIsMuted(value === 0);
-              }}
-              className={`w-24 ${isDark ? 'accent-white' : 'accent-black'}`}
-            />
-            <button onClick={toggleFullscreen} className={`p-2 rounded-full ${isDark ? 'bg-white/10 hover:bg-white/20 text-white' : 'bg-black/5 hover:bg-black/10 text-gray-800'}`}>
-              {isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
-            </button>
-          </div>
         </div>
       </div>
     </div>

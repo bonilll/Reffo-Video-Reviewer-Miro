@@ -285,8 +285,8 @@ const CommentsPane: React.FC<CommentsPaneProps> = ({ comments, currentFrame, onA
   }, [activeCommentId]);
 
   return (
-    <div className={`h-full flex flex-col border-l ${isDark ? 'bg-black/60 border-white/10' : 'bg-white border-gray-200'}`}>
-      <div className="px-6 py-5 border-b border-white/10">
+    <div className={`relative h-full flex flex-col border-l ${isDark ? 'bg-black/60 border-white/10' : 'bg-white border-gray-200'}`}>
+      <div className="px-4 py-3 border-b border-white/10">
         <h2 className="text-sm font-semibold text-white/50 uppercase flex items-center gap-2">
           <MessageSquare size={18}/> Comments
         </h2>
@@ -296,7 +296,7 @@ const CommentsPane: React.FC<CommentsPaneProps> = ({ comments, currentFrame, onA
             <button onClick={() => setFilter('resolved')} className={`px-4 py-1.5 rounded-full text-xs font-semibold ${filter === 'resolved' ? 'bg-white text-black' : 'text-white/60 hover:bg-white/10'}`}>Resolved</button>
         </div>
       </div>
-      <div className="flex-1 overflow-y-auto scroll-slim pr-1">
+      <div className="flex-1 overflow-y-scroll scroll-slim pr-1 pb-28">
         {filteredComments.map(comment => (
           <div ref={comment.id === activeCommentId ? activeCommentRef : null} key={comment.id}>
              <CommentItem
@@ -312,33 +312,35 @@ const CommentsPane: React.FC<CommentsPaneProps> = ({ comments, currentFrame, onA
           </div>
         ))}
       </div>
-      <div className="px-6 py-5 border-t border-white/10">
-        <form onSubmit={handleSubmitComment} className="space-y-3">
-          <textarea
-            value={newCommentText}
-            onChange={handleTextareaChange}
-            placeholder={`Add general comment at frame ${currentFrame}...`}
-            className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-white resize-none"
-            rows={3}
-            ref={textareaRef}
-          />
-          {mentionOpen && suggestions.length > 0 && (
-            <div className="max-h-48 overflow-auto rounded-xl border border-white/10 bg-black/80 text-sm text-white shadow-2xl">
-              {suggestions.map((s) => (
-                <button
-                  key={s.id}
-                  type="button"
-                  onClick={() => applySuggestion(s.label)}
-                  className="flex w-full items-center justify-between px-3 py-2 text-left hover:bg-white/10"
-                >
-                  <span>{s.label}</span>
-                  <span className="text-white/40">@{s.email}</span>
-                </button>
-              ))}
-            </div>
-          )}
-          <button type="submit" className="w-full bg-white text-black font-semibold py-2.5 rounded-full hover:bg-white/90">
-            Add Comment
+      <div className={`px-4 py-3 border-t sticky bottom-0 z-40 ${isDark ? 'border-white/10 bg-black/60' : 'border-gray-200 bg-white'}`}>
+        <form onSubmit={handleSubmitComment} className="flex items-end gap-2">
+          <div className="relative flex-1">
+            <textarea
+              value={newCommentText}
+              onChange={handleTextareaChange}
+              placeholder={`Add comment at frame ${currentFrame}…`}
+              className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-white resize-none"
+              rows={2}
+              ref={textareaRef}
+            />
+            {mentionOpen && suggestions.length > 0 && (
+              <div className="absolute left-0 top-full mt-2 max-h-48 w-full overflow-auto rounded-xl border border-white/10 bg-black/80 text-sm text-white shadow-2xl z-10">
+                {suggestions.map((s) => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => applySuggestion(s.label)}
+                    className="flex w-full items-center justify-between px-3 py-2 text-left hover:bg-white/10"
+                  >
+                    <span>{s.label}</span>
+                    <span className="text-white/40">@{s.email}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <button type="submit" className="px-3 py-2 bg-white text-black font-semibold rounded-full hover:bg-white/90 text-xs">
+            Send
           </button>
         </form>
       </div>
