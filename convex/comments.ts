@@ -1,22 +1,61 @@
 import { mutation, query } from "./_generated/server";
 import { ConvexError, v } from "convex/values";
-import { getCurrentUserOrThrow } from "./utils/auth";
+import { getCurrentUserDoc, getCurrentUserOrThrow } from "./utils/auth";
+import type { Id } from "./_generated/dataModel";
 
 const pointValidator = v.object({
   x: v.number(),
   y: v.number(),
 });
 
+async function canViewVideo(ctx: any, userId: Id<'users'>, videoId: Id<'videos'>) {
+  const video = await ctx.db.get(videoId);
+  if (!video) return false;
+  if (video.ownerId === userId) return true;
+  // Group shares
+  const shares = await ctx.db.query('contentShares').withIndex('byVideo', (q: any) => q.eq('videoId', videoId)).collect();
+  if (!shares.length) return false;
+  const memberEmails = new Set<string>();
+  for (const s of shares) {
+    if (s.groupId) {
+      const members = await ctx.db.query('shareGroupMembers').withIndex('byGroup', (q: any) => q.eq('groupId', s.groupId)).collect();
+      members.forEach((m: any) => memberEmails.add(m.email));
+    }
+  }
+  const user = await ctx.db.get(userId);
+  return user ? memberEmails.has(user.email) || shares.some((s: any) => s.linkToken && s.isActive) : false;
+}
+
+async function canCommentOnVideo(ctx: any, userId: Id<'users'>, videoId: Id<'videos'>) {
+  const video = await ctx.db.get(videoId);
+  if (!video) return false;
+  if (video.ownerId === userId) return true;
+  const shares = await ctx.db.query('contentShares').withIndex('byVideo', (q: any) => q.eq('videoId', videoId)).collect();
+  if (!shares.length) return false;
+  const user = await ctx.db.get(userId);
+  if (!user) return false;
+  // Group membership with allowComments
+  for (const s of shares) {
+    if (s.groupId && s.isActive && s.allowComments) {
+      const member = await ctx.db
+        .query('shareGroupMembers')
+        .withIndex('byGroup', (q: any) => q.eq('groupId', s.groupId))
+        .filter((q: any) => q.eq(q.field('email'), user.email))
+        .first();
+      if (member) return true;
+    }
+  }
+  // Public link with allowComments
+  return shares.some((s: any) => s.linkToken && s.isActive && s.allowComments);
+}
+
 export const listByVideo = query({
   args: {
     videoId: v.id("videos"),
   },
   async handler(ctx, { videoId }) {
-    const user = await getCurrentUserOrThrow(ctx);
-    const video = await ctx.db.get(videoId);
-    if (!video || video.ownerId !== user._id) {
-      throw new ConvexError("FORBIDDEN");
-    }
+    const user = await getCurrentUserDoc(ctx);
+    if (!user || !(await canViewVideo(ctx, user._id, videoId))) return [];
 
     const comments = await ctx.db
       .query("comments")
@@ -69,8 +108,7 @@ export const create = mutation({
   },
   async handler(ctx, { videoId, text, frame, parentId, position }) {
     const user = await getCurrentUserOrThrow(ctx);
-    const video = await ctx.db.get(videoId);
-    if (!video || video.ownerId !== user._id) {
+    if (!(await canCommentOnVideo(ctx, user._id, videoId))) {
       throw new ConvexError("FORBIDDEN");
     }
 
@@ -95,6 +133,32 @@ export const create = mutation({
     });
 
     const author = await ctx.db.get(user._id);
+
+    // Mentions: parse @Name and notify
+    const mentionMatches = text.match(/@([A-Za-z0-9_\-\. ]{2,})/g) || [];
+    const names = mentionMatches.map((m) => m.slice(1).trim().toLowerCase());
+    if (names.length) {
+      // Find contacts by name from author's friends
+      const friends = await ctx.db.query('friends').withIndex('byOwner', (q: any) => q.eq('ownerId', user._id)).collect();
+      for (const n of names) {
+        const targetFriend = friends.find((f: any) => (f.contactName ?? '').toLowerCase() === n);
+        if (targetFriend) {
+          const targetUserId = targetFriend.contactUserId as Id<'users'> | undefined;
+          if (targetUserId && targetUserId !== user._id) {
+            await ctx.db.insert('notifications', {
+              userId: targetUserId,
+              type: 'mention',
+              message: `${author?.name ?? author?.email ?? 'Someone'} mentioned you in a comment`,
+              videoId,
+              projectId: undefined,
+              fromUserId: user._id,
+              createdAt: Date.now(),
+              readAt: undefined,
+            });
+          }
+        }
+      }
+    }
 
     return {
       id: commentId,
@@ -125,8 +189,7 @@ export const updateText = mutation({
       throw new ConvexError("NOT_FOUND");
     }
 
-    const video = await ctx.db.get(comment.videoId);
-    if (!video || video.ownerId !== user._id) {
+    if (!(await canCommentOnVideo(ctx, user._id, comment.videoId))) {
       throw new ConvexError("FORBIDDEN");
     }
 
@@ -145,8 +208,7 @@ export const toggleResolved = mutation({
       throw new ConvexError("NOT_FOUND");
     }
 
-    const video = await ctx.db.get(comment.videoId);
-    if (!video || video.ownerId !== user._id) {
+    if (!(await canCommentOnVideo(ctx, user._id, comment.videoId))) {
       throw new ConvexError("FORBIDDEN");
     }
 
@@ -169,8 +231,7 @@ export const updatePosition = mutation({
       throw new ConvexError("NOT_FOUND");
     }
 
-    const video = await ctx.db.get(comment.videoId);
-    if (!video || video.ownerId !== user._id) {
+    if (!(await canCommentOnVideo(ctx, user._id, comment.videoId))) {
       throw new ConvexError("FORBIDDEN");
     }
 
@@ -189,8 +250,7 @@ export const remove = mutation({
       return;
     }
 
-    const video = await ctx.db.get(comment.videoId);
-    if (!video || video.ownerId !== user._id) {
+    if (!(await canCommentOnVideo(ctx, user._id, comment.videoId))) {
       throw new ConvexError("FORBIDDEN");
     }
 
@@ -214,4 +274,3 @@ export const remove = mutation({
     await Promise.all(Array.from(toDelete).map((id) => ctx.db.delete(id)));
   },
 });
-

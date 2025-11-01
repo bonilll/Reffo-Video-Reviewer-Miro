@@ -11,6 +11,7 @@ import type { Id } from './convex/_generated/dataModel';
 import logo from './assets/logo.svg';
 import { useThemePreference, applyTheme, ThemePref } from './useTheme';
 import { Sun, Moon } from 'lucide-react';
+import { Bell } from 'lucide-react';
 
 type UploadPayload = {
   storageKey: string;
@@ -497,6 +498,9 @@ const AppHeader: React.FC<AppHeaderProps & { isDark: boolean }> = ({ active, onN
   const { signOut } = useClerk();
   const settingsDoc = useQuery(api.settings.getOrNull, {});
   const updateSettings = useMutation(api.settings.update);
+  const notifications = useQuery(api.notifications.list, {});
+  const markAllRead = useMutation(api.notifications.markAllRead);
+  const [notifOpen, setNotifOpen] = React.useState(false);
   const base = user.name || user.email;
   const initials = base
     .split(' ')
@@ -528,6 +532,36 @@ const AppHeader: React.FC<AppHeaderProps & { isDark: boolean }> = ({ active, onN
           </nav>
         </div>
         <div className="flex items-center gap-3">
+          <div className="relative">
+            <button
+              onClick={() => setNotifOpen((o) => !o)}
+              className={isDark ? 'rounded-full border border-white/20 bg-black/30 p-2 text-white/80 hover:text-white' : 'rounded-full border border-gray-200 bg-white p-2 text-gray-700 hover:text-gray-900'}
+              aria-label="Notifications"
+            >
+              <Bell size={16} />
+            </button>
+            {notifications && notifications.some((n: any) => !n.readAt) && (
+              <span className="absolute -right-1 -top-1 inline-block h-2 w-2 rounded-full bg-red-500" />
+            )}
+            {notifOpen && (
+              <div className={`absolute right-0 mt-2 w-80 rounded-xl border shadow-2xl backdrop-blur ${isDark ? 'border-white/10 bg-black/90 text-white' : 'border-gray-200 bg-white text-gray-900'}`}>
+                <div className="flex items-center justify-between px-3 py-2 text-xs">
+                  <span className={isDark ? 'text-white/70' : 'text-gray-600'}>Notifications</span>
+                  <button onClick={() => markAllRead({})} className={isDark ? 'text-white/60 hover:text-white' : 'text-gray-600 hover:text-gray-900'}>Mark all read</button>
+                </div>
+                <div className="max-h-80 overflow-auto py-1">
+                  {(notifications ?? []).map((n: any) => (
+                    <div key={n.id} className={`px-3 py-2 text-sm ${n.readAt ? (isDark ? 'text-white/60' : 'text-gray-600') : (isDark ? 'text-white' : 'text-gray-900')}`}>
+                      {n.message}
+                    </div>
+                  ))}
+                  {(notifications?.length ?? 0) === 0 && (
+                    <div className={isDark ? 'px-3 py-6 text-center text-white/50' : 'px-3 py-6 text-center text-gray-500'}>No notifications</div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
           <button
             onClick={async () => {
               const next: ThemePref = isDark ? 'light' : 'dark';

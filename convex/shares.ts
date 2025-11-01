@@ -1,6 +1,7 @@
 import { mutation, query } from "./_generated/server";
 import { ConvexError, v } from "convex/values";
 import { getCurrentUserDoc, getCurrentUserOrThrow } from "./utils/auth";
+import { api } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 
 const sanitizeShare = (share: any) => ({
@@ -77,10 +78,47 @@ export const shareToGroup = mutation({
 
     if (existing) {
       await ctx.db.patch(existing._id, payload);
+      // Notify members
+      const members = await ctx.db.query('shareGroupMembers').withIndex('byGroup', (q) => q.eq('groupId', args.groupId)).collect();
+      await Promise.all(members.map(async (m) => {
+        const u = await ctx.db.query('users').withIndex('byEmail', (q) => q.eq('email', m.email)).unique();
+        if (u) {
+          await ctx.db.insert('notifications', {
+            userId: u._id,
+            type: 'share',
+            message: args.videoId ? 'A review was shared with your group' : 'A project was shared with your group',
+            videoId: args.videoId,
+            projectId: args.projectId,
+            fromUserId: user._id,
+            createdAt: Date.now(),
+            readAt: undefined,
+          });
+          // auto-add friends relation
+          await ctx.runMutation(api.friends.add, { email: u.email });
+        }
+      }));
       return existing._id;
     }
 
-    return await ctx.db.insert("contentShares", payload);
+    const id = await ctx.db.insert("contentShares", payload);
+    const members = await ctx.db.query('shareGroupMembers').withIndex('byGroup', (q) => q.eq('groupId', args.groupId)).collect();
+    await Promise.all(members.map(async (m) => {
+      const u = await ctx.db.query('users').withIndex('byEmail', (q) => q.eq('email', m.email)).unique();
+      if (u) {
+        await ctx.db.insert('notifications', {
+          userId: u._id,
+          type: 'share',
+          message: args.videoId ? 'A review was shared with your group' : 'A project was shared with your group',
+          videoId: args.videoId,
+          projectId: args.projectId,
+          fromUserId: user._id,
+          createdAt: Date.now(),
+          readAt: undefined,
+        });
+        await ctx.runMutation(api.friends.add, { email: u.email });
+      }
+    }));
+    return id;
   },
 });
 

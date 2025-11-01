@@ -106,10 +106,33 @@ export default defineSchema({
     createdAt: v.number(),
     expiresAt: v.optional(v.number()),
   })
-    .index("byOwner", ["ownerId"])
-    .index("byLinkToken", ["linkToken"])
-    .index("byVideo", ["videoId"])
+    .index("byOwner", ["ownerId"]) 
+    .index("byLinkToken", ["linkToken"]) 
+    .index("byVideo", ["videoId"]) 
     .index("byProject", ["projectId"]),
+
+  friends: defineTable({
+    ownerId: v.id("users"),
+    contactUserId: v.optional(v.id("users")),
+    contactEmail: v.string(),
+    contactName: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("byOwner", ["ownerId"]) 
+    .index("byEmail", ["contactEmail"]),
+
+  notifications: defineTable({
+    userId: v.id("users"),
+    type: v.string(), // 'share' | 'mention'
+    message: v.string(),
+    videoId: v.optional(v.id("videos")),
+    projectId: v.optional(v.id("projects")),
+    fromUserId: v.optional(v.id("users")),
+    createdAt: v.number(),
+    readAt: v.optional(v.number()),
+  })
+    .index("byUser", ["userId"]) 
+    .index("byUserAndCreatedAt", ["userId", "createdAt"]),
 
   userSettings: defineTable({
     userId: v.id("users"),
