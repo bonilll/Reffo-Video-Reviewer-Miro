@@ -72,9 +72,10 @@ export const get = query({
 
 export const getByShareToken = query({
   args: {
-    token: v.string(),
+    token: v.optional(v.string()),
   },
   async handler(ctx, { token }) {
+    if (!token) return null as any;
     const share = await ctx.db
       .query("contentShares")
       .withIndex("byLinkToken", (q) => q.eq("linkToken", token))

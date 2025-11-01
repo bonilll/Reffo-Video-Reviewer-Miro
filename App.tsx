@@ -48,7 +48,10 @@ const App: React.FC = () => {
     return m ? m[1] : null;
   }, []);
   const shareResolution = useQuery(api.shares.resolveToken, shareToken ? { token: shareToken } : undefined);
-  const shareVideo = useQuery(api.videos.getByShareToken, shareToken && shareResolution && shareResolution?.videoId ? { token: shareToken } : undefined);
+  const shareVideo = useQuery(
+    api.videos.getByShareToken,
+    shareToken && shareResolution && (shareResolution as any)?.videoId ? { token: shareToken } : undefined
+  );
 
   const ensureUser = useMutation(api.users.ensure);
   const createProject = useMutation(api.projects.create);

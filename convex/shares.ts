@@ -1,6 +1,6 @@
 import { mutation, query } from "./_generated/server";
 import { ConvexError, v } from "convex/values";
-import { getCurrentUserOrThrow } from "./utils/auth";
+import { getCurrentUserDoc, getCurrentUserOrThrow } from "./utils/auth";
 import type { Id } from "./_generated/dataModel";
 
 const sanitizeShare = (share: any) => ({
@@ -135,9 +135,10 @@ export const revoke = mutation({
 
 export const resolveToken = query({
   args: {
-    token: v.string(),
+    token: v.optional(v.string()),
   },
   async handler(ctx, { token }) {
+    if (!token) return null;
     const share = await ctx.db
       .query("contentShares")
       .withIndex("byLinkToken", (q) => q.eq("linkToken", token))
@@ -156,7 +157,8 @@ export const resolveToken = query({
 export const videosSharedWithMe = query({
   args: {},
   async handler(ctx) {
-    const user = await getCurrentUserOrThrow(ctx);
+    const user = await getCurrentUserDoc(ctx);
+    if (!user) return [] as any[];
     const memberships = await ctx.db
       .query('shareGroupMembers')
       .withIndex('byEmail', (q) => q.eq('email', user.email))
@@ -188,7 +190,8 @@ export const videosSharedWithMe = query({
 export const projectsSharedWithMe = query({
   args: {},
   async handler(ctx) {
-    const user = await getCurrentUserOrThrow(ctx);
+    const user = await getCurrentUserDoc(ctx);
+    if (!user) return [] as any[];
     const memberships = await ctx.db
       .query('shareGroupMembers')
       .withIndex('byEmail', (q) => q.eq('email', user.email))
