@@ -386,6 +386,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
             redo={redo}
             canUndo={canUndo}
             canRedo={canRedo}
+            isDark={isDark}
           />
           <div className="w-full flex-1 relative flex items-center justify-center overflow-hidden group">
             <VideoPlayer

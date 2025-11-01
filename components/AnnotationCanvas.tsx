@@ -533,14 +533,10 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
     const canvas = canvasRef.current;
     if (!canvas || !renderedRect) return 'default';
 
+    // Keep cursor normal, only show grabbing while dragging
     if (movingCommentState && transformedComment) return 'grabbing';
     if (transform?.action === 'move') return 'grabbing';
-    if (transform) return 'crosshair'; // Should be more specific based on handle
-    
-    if (activeTool === AnnotationTool.COMMENT) return 'copy';
-    if (activeTool === AnnotationTool.TEXT) return 'text';
-
-    return 'crosshair';
+    return 'default';
   };
 
   const activePopoverComment = useMemo(() => {
@@ -639,7 +635,7 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
               <div
                 key={comment.id}
                 className={`absolute flex items-center justify-center w-8 h-8 rounded-full cursor-pointer transition-all duration-200 pointer-events-auto select-none transform -translate-x-1/2 -translate-y-1/2
-                  ${isActive ? 'ring-2 ring-white ring-offset-2 ring-offset-black/50 shadow-lg scale-110' : 'hover:scale-110 hover:shadow-lg'}
+                  ${isActive ? (isDark ? 'ring-2 ring-white ring-offset-2 ring-offset-black/50' : 'ring-2 ring-black ring-offset-2 ring-offset-white/70') + ' shadow-lg scale-110' : 'hover:scale-110 hover:shadow-lg'}
                   ${comment.resolved ? 'grayscale' : ''}
                 `}
                 style={{
@@ -652,12 +648,12 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
                 <img
                   src={comment.authorAvatar}
                   alt={comment.authorName}
-                  className="w-full h-full rounded-full object-cover border-2 border-gray-900/50 pointer-events-none select-none"
+                  className={`w-full h-full rounded-full object-cover border-2 ${isDark ? 'border-gray-900/50' : 'border-gray-300'} pointer-events-none select-none`}
                   draggable="false"
                 />
                 
                 {/* Number Badge */}
-                <div className="absolute -top-1 -right-1 bg-gray-900/80 backdrop-blur-sm text-white text-[10px] font-bold w-4 h-4 rounded-full flex items-center justify-center ring-2 ring-gray-900/50">
+                <div className={`absolute -top-1 -right-1 text-[10px] font-bold w-4 h-4 rounded-full flex items-center justify-center ring-2 ${isDark ? 'bg-gray-900/80 text-white ring-gray-900/50' : 'bg-white text-gray-900 ring-gray-300'}`}>
                   {index + 1}
                 </div>
 
