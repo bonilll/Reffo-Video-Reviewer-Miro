@@ -328,18 +328,27 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
   }, [toggleCommentResolvedMutation]);
   
   const handleUpdateCommentPosition = useCallback((id: string, newPosition: Point) => {
+    // Optimistic update first to avoid UI delay
+    let previous: Point | undefined;
+    setComments(prev => {
+      const before = prev.find(c => c.id === id)?.position;
+      previous = before;
+      return prev.map(c => (c.id === id ? { ...c, position: newPosition } : c));
+    });
+
     void (async () => {
       try {
         await updateCommentPositionMutation({
           commentId: id as Id<'comments'>,
           position: newPosition,
         });
-        setComments(prev => prev.map(c => c.id === id ? { ...c, position: newPosition } : c));
       } catch (error) {
         console.error('Failed to update comment position', error);
+        // Revert on failure
+        setComments(prev => prev.map(c => (c.id === id ? { ...c, position: previous } : c)) as any);
       }
     })();
-  }, [updateCommentPositionMutation]);
+  }, [updateCommentPositionMutation, setComments]);
 
   const handleDeleteComment = useCallback((commentId: string) => {
     void (async () => {
