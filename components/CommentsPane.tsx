@@ -181,9 +181,10 @@ interface CommentsPaneProps {
   activeCommentId: string | null;
   setActiveCommentId: (id: string | null) => void;
   onDeleteComment: (id: string) => void;
+  isDark?: boolean;
 }
 
-const CommentsPane: React.FC<CommentsPaneProps> = ({ comments, currentFrame, onAddComment, onToggleResolve, onJumpToFrame, activeCommentId, setActiveCommentId, onDeleteComment }) => {
+const CommentsPane: React.FC<CommentsPaneProps> = ({ comments, currentFrame, onAddComment, onToggleResolve, onJumpToFrame, activeCommentId, setActiveCommentId, onDeleteComment, isDark = true }) => {
   const [newCommentText, setNewCommentText] = useState('');
   const [filter, setFilter] = useState<'all' | 'open' | 'resolved'>('all');
   const activeCommentRef = useRef<HTMLDivElement>(null);
@@ -284,7 +285,7 @@ const CommentsPane: React.FC<CommentsPaneProps> = ({ comments, currentFrame, onA
   }, [activeCommentId]);
 
   return (
-    <div className="h-full flex flex-col bg-black/60 border-l border-white/10">
+    <div className={`h-full flex flex-col border-l ${isDark ? 'bg-black/60 border-white/10' : 'bg-white border-gray-200'}`}>
       <div className="px-6 py-5 border-b border-white/10">
         <h2 className="text-sm font-semibold text-white/50 uppercase flex items-center gap-2">
           <MessageSquare size={18}/> Comments

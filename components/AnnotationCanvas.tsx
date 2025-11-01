@@ -29,6 +29,7 @@ interface AnnotationCanvasProps {
   onAddComment: (text: string, parentId?: string) => void;
   pendingComment: { position: Point } | null;
   setPendingComment: (p: { position: Point } | null) => void;
+  isDark?: boolean;
 }
 
 interface MovingCommentState {
@@ -40,7 +41,7 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
   video, videoElement, currentFrame, annotations, onAddAnnotation, onUpdateAnnotations, onDeleteAnnotations,
   activeTool, brushColor, brushSize, fontSize, selectedAnnotationIds, setSelectedAnnotationIds,
   comments, activeCommentId, onCommentPlacement, activeCommentPopoverId, setActiveCommentPopoverId,
-  onUpdateCommentPosition, onAddComment, pendingComment, setPendingComment,
+  onUpdateCommentPosition, onAddComment, pendingComment, setPendingComment, isDark = true,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isDrawing, setIsDrawing] = useState(false);
@@ -679,6 +680,7 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
             onAddComment={onAddComment}
             onClose={() => setActiveCommentPopoverId(null)}
             renderedRect={renderedRect}
+            isDark={isDark}
           />
       )}
       {renderedRect && pendingComment && (
@@ -687,6 +689,7 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
           renderedRect={renderedRect}
           onSubmit={onAddComment}
           onCancel={() => setPendingComment(null)}
+          isDark={isDark}
         />
       )}
       {editingText && renderedRect && (

@@ -420,6 +420,7 @@ const App: React.FC = () => {
             video={currentVideo}
             sourceUrl={reviewSourceUrl ?? undefined}
             onGoBack={handleGoBackToDashboard}
+            theme={preference}
           />
         ) : (
           <div className="min-h-screen flex flex-col">

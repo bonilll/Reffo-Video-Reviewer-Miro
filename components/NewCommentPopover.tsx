@@ -8,9 +8,10 @@ interface NewCommentPopoverProps {
   renderedRect: RenderedRect;
   onSubmit: (text: string) => void;
   onCancel: () => void;
+  isDark?: boolean;
 }
 
-const NewCommentPopover: React.FC<NewCommentPopoverProps> = ({ position, renderedRect, onSubmit, onCancel }) => {
+const NewCommentPopover: React.FC<NewCommentPopoverProps> = ({ position, renderedRect, onSubmit, onCancel, isDark = true }) => {
   const popoverRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [text, setText] = useState('');
@@ -74,8 +75,8 @@ const NewCommentPopover: React.FC<NewCommentPopoverProps> = ({ position, rendere
   }, [text]);
 
   return (
-    <div ref={popoverRef} style={style} className="w-80 bg-black/80 border border-white/10 rounded-2xl shadow-2xl flex flex-col relative max-w-[90vw] backdrop-blur" onClick={e => e.stopPropagation()}>
-        <div className="absolute left-1/2 -top-[5px] -ml-[5px] w-2.5 h-2.5 bg-black/80 border-t border-l border-white/10 transform rotate-45"></div>
+    <div ref={popoverRef} style={style} className={`w-80 rounded-2xl shadow-2xl flex flex-col relative max-w-[90vw] backdrop-blur border ${isDark ? 'bg-black/80 border-white/10' : 'bg-white border-gray-200'}`} onClick={e => e.stopPropagation()}>
+        <div className={`absolute left-1/2 -top-[5px] -ml-[5px] w-2.5 h-2.5 transform rotate-45 ${isDark ? 'bg-black/80 border-t border-l border-white/10' : 'bg-white border-t border-l border-gray-200'}`}></div>
         
         <form onSubmit={handleSubmit} className="p-4 flex flex-col gap-4">
             <div className="flex items-start gap-3">

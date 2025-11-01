@@ -12,6 +12,7 @@ interface CommentPopoverProps {
   onAddComment: (text: string, parentId: string) => void;
   onClose: () => void;
   renderedRect: RenderedRect;
+  isDark?: boolean;
 }
 
 const timeAgo = (dateString: string) => {
@@ -50,7 +51,7 @@ const CommentThreadItem: React.FC<{ comment: Comment }> = ({ comment }) => (
 );
 
 
-const CommentPopover: React.FC<CommentPopoverProps> = ({ comment, comments, onAddComment, onClose, renderedRect }) => {
+const CommentPopover: React.FC<CommentPopoverProps> = ({ comment, comments, onAddComment, onClose, renderedRect, isDark = true }) => {
   const popoverRef = useRef<HTMLDivElement>(null);
   const [replyText, setReplyText] = useState('');
   const friends = useQuery(api.friends.list, {});
@@ -154,10 +155,10 @@ const CommentPopover: React.FC<CommentPopoverProps> = ({ comment, comments, onAd
     <div
       ref={popoverRef}
       style={style}
-      className="w-80 bg-black/80 border border-white/10 rounded-2xl shadow-2xl flex flex-col relative max-w-[90vw] backdrop-blur"
+      className={`w-80 rounded-2xl shadow-2xl flex flex-col relative max-w-[90vw] backdrop-blur border ${isDark ? 'bg-black/80 border-white/10' : 'bg-white border-gray-200'}`}
       onClick={e => e.stopPropagation()}
     >
-        <div className="absolute left-1/2 -top-[5px] -ml-[5px] w-2.5 h-2.5 bg-black/80 border-t border-l border-white/10 transform rotate-45" />
+        <div className={`absolute left-1/2 -top-[5px] -ml-[5px] w-2.5 h-2.5 transform rotate-45 ${isDark ? 'bg-black/80 border-t border-l border-white/10' : 'bg-white border-t border-l border-gray-200'}`} />
 
         <div className="flex items-center justify-between px-3 py-2 border-b border-white/10">
             <span className="text-xs font-semibold uppercase text-white/40">Thread</span>
@@ -185,17 +186,17 @@ const CommentPopover: React.FC<CommentPopoverProps> = ({ comment, comments, onAd
                     <CornerDownRight size={16} />
                 </button>
                 {suggestOpen && suggestions.length > 0 && (
-                  <div className="absolute left-3 right-3 bottom-12 z-10 max-h-48 overflow-auto rounded-xl border border-white/10 bg-black/90 text-sm text-white shadow-2xl">
+                  <div className={`absolute left-3 right-3 bottom-12 z-10 max-h-48 overflow-auto rounded-xl border text-sm shadow-2xl ${isDark ? 'border-white/10 bg-black/90 text-white' : 'border-gray-200 bg-white text-gray-900'}`}>
                     {suggestions.map((s) => (
                       <button
                         key={s.id}
                         type="button"
                         onMouseDown={(ev) => ev.preventDefault()}
                         onClick={() => applySuggestion(s.label)}
-                        className="flex w-full items-center justify-between px-3 py-2 text-left hover:bg-white/10"
+                        className={`flex w-full items-center justify-between px-3 py-2 text-left ${isDark ? 'hover:bg-white/10' : 'hover:bg-black/5'}`}
                       >
                         <span>{s.label}</span>
-                        <span className="text-white/40">@{s.email}</span>
+                        <span className={isDark ? 'text-white/40' : 'text-gray-500'}>@{s.email}</span>
                       </button>
                     ))}
                   </div>

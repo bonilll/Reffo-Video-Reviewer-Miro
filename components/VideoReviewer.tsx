@@ -8,14 +8,17 @@ import { ChevronLeft, PanelRightClose, PanelRightOpen, Eye, EyeOff } from 'lucid
 import { useQuery, useMutation, useAction } from 'convex/react';
 import { api } from '../convex/_generated/api';
 import type { Id } from '../convex/_generated/dataModel';
+import { useThemePreference, ThemePref } from '../useTheme';
 
 interface VideoReviewerProps {
   video: Video;
   sourceUrl?: string;
   onGoBack: () => void;
+  theme?: ThemePref;
 }
 
-const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBack }) => {
+const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBack, theme = 'system' }) => {
+  const isDark = useThemePreference(theme);
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const [comments, setComments] = useState<Comment[]>([]);
   
@@ -349,8 +352,8 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
 
 
   return (
-    <div className="w-full h-full flex flex-col bg-black/50">
-      <header className="flex-shrink-0 bg-black/70 border-b border-white/10 px-8 py-4 flex items-center justify-between z-20 backdrop-blur">
+    <div className={"w-full h-full flex flex-col"}>
+      <header className={`flex-shrink-0 border-b px-8 py-4 flex items-center justify-between z-20 backdrop-blur ${isDark ? 'bg-black/20 border-white/10 text-white' : 'bg-white/80 border-gray-200 text-gray-900'}`}>
         <div className="flex items-center gap-4">
             <button onClick={onGoBack} className="inline-flex items-center gap-2 text-xs font-semibold uppercase text-white/60 hover:text-white hover:bg-white/10 px-3 py-1.5 rounded-full">
                 <ChevronLeft size={18} /> Back
@@ -369,7 +372,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
         </div>
       </header>
       <div className="w-full h-full flex flex-1 overflow-hidden">
-        <div className="flex-1 flex flex-col bg-black/60 relative">
+        <div className={`flex-1 flex flex-col relative ${isDark ? 'bg-black/60' : 'bg-white'}`}>
           <Toolbar 
             activeTool={activeTool} 
             setActiveTool={setActiveTool}
@@ -420,10 +423,11 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
               onAddComment={handleAddComment}
               pendingComment={pendingComment}
               setPendingComment={setPendingComment}
+              isDark={isDark}
             />
           </div>
         </div>
-        <div className={`flex-shrink-0 h-full bg-transparent overflow-hidden transition-all duration-300 ease-in-out ${isCommentsPaneOpen ? 'w-[360px]' : 'w-0'}`}>
+        <div className={`flex-shrink-0 h-full overflow-hidden transition-all duration-300 ease-in-out ${isCommentsPaneOpen ? 'w-[360px]' : 'w-0'}`}>
           <CommentsPane
             comments={comments}
             currentFrame={currentFrame}
@@ -433,6 +437,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
             activeCommentId={activeCommentId}
             setActiveCommentId={setActiveCommentId}
             onDeleteComment={handleDeleteComment}
+            isDark={isDark}
           />
         </div>
       </div>
