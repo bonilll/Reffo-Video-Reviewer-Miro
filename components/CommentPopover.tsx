@@ -54,6 +54,7 @@ const CommentPopover: React.FC<CommentPopoverProps> = ({ comment, comments, onAd
   const popoverRef = useRef<HTMLDivElement>(null);
   const [replyText, setReplyText] = useState('');
   const friends = useQuery(api.friends.list, {});
+  const groups = useQuery(api.shareGroups.list, {});
   const [suggestOpen, setSuggestOpen] = useState(false);
   const [suggestQuery, setSuggestQuery] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -94,11 +95,17 @@ const CommentPopover: React.FC<CommentPopoverProps> = ({ comment, comments, onAd
 
   const suggestions = useMemo(() => {
     if (!suggestOpen) return [] as Array<{ id: string; label: string; email: string }>;
-    const list = (friends ?? []).map((f) => ({ id: (f as any).id, label: ((f as any).contactName ?? (f as any).contactEmail) as string, email: (f as any).contactEmail }));
+    const friendList = (friends ?? []).map((f) => ({ id: (f as any).id, label: ((f as any).contactName ?? (f as any).contactEmail) as string, email: (f as any).contactEmail }));
+    const groupMembers = (groups ?? []).flatMap((g: any) => g.members.map((m: any) => ({ id: `${g.id}:${m.email}`, label: m.email.split('@')[0], email: m.email })));
+    const mergedMap = new Map<string, { id: string; label: string; email: string }>();
+    [...friendList, ...groupMembers].forEach((p) => {
+      if (!mergedMap.has(p.email)) mergedMap.set(p.email, p);
+    });
+    const list = Array.from(mergedMap.values());
     if (!suggestQuery) return list.slice(0, 5);
     const q = suggestQuery.toLowerCase();
     return list.filter((s) => s.label.toLowerCase().includes(q) || s.email.toLowerCase().includes(q)).slice(0, 5);
-  }, [suggestOpen, suggestQuery, friends]);
+  }, [suggestOpen, suggestQuery, friends, groups]);
 
   const applySuggestion = (label: string) => {
     const el = inputRef.current;

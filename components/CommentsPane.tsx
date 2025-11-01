@@ -188,6 +188,7 @@ const CommentsPane: React.FC<CommentsPaneProps> = ({ comments, currentFrame, onA
   const [filter, setFilter] = useState<'all' | 'open' | 'resolved'>('all');
   const activeCommentRef = useRef<HTMLDivElement>(null);
   const friends = useQuery(api.friends.list, {});
+  const groups = useQuery(api.shareGroups.list, {});
   const [mentionOpen, setMentionOpen] = useState(false);
   const [mentionQuery, setMentionQuery] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -245,12 +246,15 @@ const CommentsPane: React.FC<CommentsPaneProps> = ({ comments, currentFrame, onA
 
   const suggestions = useMemo(() => {
     if (!mentionOpen) return [] as Array<{ id: string; label: string; email: string }>;
-    const list = (friends ?? []).map((f) => ({ id: f.id, label: (f.contactName ?? f.contactEmail) as string, email: f.contactEmail }));
+    const friendList = (friends ?? []).map((f: any) => ({ id: f.id, label: (f.contactName ?? f.contactEmail) as string, email: f.contactEmail }));
+    const groupMembers = (groups ?? []).flatMap((g: any) => g.members.map((m: any) => ({ id: `${g.id}:${m.email}`, label: m.email.split('@')[0], email: m.email })));
+    const merged = new Map<string, { id: string; label: string; email: string }>();
+    [...friendList, ...groupMembers].forEach((p) => { if (!merged.has(p.email)) merged.set(p.email, p); });
+    const list = Array.from(merged.values());
     if (!mentionQuery) return list.slice(0, 5);
-    return list
-      .filter((f) => f.label.toLowerCase().includes(mentionQuery) || f.email.toLowerCase().includes(mentionQuery))
-      .slice(0, 5);
-  }, [mentionOpen, mentionQuery, friends]);
+    const q = mentionQuery.toLowerCase();
+    return list.filter((f) => f.label.toLowerCase().includes(q) || f.email.toLowerCase().includes(q)).slice(0, 5);
+  }, [mentionOpen, mentionQuery, friends, groups]);
 
   const applySuggestion = (label: string) => {
     const el = textareaRef.current;

@@ -53,8 +53,14 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
   const deleteCommentMutation = useMutation(api.comments.remove);
   const updateCommentPositionMutation = useMutation(api.comments.updatePosition);
   const getDownloadUrlAction = useAction(api.storage.getDownloadUrl);
+  const syncFriends = useMutation(api.shareGroups.syncFriendsFromGroups);
 
   const [playbackUrl, setPlaybackUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Ensure 'Friends' are synced from groups even when landing directly in reviewer.
+    void syncFriends({}).catch(() => undefined);
+  }, [syncFriends]);
 
   useEffect(() => {
     let cancelled = false;
