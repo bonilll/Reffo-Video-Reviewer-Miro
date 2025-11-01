@@ -63,11 +63,47 @@ const NewCommentPopover: React.FC<NewCommentPopoverProps> = ({ position, rendere
   }, [onCancel]);
   
   const canvasPos = normalizedToCanvas(position, renderedRect);
-  
+
+  // Measured/clamped placement – keeps popover within the renderedRect bounds and flips vertically when needed
+  const [placement, setPlacement] = useState<{ top: number; left: number; flipY: boolean }>({ top: canvasPos.y + 15, left: canvasPos.x, flipY: false });
+
+  const recalcPlacement = () => {
+    const pad = 8;
+    const offset = 15;
+    const w = popoverRef.current?.offsetWidth ?? 320;
+    const h = popoverRef.current?.offsetHeight ?? 160;
+    // Clamp horizontally
+    let left = canvasPos.x;
+    left = Math.max(w / 2 + pad, Math.min(renderedRect.width - w / 2 - pad, left));
+    // Prefer below; flip above if no space
+    let top = canvasPos.y + offset;
+    let flipY = false;
+    if (top + h > renderedRect.height - pad) {
+      top = canvasPos.y - offset - h;
+      flipY = true;
+      if (top < pad) top = Math.min(renderedRect.height - pad - h, Math.max(pad, top));
+    }
+    setPlacement({ top, left, flipY });
+  };
+
+  useEffect(() => {
+    recalcPlacement();
+    const onResize = () => recalcPlacement();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canvasPos.x, canvasPos.y, renderedRect.width, renderedRect.height]);
+
+  useEffect(() => {
+    // Recalculate on content growth (typing/suggestions open)
+    recalcPlacement();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [text, mentionOpen]);
+
   const style: React.CSSProperties = {
     position: 'absolute',
-    top: `${canvasPos.y + 15}px`, // Position slightly below the click point
-    left: `${canvasPos.x}px`,
+    top: `${placement.top}px`,
+    left: `${placement.left}px`,
     transform: 'translateX(-50%)',
     zIndex: 40,
   };
@@ -137,7 +173,12 @@ const NewCommentPopover: React.FC<NewCommentPopoverProps> = ({ position, rendere
       className={`w-96 rounded-3xl shadow-2xl flex flex-col relative max-w-[90vw] backdrop-blur border ${isDark ? 'bg-black/80 border-white/10' : 'bg-white border-gray-200'}`}
       onClick={(e) => e.stopPropagation()}
     >
-      <div className={`absolute left-1/2 -top-[5px] -ml-[5px] w-2.5 h-2.5 transform rotate-45 ${isDark ? 'bg-black/80 border-t border-l border-white/10' : 'bg-white border-t border-l border-gray-200'}`} />
+      {/* Arrow: flips to bottom when popover is above the click point */}
+      {!placement.flipY ? (
+        <div className={`absolute left-1/2 -top-[5px] -ml-[5px] w-2.5 h-2.5 transform rotate-45 ${isDark ? 'bg-black/80 border-t border-l border-white/10' : 'bg-white border-t border-l border-gray-200'}`} />
+      ) : (
+        <div className={`absolute left-1/2 -bottom-[5px] -ml-[5px] w-2.5 h-2.5 transform rotate-45 ${isDark ? 'bg-black/80 border-b border-r border-white/10' : 'bg-white border-b border-r border-gray-200'}`} />
+      )}
       <div className={`px-4 py-2 border-b ${isDark ? 'border-white/10' : 'border-gray-200'}`}>
         <span className={`text-xs font-semibold uppercase ${isDark ? 'text-white/50' : 'text-gray-600'}`}>New comment</span>
       </div>

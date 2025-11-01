@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect, useRef } from 'react';
+import React, { useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import { useQuery } from 'convex/react';
 import { api } from '../convex/_generated/api';
 import { useUser } from '@clerk/clerk-react';
@@ -52,7 +52,6 @@ const CommentThreadItem: React.FC<{ comment: Comment }> = ({ comment }) => (
 
 
 const CommentPopover: React.FC<CommentPopoverProps> = ({ comment, comments, onAddComment, onClose, renderedRect, isDark = true }) => {
-  const popoverRef = useRef<HTMLDivElement>(null);
   const [replyText, setReplyText] = useState('');
   const friends = useQuery(api.friends.list, {});
   const groups = useQuery(api.shareGroups.list, {});
@@ -141,12 +140,39 @@ const CommentPopover: React.FC<CommentPopoverProps> = ({ comment, comments, onAd
   if (!comment.position) return null;
 
   const canvasPos = normalizedToCanvas(comment.position, renderedRect);
-  
-  // Position the popover intelligently
+
+  // Keep within bounds and flip when needed
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const [placement, setPlacement] = useState<{ top: number; left: number; flipY: boolean }>({ top: canvasPos.y + 20, left: canvasPos.x, flipY: false });
+
+  const recalcPlacement = useCallback(() => {
+    const pad = 8;
+    const offset = 20;
+    const w = popoverRef.current?.offsetWidth ?? 320;
+    const h = popoverRef.current?.offsetHeight ?? 240;
+    let left = canvasPos.x;
+    left = Math.max(w / 2 + pad, Math.min(renderedRect.width - w / 2 - pad, left));
+    let top = canvasPos.y + offset;
+    let flipY = false;
+    if (top + h > renderedRect.height - pad) {
+      top = canvasPos.y - offset - h;
+      flipY = true;
+      if (top < pad) top = Math.min(renderedRect.height - pad - h, Math.max(pad, top));
+    }
+    setPlacement({ top, left, flipY });
+  }, [canvasPos.x, canvasPos.y, renderedRect.width, renderedRect.height]);
+
+  useEffect(() => {
+    recalcPlacement();
+    const onResize = () => recalcPlacement();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [recalcPlacement]);
+
   const style: React.CSSProperties = {
     position: 'absolute',
-    top: `${canvasPos.y + 20}px`,
-    left: `${canvasPos.x}px`,
+    top: `${placement.top}px`,
+    left: `${placement.left}px`,
     transform: 'translateX(-50%)',
     zIndex: 30,
   };
@@ -158,7 +184,11 @@ const CommentPopover: React.FC<CommentPopoverProps> = ({ comment, comments, onAd
       className={`w-80 rounded-2xl shadow-2xl flex flex-col relative max-w-[90vw] backdrop-blur border ${isDark ? 'bg-black/80 border-white/10' : 'bg-white border-gray-200'}`}
       onClick={e => e.stopPropagation()}
     >
-        <div className={`absolute left-1/2 -top-[5px] -ml-[5px] w-2.5 h-2.5 transform rotate-45 ${isDark ? 'bg-black/80 border-t border-l border-white/10' : 'bg-white border-t border-l border-gray-200'}`} />
+        {!placement.flipY ? (
+          <div className={`absolute left-1/2 -top-[5px] -ml-[5px] w-2.5 h-2.5 transform rotate-45 ${isDark ? 'bg-black/80 border-t border-l border-white/10' : 'bg-white border-t border-l border-gray-200'}`} />
+        ) : (
+          <div className={`absolute left-1/2 -bottom-[5px] -ml-[5px] w-2.5 h-2.5 transform rotate-45 ${isDark ? 'bg-black/80 border-b border-r border-white/10' : 'bg-white border-b border-r border-gray-200'}`} />
+        )}
 
         <div className="flex items-center justify-between px-3 py-2 border-b border-white/10">
             <span className="text-xs font-semibold uppercase text-white/40">Thread</span>
