@@ -483,26 +483,82 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
     await revokeShare({ shareId: shareId as any });
   }, [revokeShare]);
 
+  const formatClock = useCallback((secs: number) => {
+    const m = Math.floor(secs / 60).toString().padStart(2, '0');
+    const s = Math.floor(secs % 60).toString().padStart(2, '0');
+    return `${m}:${s}`;
+  }, []);
+
+  const headerDuration = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : (duration || 0);
+
   return (
     <div className={"w-full h-full flex flex-col"}>
-      <header ref={headerEl} className={`flex-shrink-0 border-b px-8 py-4 flex items-center justify-between z-20 backdrop-blur ${isDark ? 'bg-black/20 border-white/10 text-white' : 'bg-white/80 border-gray-200 text-gray-900'}`}>
-        <div className="flex items-center gap-4">
-            <button onClick={onGoBack} className="inline-flex items-center gap-2 text-xs font-semibold uppercase text-white/60 hover:text-white hover:bg-white/10 px-3 py-1.5 rounded-full">
-                <ChevronLeft size={18} /> Back
-            </button>
-            <h1 className="text-xl font-semibold text-white">{video.title}</h1>
+      <header
+        ref={headerEl}
+        className={`flex-shrink-0 border-b px-4 md:px-8 py-3 md:py-4 grid grid-cols-[1fr_auto_1fr] items-center z-20 backdrop-blur ${
+          isDark ? 'bg-black/30 border-white/10 text-white' : 'bg-white/80 border-gray-200 text-gray-900'
+        }`}
+      >
+        {/* Left: back */}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onGoBack}
+            className={`${
+              isDark
+                ? 'text-white/70 hover:text-white hover:bg-white/10'
+                : 'text-gray-700 hover:text-gray-900 hover:bg-gray-100'
+            } inline-flex items-center gap-2 text-[11px] font-semibold uppercase px-3 py-1.5 rounded-full transition`}
+          >
+            <ChevronLeft size={16} /> Back
+          </button>
         </div>
-        <div className="flex items-center space-x-3">
-          <button onClick={() => setShowAnnotations(s => !s)} title={showAnnotations ? 'Hide Annotations' : 'Show Annotations'} className="p-2 text-white/60 hover:text-white hover:bg-white/10 rounded-full transition-colors">
+        {/* Center: title + meta */}
+        <div className="min-w-0 text-center">
+          <h1
+            className={`${isDark ? 'text-white' : 'text-gray-900'} text-base md:text-lg font-semibold truncate`}
+            title={video.title}
+          >
+            {video.title}
+          </h1>
+          <div className={`${isDark ? 'text-white/50' : 'text-gray-500'} text-[11px] mt-0.5`}> 
+            {video.width}×{video.height} • {video.fps} fps • {formatClock(headerDuration)}
+          </div>
+        </div>
+        {/* Right: quick actions */}
+        <div className="flex items-center justify-end gap-2 md:gap-3">
+          <button
+            onClick={() => setShowAnnotations((s) => !s)}
+            title={showAnnotations ? 'Hide Annotations' : 'Show Annotations'}
+            className={`${
+              isDark ? 'text-white/70 hover:text-white hover:bg-white/10' : 'text-gray-700 hover:text-gray-900 hover:bg-gray-100'
+            } p-2 rounded-full transition-colors`}
+          >
             {showAnnotations ? <EyeOff size={18} /> : <Eye size={18} />}
           </button>
-          <button onClick={() => setShareOpen(true)} className="inline-flex items-center gap-2 text-xs font-semibold text-black bg-white hover:bg-white/90 px-4 py-2 rounded-full">
+          <button
+            onClick={() => setShareOpen(true)}
+            className={`${
+              isDark
+                ? 'text-black bg-white hover:bg-white/90'
+                : 'text-white bg-black hover:bg-black/90'
+            } inline-flex items-center gap-2 text-xs font-semibold px-4 py-2 rounded-full transition`}
+          >
             <Share2 size={14} /> Share
           </button>
           {clerkUser?.imageUrl ? (
-            <img src={clerkUser.imageUrl} alt={clerkUser.fullName ?? clerkUser.emailAddresses[0]?.emailAddress ?? 'User'} className="w-8 h-8 rounded-full border border-white/20 object-cover" />
+            <img
+              src={clerkUser.imageUrl}
+              alt={clerkUser.fullName ?? clerkUser.emailAddresses[0]?.emailAddress ?? 'User'}
+              className={`w-8 h-8 rounded-full object-cover ${isDark ? 'border border-white/20' : 'border border-gray-200'}`}
+            />
           ) : (
-            <div className="w-8 h-8 rounded-full bg-white/10 border border-white/20 flex items-center justify-center text-white font-bold">{(clerkUser?.firstName?.[0] ?? 'U').toUpperCase()}</div>
+            <div
+              className={`w-8 h-8 rounded-full flex items-center justify-center font-bold ${
+                isDark ? 'bg-white/10 border border-white/20 text-white' : 'bg-gray-100 border border-gray-300 text-gray-800'
+              }`}
+            >
+              {(clerkUser?.firstName?.[0] ?? 'U').toUpperCase()}
+            </div>
           )}
         </div>
       </header>
