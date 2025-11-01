@@ -41,6 +41,9 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
   const ensureSettings = useMutation(api.settings.ensure);
   const updateProfile = useMutation(api.users.updateProfile);
   const generateAvatarUpload = useAction(api.storage.generateProfileImageUploadUrl);
+  const friends = useQuery(api.friends.list, {});
+  const addFriend = useMutation(api.friends.add);
+  const removeFriend = useMutation(api.friends.remove);
 
   const [displayName, setDisplayName] = useState(user.name ?? '');
   const [avatarUrl, setAvatarUrl] = useState(user.avatar ?? '');
@@ -301,9 +304,28 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
                 </button>
               </div>
             </div>
-          </article>
+      </article>
 
-          {/* Notifications panel hidden */}
+      <article className="rounded-3xl border border-white/10 bg-white/5 p-6">
+        <div className="flex items-center gap-3 text-white">
+          <Users size={18} />
+          <h2 className="text-lg font-semibold">Friends</h2>
+        </div>
+        <p className="mt-2 text-sm text-white/60">People you collaborate with across your teams. Mentions use this list.</p>
+        <div className="mt-4 space-y-3 text-sm text-white/70">
+          <FriendsManager
+            friends={friends ?? []}
+            onAdd={async (email, name) => {
+              await addFriend({ email, name: name || undefined });
+            }}
+            onRemove={async (id) => {
+              await removeFriend({ friendId: id as any });
+            }}
+          />
+        </div>
+      </article>
+
+      {/* Notifications panel hidden */}
           {false && (
           <article className="rounded-3xl border border-white/10 bg-white/5 p-6">
             <div className="flex items-center gap-3 text-white">
@@ -674,3 +696,65 @@ async function uploadBlob(url: string, blob: Blob, contentType: string): Promise
     if (!r.ok) throw new Error('Upload failed');
   });
 }
+
+interface FriendsManagerProps {
+  friends: Array<{ id: string; contactEmail: string; contactName: string | null }>;
+  onAdd: (email: string, name?: string) => Promise<void> | void;
+  onRemove: (id: string) => Promise<void> | void;
+}
+
+const FriendsManager: React.FC<FriendsManagerProps> = ({ friends, onAdd, onRemove }) => {
+  const [email, setEmail] = useState('');
+  const [name, setName] = useState('');
+  const [saving, setSaving] = useState(false);
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+        <input
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="email@studio.com"
+          className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-white/60"
+        />
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Name (optional)"
+          className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-white/60"
+        />
+        <button
+          disabled={!email.trim() || saving}
+          onClick={async () => {
+            setSaving(true);
+            await onAdd(email.trim(), name.trim() || undefined);
+            setSaving(false);
+            setEmail('');
+            setName('');
+          }}
+          className="rounded-full bg-white px-4 py-2 text-sm font-semibold text-black enabled:hover:bg-white/90 disabled:opacity-40"
+        >
+          {saving ? 'Adding…' : 'Add'}
+        </button>
+      </div>
+      <ul className="divide-y divide-white/10 rounded-2xl border border-white/10">
+        {friends.map((f) => (
+          <li key={f.id} className="flex items-center justify-between px-4 py-2 text-sm text-white/70">
+            <div>
+              <p className="font-semibold text-white">{f.contactName ?? f.contactEmail}</p>
+              <p className="text-white/50">{f.contactEmail}</p>
+            </div>
+            <button
+              onClick={() => onRemove(f.id)}
+              className="rounded-full bg-white/10 px-3 py-1 text-xs text-white/70 hover:text-white"
+            >
+              Remove
+            </button>
+          </li>
+        ))}
+        {friends.length === 0 && (
+          <li className="px-4 py-6 text-center text-white/50 text-sm">No friends yet</li>
+        )}
+      </ul>
+    </div>
+  );
+};

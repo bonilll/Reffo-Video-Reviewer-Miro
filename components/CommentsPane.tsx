@@ -1,4 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
+import { useQuery } from 'convex/react';
+import { api } from '../convex/_generated/api';
 import { Comment } from '../types';
 import { MessageSquare, CheckCircle2, Circle, Trash2 } from 'lucide-react';
 
@@ -127,6 +129,10 @@ const CommentsPane: React.FC<CommentsPaneProps> = ({ comments, currentFrame, onA
   const [newCommentText, setNewCommentText] = useState('');
   const [filter, setFilter] = useState<'all' | 'open' | 'resolved'>('all');
   const activeCommentRef = useRef<HTMLDivElement>(null);
+  const friends = useQuery(api.friends.list, {});
+  const [mentionOpen, setMentionOpen] = useState(false);
+  const [mentionQuery, setMentionQuery] = useState('');
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   
   const commentTree = useMemo(() => {
     const commentMap = new Map<string, Comment & { replies: Comment[] }>();
@@ -158,7 +164,55 @@ const CommentsPane: React.FC<CommentsPaneProps> = ({ comments, currentFrame, onA
     if (newCommentText.trim()) {
       onAddComment(newCommentText);
       setNewCommentText('');
+      setMentionOpen(false);
     }
+  };
+
+  const handleTextareaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const value = e.target.value;
+    setNewCommentText(value);
+    const selectionStart = e.target.selectionStart ?? value.length;
+    const uptoCursor = value.slice(0, selectionStart);
+    const at = uptoCursor.lastIndexOf('@');
+    if (at >= 0) {
+      const after = uptoCursor.slice(at + 1);
+      if (/^[\w .-]{0,32}$/.test(after)) {
+        setMentionQuery(after.toLowerCase());
+        setMentionOpen(true);
+        return;
+      }
+    }
+    setMentionOpen(false);
+  };
+
+  const suggestions = useMemo(() => {
+    if (!mentionOpen) return [] as Array<{ id: string; label: string; email: string }>;
+    const list = (friends ?? []).map((f) => ({ id: f.id, label: (f.contactName ?? f.contactEmail) as string, email: f.contactEmail }));
+    if (!mentionQuery) return list.slice(0, 5);
+    return list
+      .filter((f) => f.label.toLowerCase().includes(mentionQuery) || f.email.toLowerCase().includes(mentionQuery))
+      .slice(0, 5);
+  }, [mentionOpen, mentionQuery, friends]);
+
+  const applySuggestion = (label: string) => {
+    const el = textareaRef.current;
+    if (!el) return;
+    const value = newCommentText;
+    const pos = el.selectionStart ?? value.length;
+    const upto = value.slice(0, pos);
+    const at = upto.lastIndexOf('@');
+    if (at < 0) return;
+    const before = value.slice(0, at + 1);
+    const after = value.slice(pos);
+    const inserted = `${label}`;
+    const nextValue = `${before}${inserted} ${after}`;
+    setNewCommentText(nextValue);
+    setMentionOpen(false);
+    requestAnimationFrame(() => {
+      const caret = (before + inserted + ' ').length;
+      el.setSelectionRange(caret, caret);
+      el.focus();
+    });
   };
 
   useEffect(() => {
@@ -199,11 +253,27 @@ const CommentsPane: React.FC<CommentsPaneProps> = ({ comments, currentFrame, onA
         <form onSubmit={handleSubmitComment} className="space-y-3">
           <textarea
             value={newCommentText}
-            onChange={(e) => setNewCommentText(e.target.value)}
+            onChange={handleTextareaChange}
             placeholder={`Add general comment at frame ${currentFrame}...`}
             className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-white resize-none"
             rows={3}
+            ref={textareaRef}
           />
+          {mentionOpen && suggestions.length > 0 && (
+            <div className="max-h-48 overflow-auto rounded-xl border border-white/10 bg-black/80 text-sm text-white shadow-2xl">
+              {suggestions.map((s) => (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => applySuggestion(s.label)}
+                  className="flex w-full items-center justify-between px-3 py-2 text-left hover:bg-white/10"
+                >
+                  <span>{s.label}</span>
+                  <span className="text-white/40">@{s.email}</span>
+                </button>
+              ))}
+            </div>
+          )}
           <button type="submit" className="w-full bg-white text-black font-semibold py-2.5 rounded-full hover:bg-white/90">
             Add Comment
           </button>
