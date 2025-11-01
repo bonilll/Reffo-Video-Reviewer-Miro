@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "CONVEX_TELEMETRY_DISABLED=1 SENTRY_DSN= vite build",
     "preview": "vite preview"
   },
   "dependencies": {
