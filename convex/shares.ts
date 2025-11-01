@@ -78,6 +78,40 @@ export const shareToGroup = mutation({
 
     if (existing) {
       await ctx.db.patch(existing._id, payload);
+      // If sharing a project, propagate settings to all existing videos in the project
+      if (args.projectId) {
+        const videos = await ctx.db
+          .query('videos')
+          .withIndex('byProject', (q) => q.eq('projectId', args.projectId!))
+          .collect();
+        for (const v of videos) {
+          const existingVideoShare = await ctx.db
+            .query('contentShares')
+            .withIndex('byVideo', (q) => q.eq('videoId', v._id))
+            .filter((q) => q.eq(q.field('groupId'), args.groupId))
+            .first();
+          if (existingVideoShare) {
+            await ctx.db.patch(existingVideoShare._id, {
+              allowDownload: args.allowDownload,
+              allowComments: args.allowComments,
+              isActive: true,
+            });
+          } else {
+            await ctx.db.insert('contentShares', {
+              ownerId: user._id,
+              videoId: v._id,
+              projectId: args.projectId,
+              groupId: args.groupId,
+              linkToken: undefined,
+              allowDownload: args.allowDownload,
+              allowComments: args.allowComments,
+              isActive: true,
+              createdAt: Date.now(),
+              expiresAt: existing?.expiresAt,
+            });
+          }
+        }
+      }
       // Notify members
       const members = await ctx.db.query('shareGroupMembers').withIndex('byGroup', (q) => q.eq('groupId', args.groupId)).collect();
       await Promise.all(members.map(async (m) => {
@@ -101,6 +135,40 @@ export const shareToGroup = mutation({
     }
 
     const id = await ctx.db.insert("contentShares", payload);
+    // If sharing a project, propagate to all current videos
+    if (args.projectId) {
+      const videos = await ctx.db
+        .query('videos')
+        .withIndex('byProject', (q) => q.eq('projectId', args.projectId!))
+        .collect();
+      for (const v of videos) {
+        const existingVideoShare = await ctx.db
+          .query('contentShares')
+          .withIndex('byVideo', (q) => q.eq('videoId', v._id))
+          .filter((q) => q.eq(q.field('groupId'), args.groupId))
+          .first();
+        if (!existingVideoShare) {
+          await ctx.db.insert('contentShares', {
+            ownerId: user._id,
+            videoId: v._id,
+            projectId: args.projectId,
+            groupId: args.groupId,
+            linkToken: undefined,
+            allowDownload: args.allowDownload,
+            allowComments: args.allowComments,
+            isActive: true,
+            createdAt: Date.now(),
+            expiresAt: undefined,
+          });
+        } else {
+          await ctx.db.patch(existingVideoShare._id, {
+            allowDownload: args.allowDownload,
+            allowComments: args.allowComments,
+            isActive: true,
+          });
+        }
+      }
+    }
     const members = await ctx.db.query('shareGroupMembers').withIndex('byGroup', (q) => q.eq('groupId', args.groupId)).collect();
     await Promise.all(members.map(async (m) => {
       const u = await ctx.db.query('users').withIndex('byEmail', (q) => q.eq('email', m.email)).unique();

@@ -12,18 +12,27 @@ async function canViewVideo(ctx: any, userId: Id<'users'>, videoId: Id<'videos'>
   const video = await ctx.db.get(videoId);
   if (!video) return false;
   if (video.ownerId === userId) return true;
-  // Group shares
-  const shares = await ctx.db.query('contentShares').withIndex('byVideo', (q: any) => q.eq('videoId', videoId)).collect();
-  if (!shares.length) return false;
-  const memberEmails = new Set<string>();
-  for (const s of shares) {
+  // Shares attached to the specific video
+  const videoShares = await ctx.db.query('contentShares').withIndex('byVideo', (q: any) => q.eq('videoId', videoId)).collect();
+  let memberEmails = new Set<string>();
+  for (const s of videoShares) {
     if (s.groupId) {
       const members = await ctx.db.query('shareGroupMembers').withIndex('byGroup', (q: any) => q.eq('groupId', s.groupId)).collect();
       members.forEach((m: any) => memberEmails.add(m.email));
     }
   }
+  // Project-level shares
+  if (video.projectId) {
+    const projShares = await ctx.db.query('contentShares').withIndex('byProject', (q: any) => q.eq('projectId', video.projectId)).collect();
+    for (const s of projShares) {
+      if (s.groupId) {
+        const members = await ctx.db.query('shareGroupMembers').withIndex('byGroup', (q: any) => q.eq('groupId', s.groupId)).collect();
+        members.forEach((m: any) => memberEmails.add(m.email));
+      }
+    }
+  }
   const user = await ctx.db.get(userId);
-  return user ? memberEmails.has(user.email) || shares.some((s: any) => s.linkToken && s.isActive) : false;
+  return user ? memberEmails.has(user.email) || videoShares.some((s: any) => s.linkToken && s.isActive) : false;
 }
 
 async function canCommentOnVideo(ctx: any, userId: Id<'users'>, videoId: Id<'videos'>) {
@@ -31,7 +40,6 @@ async function canCommentOnVideo(ctx: any, userId: Id<'users'>, videoId: Id<'vid
   if (!video) return false;
   if (video.ownerId === userId) return true;
   const shares = await ctx.db.query('contentShares').withIndex('byVideo', (q: any) => q.eq('videoId', videoId)).collect();
-  if (!shares.length) return false;
   const user = await ctx.db.get(userId);
   if (!user) return false;
   // Group membership with allowComments
@@ -46,7 +54,22 @@ async function canCommentOnVideo(ctx: any, userId: Id<'users'>, videoId: Id<'vid
     }
   }
   // Public link with allowComments
-  return shares.some((s: any) => s.linkToken && s.isActive && s.allowComments);
+  if (shares.some((s: any) => s.linkToken && s.isActive && s.allowComments)) return true;
+  // Project-level shares with allowComments
+  if (video.projectId) {
+    const projShares = await ctx.db.query('contentShares').withIndex('byProject', (q: any) => q.eq('projectId', video.projectId)).collect();
+    for (const s of projShares) {
+      if (s.groupId && s.isActive && s.allowComments) {
+        const member = await ctx.db
+          .query('shareGroupMembers')
+          .withIndex('byGroup', (q: any) => q.eq('groupId', s.groupId))
+          .filter((q: any) => q.eq(q.field('email'), user.email))
+          .first();
+        if (member) return true;
+      }
+    }
+  }
+  return false;
 }
 
 export const listByVideo = query({
