@@ -15,9 +15,20 @@ interface CommentProps {
   setActive: () => void;
 }
 
-const CommentItem: React.FC<CommentProps> = ({ comment, replies, onAddComment, onToggleResolve, onJumpToFrame, onDeleteComment, isActive, setActive }) => {
+const CommentItem: React.FC<CommentProps & { friends?: Array<{ id: string; contactEmail: string; contactName: string | null }> }>
+ = ({ comment, replies, onAddComment, onToggleResolve, onJumpToFrame, onDeleteComment, isActive, setActive, friends }) => {
   const [showReply, setShowReply] = useState(false);
   const [replyText, setReplyText] = useState('');
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+  const sugg = useMemo(() => {
+    if (!open) return [] as Array<{ id: string; label: string; email: string }>;
+    const list = (friends ?? []).map((f) => ({ id: f.id, label: (f.contactName ?? f.contactEmail) as string, email: f.contactEmail }));
+    if (!q) return list.slice(0, 5);
+    const lq = q.toLowerCase();
+    return list.filter((s) => s.label.toLowerCase().includes(lq) || s.email.toLowerCase().includes(lq)).slice(0, 5);
+  }, [open, q, friends]);
   
   const handleReplySubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -27,6 +38,42 @@ const CommentItem: React.FC<CommentProps> = ({ comment, replies, onAddComment, o
       setShowReply(false);
     }
   }
+
+  const onReplyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setReplyText(value);
+    const pos = e.target.selectionStart ?? value.length;
+    const upto = value.slice(0, pos);
+    const at = upto.lastIndexOf('@');
+    if (at >= 0) {
+      const tail = upto.slice(at + 1);
+      if (/^[\w .-]{0,32}$/.test(tail)) {
+        setQ(tail.toLowerCase());
+        setOpen(true);
+        return;
+      }
+    }
+    setOpen(false);
+  };
+
+  const apply = (label: string) => {
+    const el = inputRef.current;
+    const value = replyText;
+    const pos = el?.selectionStart ?? value.length;
+    const upto = value.slice(0, pos);
+    const at = upto.lastIndexOf('@');
+    if (at < 0) return;
+    const before = value.slice(0, at + 1);
+    const after = value.slice(pos);
+    const next = `${before}${label} ${after}`;
+    setReplyText(next);
+    setOpen(false);
+    requestAnimationFrame(() => {
+      const caret = (before + label + ' ').length;
+      inputRef.current?.setSelectionRange(caret, caret);
+      inputRef.current?.focus();
+    });
+  };
 
   const timeAgo = (dateString: string) => {
     const date = new Date(dateString);
@@ -82,15 +129,26 @@ const CommentItem: React.FC<CommentProps> = ({ comment, replies, onAddComment, o
         </div>
       </div>
       {showReply && (
-        <form onSubmit={handleReplySubmit} className="ml-11 mt-3 flex gap-2">
+        <form onSubmit={handleReplySubmit} className="ml-11 mt-3 flex gap-2 relative">
             <input 
                 type="text"
                 value={replyText}
-                onChange={e => setReplyText(e.target.value)}
+                onChange={onReplyChange}
                 placeholder="Write a reply..."
                 className="w-full bg-white/5 border border-white/10 rounded-full px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-white"
+                ref={inputRef}
             />
             <button type="submit" className="bg-white text-black px-4 rounded-full text-xs font-semibold hover:bg-white/90">Send</button>
+            {open && sugg.length > 0 && (
+              <div className="absolute left-0 top-10 z-10 max-h-48 w-full overflow-auto rounded-xl border border-white/10 bg-black/80 text-sm text-white shadow-2xl">
+                {sugg.map((s) => (
+                  <button key={s.id} type="button" onMouseDown={(ev) => ev.preventDefault()} onClick={() => apply(s.label)} className="flex w-full items-center justify-between px-3 py-2 text-left hover:bg-white/10">
+                    <span>{s.label}</span>
+                    <span className="text-white/40">@{s.email}</span>
+                  </button>
+                ))}
+              </div>
+            )}
         </form>
       )}
       {replies.length > 0 && (

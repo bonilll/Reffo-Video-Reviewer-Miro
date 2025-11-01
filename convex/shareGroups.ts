@@ -1,6 +1,7 @@
 import { mutation, query } from "./_generated/server";
 import { ConvexError, v } from "convex/values";
 import { getCurrentUserOrThrow } from "./utils/auth";
+import { api } from "./_generated/api";
 
 const sanitizeMember = (member: any) => ({
   id: member._id,
@@ -155,6 +156,23 @@ export const addMember = mutation({
       invitedAt: now,
       acceptedAt: directUser ? now : undefined,
     });
+
+    // Auto-add to owner's friends list
+    await ctx.runMutation(api.friends.add, { email: normalizedEmail });
+  },
+});
+
+export const syncFriendsFromGroups = mutation({
+  args: {},
+  async handler(ctx) {
+    const user = await getCurrentUserOrThrow(ctx);
+    const groups = await ctx.db.query('shareGroups').withIndex('byOwner', (q) => q.eq('ownerId', user._id)).collect();
+    for (const g of groups) {
+      const members = await ctx.db.query('shareGroupMembers').withIndex('byGroup', (q) => q.eq('groupId', g._id)).collect();
+      for (const m of members) {
+        await ctx.runMutation(api.friends.add, { email: m.email });
+      }
+    }
   },
 });
 

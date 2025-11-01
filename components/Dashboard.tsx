@@ -280,6 +280,15 @@ const Dashboard: React.FC<DashboardProps> = ({
   const addMemberMutation = useMutation(api.shareGroups.addMember);
   const updateMemberMutation = useMutation(api.shareGroups.updateMember);
   const removeMemberMutation = useMutation(api.shareGroups.removeMember);
+  const syncFriends = useMutation(api.shareGroups.syncFriendsFromGroups);
+  const friends = useQuery(api.friends.list, {});
+
+  // One-time sync of friends from existing groups for owner
+  useEffect(() => {
+    if (shareGroups && shareGroups.length) {
+      void syncFriends({}).catch(() => undefined);
+    }
+  }, [shareGroups, syncFriends]);
 
   const recentVideos = useMemo(() => {
     const sorted = [...videos]
@@ -1900,6 +1909,16 @@ const InviteForm: React.FC<{
   const [email, setEmail] = useState('');
   const [role, setRole] = useState<'owner' | 'admin' | 'editor' | 'viewer'>('editor');
   const [saving, setSaving] = useState(false);
+  const friends = useQuery(api.friends.list, {});
+  const [suggestOpen, setSuggestOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const emailRef = useRef<HTMLInputElement>(null);
+  const suggestions = useMemo(() => {
+    const list = (friends ?? []).map((f) => ({ id: f.id, label: (f as any).contactName ?? (f as any).contactEmail, email: (f as any).contactEmail }));
+    if (!query) return list.slice(0, 5);
+    const q = query.toLowerCase();
+    return list.filter((s) => s.label.toLowerCase().includes(q) || s.email.toLowerCase().includes(q)).slice(0, 5);
+  }, [friends, query]);
   return (
     <form
       onSubmit={async (e) => {
@@ -1913,12 +1932,33 @@ const InviteForm: React.FC<{
     >
       <div>
         <label className="text-xs font-semibold uppercase text-white/40">Email</label>
-        <input
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          placeholder="name@studio.com"
-          className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-white/60"
-        />
+        <div className="relative">
+          <input
+            ref={emailRef}
+            value={email}
+            onChange={(e) => { setEmail(e.target.value); setQuery(e.target.value); setSuggestOpen(true); }}
+            onFocus={() => setSuggestOpen(true)}
+            onBlur={() => setTimeout(() => setSuggestOpen(false), 120)}
+            placeholder="name@studio.com"
+            className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-white/60"
+          />
+          {suggestOpen && suggestions.length > 0 && (
+            <div className="absolute z-10 mt-2 w-full rounded-xl border border-white/10 bg-black/80 text-sm text-white shadow-2xl">
+              {suggestions.map((s) => (
+                <button
+                  key={s.id}
+                  type="button"
+                  className="flex w-full items-center justify-between px-3 py-2 text-left hover:bg-white/10"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => { setEmail(s.email); setQuery(s.email); setSuggestOpen(false); emailRef.current?.blur(); }}
+                >
+                  <span>{s.label}</span>
+                  <span className="text-white/40">{s.email}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
       <div>
         <label className="text-xs font-semibold uppercase text-white/40">Role</label>
