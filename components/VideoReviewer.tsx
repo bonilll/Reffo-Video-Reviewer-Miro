@@ -505,7 +505,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
         </div>
       </div>
       {/* External Controls Bar */}
-      <div className={`${isDark ? 'bg-black/70 border-t border-white/10 text-white' : 'bg-white border-t border-gray-200 text-gray-900'} flex flex-col gap-3 px-6 py-3 h-28 flex-none`}> 
+      <div className={`${isDark ? 'bg-gray-900/80 border-t border-white/10 text-white' : 'bg-gray-100 border-t border-gray-200 text-gray-900'} flex flex-col gap-3 px-6 py-3 h-28 flex-none`}> 
         <div className="flex-1 flex flex-col">
           <Timeline
             currentTime={currentTime}
@@ -514,12 +514,14 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
             video={video}
             annotations={annotations}
             comments={comments}
+            isDark={isDark}
           />
-          <div className={`mt-2 flex items-center justify-between text-xs uppercase ${isDark ? 'text-white/70' : 'text-gray-600'}`}>
-            <span className="px-3 py-1 rounded-full border border-white/10 bg-white/10 text-white/70">
-              {currentFrame} f
-            </span>
+          <div className={`mt-2 grid grid-cols-[1fr_auto_1fr] items-center text-xs uppercase ${isDark ? 'text-white/70' : 'text-gray-600'}`}>
+            <div />
+            <span className={`${isDark ? 'px-3 py-1 rounded-full border border-white/10 bg-white/10 text-white/70' : 'px-3 py-1 rounded-full border border-gray-300 bg-white text-gray-700'}`}>{currentFrame} f</span>
+            <div className="justify-self-end">
             <span>{video.width}×{video.height} • {video.fps} fps</span>
+            </div>
           </div>
         </div>
         <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-4">
@@ -538,9 +540,9 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
             <div className="flex items-center gap-2">
               <button onClick={() => stepFrame(-1)} className={`p-2 rounded-full ${isDark ? 'bg-white/10 hover:bg-white/20 text-white/80' : 'bg-black/5 hover:bg-black/10 text-gray-800'}`}><Rewind size={18} /></button>
               <button onClick={() => stepFrame(-video.fps)} className={`p-2 rounded-full ${isDark ? 'bg-white/10 hover:bg-white/20 text-white/80' : 'bg-black/5 hover:bg-black/10 text-gray-800'}`}><SkipBack size={18} /></button>
-              <button onClick={() => setIsPlaying(p => !p)} className={`${isDark ? 'bg-white text-black hover:bg-white/90' : 'bg-black text-white hover:bg-black/90'} p-3 rounded-full`}>
-                {isPlaying ? <Pause size={22} /> : <Play size={22} />}
-              </button>
+            <button onClick={() => setIsPlaying(p => !p)} className={`p-3 rounded-full ${isDark ? 'bg-white text-black hover:bg-white/90 ring-2 ring-white/20' : 'bg-white text-black hover:bg-white/90 ring-2 ring-black/10'}`}>
+              {isPlaying ? <Pause size={22} /> : <Play size={22} />}
+            </button>
               <button onClick={() => stepFrame(video.fps)} className={`p-2 rounded-full ${isDark ? 'bg-white/10 hover:bg-white/20 text-white/80' : 'bg-black/5 hover:bg-black/10 text-gray-800'}`}><SkipForward size={18} /></button>
               <button onClick={() => stepFrame(1)} className={`p-2 rounded-full ${isDark ? 'bg-white/10 hover:bg-white/20 text-white/80' : 'bg-black/5 hover:bg-black/10 text-gray-800'}`}><FastForward size={18} /></button>
             </div>

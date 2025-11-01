@@ -8,9 +8,10 @@ interface TimelineProps {
   video: Video;
   annotations: Annotation[];
   comments: Comment[];
+  isDark?: boolean;
 }
 
-const Timeline: React.FC<TimelineProps> = ({ currentTime, duration, onSeek, video, annotations, comments }) => {
+const Timeline: React.FC<TimelineProps> = ({ currentTime, duration, onSeek, video, annotations, comments, isDark = true }) => {
   const timelineRef = useRef<HTMLDivElement>(null);
   const isSeeking = useRef(false);
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
@@ -91,27 +92,27 @@ const Timeline: React.FC<TimelineProps> = ({ currentTime, duration, onSeek, vide
     <div className="w-full group px-2">
       <div 
         ref={timelineRef}
-        className="relative h-2 bg-gray-700 rounded-full cursor-pointer" 
+        className={`relative h-2 rounded-full cursor-pointer ${isDark ? 'bg-gray-700' : 'bg-gray-300'}`} 
         onMouseDown={handleMouseDown}
       >
         <div 
-            className="absolute top-0 left-0 h-full bg-white rounded-full" 
+            className={`absolute top-0 left-0 h-full rounded-full ${isDark ? 'bg-white' : 'bg-gray-900'}`} 
             style={{ width: `${progress}%` }}
         />
         <div
-          className="absolute h-4 w-4 bg-white rounded-full -top-1 transform -translate-x-1/2 transition-transform group-hover:scale-110"
+          className={`absolute h-4 w-4 rounded-full top-1/2 transform -translate-x-1/2 -translate-y-1/2 transition-transform group-hover:scale-110 ${isDark ? 'bg-white' : 'bg-gray-900 ring-2 ring-white'}`}
           style={{ left: `${progress}%` }}
         />
         {markers.map(({ frame, position }) => (
             <div 
                 key={`note-marker-${frame}`}
-                className="absolute -top-1 h-4 w-0.5 bg-gray-300"
+                className={`absolute -top-1 h-4 w-0.5 ${isDark ? 'bg-gray-300' : 'bg-gray-500'}`}
                 style={{ left: `${position}%` }}
                 title={`Note at frame ${frame}`}
             />
         ))}
         {frameMarkers.map(({frame, position}) => (
-          <div key={`frame-marker-${frame}`} className="absolute -bottom-5 text-xs text-gray-400 transform -translate-x-1/2" style={{ left: `${position}%` }}>
+          <div key={`frame-marker-${frame}`} className={`absolute -bottom-5 text-xs transform -translate-x-1/2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`} style={{ left: `${position}%` }}>
             {frame}
           </div>
         ))}
