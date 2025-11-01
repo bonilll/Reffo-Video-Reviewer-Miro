@@ -18,3 +18,4 @@ pnpm-debug.log*
 convex/_generated/
 
 *.local
+.vercel
