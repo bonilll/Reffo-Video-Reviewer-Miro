@@ -200,9 +200,10 @@ export const updateMetadata = mutation({
       if (u) {
         for (const s of shares) {
           if (s.groupId) {
+            const gid = s.groupId as Id<'shareGroups'>;
             const member = await ctx.db
               .query('shareGroupMembers')
-              .withIndex('byGroup', (q) => q.eq('groupId', s.groupId))
+              .withIndex('byGroup', (q) => q.eq('groupId', gid))
               .filter((q) => q.eq(q.field('email'), u.email))
               .first();
             if (member) { canView = true; break; }
@@ -217,9 +218,10 @@ export const updateMetadata = mutation({
         if (u) {
           for (const s of projShares) {
             if (s.groupId) {
+              const gid = s.groupId as Id<'shareGroups'>;
               const member = await ctx.db
                 .query('shareGroupMembers')
-                .withIndex('byGroup', (q) => q.eq('groupId', s.groupId))
+                .withIndex('byGroup', (q) => q.eq('groupId', gid))
                 .filter((q) => q.eq(q.field('email'), u.email))
                 .first();
               if (member) { canView = true; break; }
