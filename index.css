@@ -68,4 +68,20 @@
     background: rgba(255, 255, 255, 0.2);
     border-radius: 999px;
   }
+  /* Minimal scrollbars for specific containers */
+  .scroll-slim {
+    scrollbar-width: thin;
+  }
+  .scroll-slim::-webkit-scrollbar {
+    width: 6px;
+  }
+  .scroll-slim::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  body.theme-dark .scroll-slim::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.25);
+  }
+  body.theme-light .scroll-slim::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.2);
+  }
 }

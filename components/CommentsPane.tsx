@@ -296,7 +296,7 @@ const CommentsPane: React.FC<CommentsPaneProps> = ({ comments, currentFrame, onA
             <button onClick={() => setFilter('resolved')} className={`px-4 py-1.5 rounded-full text-xs font-semibold ${filter === 'resolved' ? 'bg-white text-black' : 'text-white/60 hover:bg-white/10'}`}>Resolved</button>
         </div>
       </div>
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto scroll-slim pr-1">
         {filteredComments.map(comment => (
           <div ref={comment.id === activeCommentId ? activeCommentRef : null} key={comment.id}>
              <CommentItem

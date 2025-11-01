@@ -4,7 +4,7 @@ import VideoPlayer from './VideoPlayer';
 import AnnotationCanvas from './AnnotationCanvas';
 import CommentsPane from './CommentsPane';
 import Toolbar from './Toolbar';
-import { ChevronLeft, PanelRightClose, PanelRightOpen, Eye, EyeOff, Play, Pause, Volume2, VolumeX, SkipBack, SkipForward, Rewind, FastForward, Maximize, Minimize } from 'lucide-react';
+import { ChevronLeft, Eye, EyeOff, Play, Pause, Volume2, VolumeX, SkipBack, SkipForward, Rewind, FastForward, Maximize, Minimize } from 'lucide-react';
 import Timeline from './Timeline';
 import { useQuery, useMutation, useAction } from 'convex/react';
 import { api } from '../convex/_generated/api';
@@ -23,7 +23,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const [comments, setComments] = useState<Comment[]>([]);
   
-  const [isCommentsPaneOpen, setIsCommentsPaneOpen] = useState(true);
+  // Comments pane is always visible
   const [pendingComment, setPendingComment] = useState<{ position: Point } | null>(null);
 
 
@@ -425,9 +425,6 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
             {showAnnotations ? <EyeOff size={18} /> : <Eye size={18} />}
           </button>
           <button className="text-xs font-semibold text-black bg-white hover:bg-white/90 px-4 py-2 rounded-full">Share</button>
-          <button onClick={() => setIsCommentsPaneOpen(o => !o)} title={isCommentsPaneOpen ? "Hide Comments" : "Show Comments"} className="p-2 text-white/60 hover:text-white hover:bg-white/10 rounded-full transition-colors">
-            {isCommentsPaneOpen ? <PanelRightClose size={18} /> : <PanelRightOpen size={18} />}
-          </button>
           <div className="w-8 h-8 rounded-full bg-white/10 border border-white/20 flex items-center justify-center text-white font-bold">A</div>
         </div>
       </header>
@@ -490,7 +487,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
             />
           </div>
         </div>
-        <div className={`flex-shrink-0 h-full overflow-hidden transition-all duration-300 ease-in-out ${isCommentsPaneOpen ? 'w-[360px]' : 'w-0'}`}>
+        <div className={`flex-shrink-0 h-full overflow-hidden w-[360px]`}>
           <CommentsPane
             comments={comments}
             currentFrame={currentFrame}
