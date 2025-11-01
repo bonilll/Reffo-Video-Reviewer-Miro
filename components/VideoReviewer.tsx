@@ -4,7 +4,8 @@ import VideoPlayer from './VideoPlayer';
 import AnnotationCanvas from './AnnotationCanvas';
 import CommentsPane from './CommentsPane';
 import Toolbar from './Toolbar';
-import { ChevronLeft, PanelRightClose, PanelRightOpen, Eye, EyeOff } from 'lucide-react';
+import { ChevronLeft, PanelRightClose, PanelRightOpen, Eye, EyeOff, Play, Pause, Volume2, VolumeX, SkipBack, SkipForward, Rewind, FastForward, Maximize, Minimize } from 'lucide-react';
+import Timeline from './Timeline';
 import { useQuery, useMutation, useAction } from 'convex/react';
 import { api } from '../convex/_generated/api';
 import type { Id } from '../convex/_generated/dataModel';
@@ -59,6 +60,10 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
   const syncFriends = useMutation(api.shareGroups.syncFriendsFromGroups);
 
   const [playbackUrl, setPlaybackUrl] = useState<string | null>(null);
+  const [duration, setDuration] = useState(0);
+  const [volume, setVolume] = useState(1);
+  const [isMuted, setIsMuted] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   useEffect(() => {
     // Ensure 'Friends' are synced from groups even when landing directly in reviewer.
@@ -351,6 +356,52 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
   }, [video.fps]);
 
 
+  // Derived helpers for external controls
+  const stepFrame = useCallback((deltaFrames: number) => {
+    const newTime = Math.max(0, Math.min(duration, (currentFrame + deltaFrames) / video.fps));
+    handleSeek(newTime);
+  }, [currentFrame, duration, video.fps]);
+
+  const jumpFrames = useMemo(() => {
+    const frames = new Set<number>();
+    annotations.forEach(a => frames.add(a.frame));
+    comments.forEach(c => c.frame !== undefined && frames.add(c.frame));
+    return Array.from(frames).sort((a, b) => a - b);
+  }, [annotations, comments]);
+
+  const handleJump = useCallback((direction: 'prev' | 'next') => {
+    let targetFrame: number | undefined;
+    if (direction === 'next') {
+      targetFrame = jumpFrames.find(f => f > currentFrame);
+      if (targetFrame === undefined && jumpFrames.length) targetFrame = jumpFrames[0];
+    } else {
+      const reversed = [...jumpFrames].reverse();
+      targetFrame = reversed.find(f => f < currentFrame);
+      if (targetFrame === undefined && jumpFrames.length) targetFrame = jumpFrames[jumpFrames.length - 1];
+    }
+    if (targetFrame !== undefined) handleSeek(targetFrame / video.fps);
+  }, [jumpFrames, currentFrame, handleSeek, video.fps]);
+
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const toggleFullscreen = () => {
+    const el = containerRef.current as any;
+    if (!el) return;
+    if (!document.fullscreenElement) {
+      const req = el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen || el.mozRequestFullScreen;
+      if (req) req.call(el);
+    } else {
+      const exit = document.exitFullscreen || (document as any).webkitExitFullscreen || (document as any).msExitFullscreen || (document as any).mozCancelFullScreen;
+      if (exit) exit.call(document);
+    }
+  };
+
+  useEffect(() => {
+    const onFsChange = () => setIsFullscreen(Boolean(document.fullscreenElement));
+    document.addEventListener('fullscreenchange', onFsChange);
+    return () => document.removeEventListener('fullscreenchange', onFsChange);
+  }, []);
+
   return (
     <div className={"w-full h-full flex flex-col"}>
       <header className={`flex-shrink-0 border-b px-8 py-4 flex items-center justify-between z-20 backdrop-blur ${isDark ? 'bg-black/20 border-white/10 text-white' : 'bg-white/80 border-gray-200 text-gray-900'}`}>
@@ -371,7 +422,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
           <div className="w-8 h-8 rounded-full bg-white/10 border border-white/20 flex items-center justify-center text-white font-bold">A</div>
         </div>
       </header>
-      <div className="w-full h-full flex flex-1 overflow-hidden">
+      <div className="w-full h-full flex flex-1 overflow-hidden" ref={containerRef}>
         <div className={`flex-1 flex flex-col relative ${isDark ? 'bg-black/60' : 'bg-white'}`}>
           <Toolbar 
             activeTool={activeTool} 
@@ -400,6 +451,8 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
               comments={comments}
               onSeek={handleSeek}
               currentFrame={currentFrame}
+              externalControls
+              onDuration={setDuration}
             />
             <AnnotationCanvas
               video={video}
@@ -440,6 +493,60 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
             onDeleteComment={handleDeleteComment}
             isDark={isDark}
           />
+        </div>
+      </div>
+      {/* External Controls Bar */}
+      <div className={`${isDark ? 'bg-black/70 border-t border-white/10 text-white' : 'bg-white border-t border-gray-200 text-gray-900'} flex flex-col gap-3 px-6 py-3 h-28 flex-none`}> 
+        <div className="flex-1 flex flex-col">
+          <Timeline
+            currentTime={currentTime}
+            duration={duration}
+            onSeek={handleSeek}
+            video={video}
+            annotations={annotations}
+            comments={comments}
+          />
+          <div className={`mt-2 flex items-center justify-between text-xs uppercase ${isDark ? 'text-white/70' : 'text-gray-600'}`}>
+            <span className="px-3 py-1 rounded-full border border-white/10 bg-white/10 text-white/70">
+              {currentFrame} f
+            </span>
+            <span>{video.width}×{video.height} • {video.fps} fps</span>
+          </div>
+        </div>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <button onClick={() => stepFrame(-1)} className={`p-2 rounded-full ${isDark ? 'bg-white/10 hover:bg-white/20 text-white/80' : 'bg-black/5 hover:bg-black/10 text-gray-800'}`}><Rewind size={18} /></button>
+            <button onClick={() => stepFrame(-video.fps)} className={`p-2 rounded-full ${isDark ? 'bg-white/10 hover:bg-white/20 text-white/80' : 'bg-black/5 hover:bg-black/10 text-gray-800'}`}><SkipBack size={18} /></button>
+            <button onClick={() => setIsPlaying(p => !p)} className={`${isDark ? 'bg-white text-black hover:bg-white/90' : 'bg-black text-white hover:bg-black/90'} p-3 rounded-full`}>
+              {isPlaying ? <Pause size={22} /> : <Play size={22} />}
+            </button>
+            <button onClick={() => stepFrame(video.fps)} className={`p-2 rounded-full ${isDark ? 'bg-white/10 hover:bg-white/20 text-white/80' : 'bg-black/5 hover:bg-black/10 text-gray-800'}`}><SkipForward size={18} /></button>
+            <button onClick={() => stepFrame(1)} className={`p-2 rounded-full ${isDark ? 'bg-white/10 hover:bg-white/20 text-white/80' : 'bg-black/5 hover:bg-black/10 text-gray-800'}`}><FastForward size={18} /></button>
+          </div>
+          <div className="flex items-center gap-3">
+            <button onClick={() => { const next = !isMuted; setIsMuted(next); if (videoRef.current) videoRef.current.muted = next; }} className={`p-2 rounded-full ${isDark ? 'bg-white/10 hover:bg-white/20 text-white' : 'bg-black/5 hover:bg-black/10 text-gray-800'}`}>
+              {isMuted || volume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}
+            </button>
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.01}
+              value={isMuted ? 0 : volume}
+              onChange={(e) => {
+                const value = Number(e.target.value);
+                setVolume(value);
+                if (videoRef.current) { videoRef.current.volume = value; videoRef.current.muted = value === 0; }
+                setIsMuted(value === 0);
+              }}
+              className={`w-24 ${isDark ? 'accent-white' : 'accent-black'}`}
+            />
+            <button onClick={() => handleJump('prev')} className={`${isDark ? 'px-3 py-1 rounded-full bg-white/10 hover:bg-white/20 text-white/70' : 'px-3 py-1 rounded-full bg-black/5 hover:bg-black/10 text-gray-700'}`}>Prev mark</button>
+            <button onClick={() => handleJump('next')} className={`${isDark ? 'px-3 py-1 rounded-full bg-white/10 hover:bg-white/20 text-white/70' : 'px-3 py-1 rounded-full bg-black/5 hover:bg-black/10 text-gray-700'}`}>Next mark</button>
+            <button onClick={toggleFullscreen} className={`p-2 rounded-full ${isDark ? 'bg-white/10 hover:bg-white/20 text-white' : 'bg-black/5 hover:bg-black/10 text-gray-800'}`}>
+              {isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
+            </button>
+          </div>
         </div>
       </div>
     </div>

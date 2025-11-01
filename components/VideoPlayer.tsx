@@ -14,10 +14,12 @@ interface VideoPlayerProps {
   comments: Comment[];
   onSeek: (time: number) => void;
   currentFrame: number;
+  externalControls?: boolean;
+  onDuration?: (duration: number) => void;
 }
 
 const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
-  ({ video, sourceUrl, isPlaying, setIsPlaying, onTimeUpdate, annotations, comments, onSeek, currentFrame }, ref) => {
+  ({ video, sourceUrl, isPlaying, setIsPlaying, onTimeUpdate, annotations, comments, onSeek, currentFrame, externalControls, onDuration }, ref) => {
     const localRef = useRef<HTMLVideoElement>(null);
     const videoRef = (ref || localRef) as React.RefObject<HTMLVideoElement>;
     const containerRef = useRef<HTMLDivElement>(null);
@@ -55,6 +57,7 @@ const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
 
       const handleLoadedMetadata = () => {
         setDuration(videoElement.duration);
+        if (onDuration) onDuration(videoElement.duration);
       };
       const handleCanPlay = () => setIsReady(true);
       const handleError = () => setIsReady(false);
@@ -119,10 +122,11 @@ const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
     }, [isPlaying, videoRef]);
     
     useEffect(() => {
+      if (externalControls) return;
       if (videoRef.current) {
         videoRef.current.volume = isMuted ? 0 : volume;
       }
-    }, [volume, isMuted, videoRef]);
+    }, [volume, isMuted, videoRef, externalControls]);
 
     const togglePlayPause = () => setIsPlaying(p => !p);
 
@@ -180,6 +184,7 @@ const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
           </div>
         )}
 
+        {!externalControls && (
         <div 
           className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 via-black/40 to-transparent z-10"
           onClick={(e) => e.stopPropagation()}
@@ -235,6 +240,7 @@ const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
             </div>
           </div>
         </div>
+        )}
       </div>
     );
   }
