@@ -2,7 +2,9 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useQuery } from 'convex/react';
 import { api } from '../convex/_generated/api';
 import { Comment } from '../types';
-import { MessageSquare, CheckCircle2, Circle, Trash2 } from 'lucide-react';
+import { MessageSquare, CheckCircle2, Circle, Trash2, Pencil, ChevronDown, ChevronUp } from 'lucide-react';
+import { useMutation } from 'convex/react';
+import { api } from '../convex/_generated/api';
 
 interface CommentProps {
   comment: Comment;
@@ -21,6 +23,11 @@ const CommentItem: React.FC<CommentProps & { friends?: Array<{ id: string; conta
   const [replyText, setReplyText] = useState('');
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
+  const [isEditing, setIsEditing] = useState(false);
+  const [editText, setEditText] = useState(comment.text);
+  const [saving, setSaving] = useState(false);
+  const [showReplies, setShowReplies] = useState(false);
+  const updateText = useMutation(api.comments.updateText);
   const inputRef = useRef<HTMLInputElement>(null);
   const sugg = useMemo(() => {
     if (!open) return [] as Array<{ id: string; label: string; email: string }>;
@@ -38,6 +45,24 @@ const CommentItem: React.FC<CommentProps & { friends?: Array<{ id: string; conta
       setShowReply(false);
     }
   }
+
+  const handleEditSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editText.trim() || saving) return;
+    setSaving(true);
+    const previous = comment.text;
+    try {
+      // Optimistic local text
+      setEditText(editText.trim());
+      await updateText({ commentId: comment.id as any, text: editText.trim() });
+      setIsEditing(false);
+    } catch (err) {
+      // Revert local state on failure
+      setEditText(previous);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const onReplyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
@@ -103,12 +128,25 @@ const CommentItem: React.FC<CommentProps & { friends?: Array<{ id: string; conta
             <span className="font-semibold text-white text-sm truncate">{comment.authorName}</span>
             <span className="text-xs text-white/40 whitespace-nowrap">{timeAgo(comment.createdAt)}</span>
           </div>
-          <p
-            className="text-sm text-white/70 mt-2 whitespace-pre-wrap break-words"
-            style={{ hyphens: 'auto', wordBreak: 'break-word', overflowWrap: 'anywhere' }}
-          >
-            {comment.text}
-          </p>
+          {isEditing ? (
+            <form onSubmit={handleEditSubmit} className="mt-2 flex items-end gap-2">
+              <textarea
+                value={editText}
+                onChange={(e) => setEditText(e.target.value)}
+                className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-white resize-none"
+                rows={2}
+              />
+              <button type="submit" disabled={saving || !editText.trim()} className="px-3 py-2 rounded-full text-xs font-semibold bg-white text-black hover:bg-white/90 disabled:opacity-40">Save</button>
+              <button type="button" onClick={() => { setIsEditing(false); setEditText(comment.text); }} className="px-3 py-2 rounded-full text-xs font-semibold bg-white/10 text-white/70 hover:bg-white/20">Cancel</button>
+            </form>
+          ) : (
+            <p
+              className="text-sm text-white/70 mt-2 whitespace-pre-wrap break-words"
+              style={{ hyphens: 'auto', wordBreak: 'break-word', overflowWrap: 'anywhere' }}
+            >
+              {editText}
+            </p>
+          )}
           <div className="flex flex-wrap items-center gap-4 text-xs text-white/50 mt-3">
             {comment.frame !== undefined && (
               <button onClick={() => onJumpToFrame(comment.frame)} className="hover:text-white">
@@ -118,16 +156,26 @@ const CommentItem: React.FC<CommentProps & { friends?: Array<{ id: string; conta
             <button onClick={() => setShowReply((s) => !s)} className="hover:text-white">
               Reply
             </button>
+            <button onClick={() => setIsEditing((v) => !v)} className="flex items-center gap-1 hover:text-white" title="Edit">
+              <Pencil size={14} /> Edit
+            </button>
             <button onClick={() => onToggleResolve(comment.id)} className={`flex items-center gap-1 ${comment.resolved ? 'text-white' : 'hover:text-white'}`}>
               {comment.resolved ? <CheckCircle2 size={14} /> : <Circle size={14} />}
               {comment.resolved ? 'Resolved' : 'Resolve'}
             </button>
-            <button onClick={() => onDeleteComment(comment.id)} className="flex items-center gap-1 hover:text-red-300">
-              <Trash2 size={14}/> Delete
+            <button onClick={() => onDeleteComment(comment.id)} className="flex items-center gap-1 hover:text-red-300" title="Delete">
+              <Trash2 size={14}/>
             </button>
           </div>
-        </div>
+          {replies.length > 0 && (
+            <div className="mt-2">
+              <button onClick={() => setShowReplies(v => !v)} className="inline-flex items-center gap-1 text-xs text-white/60 hover:text-white">
+                {showReplies ? <ChevronUp size={14}/> : <ChevronDown size={14}/>} {showReplies ? 'Hide replies' : `Show replies (${replies.length})`}
+              </button>
+            </div>
+          )}
       </div>
+    </div>
       {showReply && (
         <form onSubmit={handleReplySubmit} className="ml-11 mt-3 flex gap-2 relative">
             <input 
@@ -151,7 +199,7 @@ const CommentItem: React.FC<CommentProps & { friends?: Array<{ id: string; conta
             )}
         </form>
       )}
-      {replies.length > 0 && (
+      {replies.length > 0 && showReplies && (
         <div className="ml-6 mt-4 pl-4 border-l border-white/10 space-y-3">
           {replies.map(reply => (
             <CommentItem 
