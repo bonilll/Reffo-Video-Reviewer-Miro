@@ -537,22 +537,18 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
           </button>
           <button
             onClick={() => setShareOpen(true)}
+            title="Share"
+            aria-label="Share"
             className={`${
               isDark
                 ? 'text-black bg-white hover:bg-white/90'
-                : 'text-white bg-white border border-black hover:bg-white'
-            } inline-flex items-center gap-2 text-xs font-semibold px-4 py-2 rounded-full transition`}
+                : 'bg-white border border-black'
+            } inline-flex items-center justify-center p-2 rounded-full transition`}
           >
             {isDark ? (
-              <>
-                <Share2 size={14} />
-                <span>Share</span>
-              </>
+              <Share2 size={16} />
             ) : (
-              <>
-                <Share2 size={14} color="#000" />
-                <span style={{ WebkitTextStroke: '0.6px #000', WebkitTextFillColor: '#fff' }}>Share</span>
-              </>
+              <Share2 size={16} color="#000" />
             )}
           </button>
           {clerkUser?.imageUrl ? (
