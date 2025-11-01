@@ -495,12 +495,12 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
     <div className={"w-full h-full flex flex-col"}>
       <header
         ref={headerEl}
-        className={`flex-shrink-0 border-b px-4 md:px-8 py-3 md:py-4 grid grid-cols-[1fr_auto_1fr] items-center z-20 backdrop-blur ${
+        className={`flex-shrink-0 border-b px-4 md:px-8 py-3 md:py-4 grid grid-cols-[minmax(0,1fr)_360px] items-center z-20 backdrop-blur ${
           isDark ? 'bg-black/30 border-white/10 text-white' : 'bg-white/80 border-gray-200 text-gray-900'
         }`}
       >
-        {/* Left: back */}
-        <div className="flex items-center gap-2">
+        {/* Left column (aligned with video area): back + title centered */}
+        <div className="flex items-center justify-center gap-3 min-w-0">
           <button
             onClick={onGoBack}
             className={`${
@@ -511,21 +511,20 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
           >
             <ChevronLeft size={16} /> Back
           </button>
-        </div>
-        {/* Center: title + meta */}
-        <div className="min-w-0 text-center">
-          <h1
-            className={`${isDark ? 'text-white' : 'text-gray-900'} text-base md:text-lg font-semibold truncate`}
-            title={video.title}
-          >
-            {video.title}
-          </h1>
-          <div className={`${isDark ? 'text-white/50' : 'text-gray-500'} text-[11px] mt-0.5`}> 
-            {video.width}×{video.height} • {video.fps} fps • {formatClock(headerDuration)}
+          <div className="min-w-0 text-center">
+            <h1
+              className={`${isDark ? 'text-white' : 'text-gray-900'} text-base md:text-lg font-semibold truncate`}
+              title={video.title}
+            >
+              {video.title}
+            </h1>
+            <div className={`${isDark ? 'text-white/50' : 'text-gray-500'} text-[11px]`}> 
+              {video.width}×{video.height} • {video.fps} fps • {formatClock(headerDuration)}
+            </div>
           </div>
         </div>
-        {/* Right: quick actions */}
-        <div className="flex items-center justify-end gap-2 md:gap-3">
+        {/* Right column (aligned with comments): actions centered */}
+        <div className="flex items-center justify-center gap-2 md:gap-3">
           <button
             onClick={() => setShowAnnotations((s) => !s)}
             title={showAnnotations ? 'Hide Annotations' : 'Show Annotations'}
