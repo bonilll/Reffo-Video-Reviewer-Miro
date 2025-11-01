@@ -299,18 +299,49 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
   };
   
   const handleCommentMarkerPointerDown = (e: React.PointerEvent<HTMLDivElement>, comment: Comment) => {
-    e.stopPropagation(); // Prevent canvas from handling this event.
+    e.stopPropagation();
+    e.preventDefault();
     const pos = getPointerPosition(e);
     if (!pos) return;
 
     if (activeTool === AnnotationTool.SELECT) {
+      // Capture pointer on the marker so we continue to receive move events while dragging
+      try { (e.currentTarget as any).setPointerCapture?.(e.pointerId); } catch {}
       setMovingCommentState({ comment, startPoint: pos.normalized });
       setActiveCommentPopoverId(null);
       setSelectedAnnotationIds([]);
     } else {
-      // For any other tool, just toggle the popover.
-      setActiveCommentPopoverId(id => (id === comment.id ? null : comment.id));
+      setActiveCommentPopoverId((id) => (id === comment.id ? null : comment.id));
     }
+  };
+
+  const handleCommentMarkerPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!movingCommentState || !renderedRect) return;
+    const pos = getPointerPosition(e);
+    if (!pos) return;
+    if (!transformedComment) {
+      const DRAG_THRESHOLD = 3; // px
+      const startCanvasPos = geo.normalizedToCanvas(movingCommentState.startPoint, renderedRect);
+      const distSq = Math.pow(pos.canvas.x - startCanvasPos.x, 2) + Math.pow(pos.canvas.y - startCanvasPos.y, 2);
+      if (distSq > DRAG_THRESHOLD * DRAG_THRESHOLD) {
+        setTransformedComment(movingCommentState.comment);
+      }
+      return;
+    }
+    const dx = pos.normalized.x - movingCommentState.startPoint.x;
+    const dy = pos.normalized.y - movingCommentState.startPoint.y;
+    setTransformedComment({
+      ...transformedComment,
+      position: {
+        x: movingCommentState.comment.position.x + dx,
+        y: movingCommentState.comment.position.y + dy,
+      },
+    });
+  };
+
+  const handleCommentMarkerPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    try { (e.currentTarget as any).releasePointerCapture?.(e.pointerId); } catch {}
+    handlePointerUp();
   };
 
   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
@@ -645,6 +676,8 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
                   zIndex: isActive ? 25 : 20,
                 }}
                 onPointerDown={(e) => handleCommentMarkerPointerDown(e, comment)}
+                onPointerMove={handleCommentMarkerPointerMove}
+                onPointerUp={handleCommentMarkerPointerUp}
               >
                 <img
                   src={comment.authorAvatar}
