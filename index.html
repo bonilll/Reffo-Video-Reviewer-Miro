@@ -23,13 +23,16 @@
           document.body.classList.add('theme-light');
         }
       })();
-      // If we are inside a Miro board, wait for the UI and log a marker.
+      // Miro SDK v2: register toolbar icon click to open the panel with our app
       (function() {
         try {
-          if (window.miro && window.miro.board && window.miro.board.ui) {
-            window.miro.board.ui.onReady(() => {
-              console.log('Reffo Review loaded inside Miro');
-            });
+          if (window.miro && window.miro.board && window.miro.board.ui && typeof window.miro.board.ui.on === 'function') {
+            (async () => {
+              await window.miro.board.ui.on('icon:click', async () => {
+                await window.miro.board.ui.openPanel({ url: '/', height: 560 });
+              });
+              console.log('Reffo Reviewer: Miro icon:click handler registered');
+            })();
           }
         } catch (e) {
           // no-op outside Miro
