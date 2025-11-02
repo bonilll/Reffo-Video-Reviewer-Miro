@@ -1,7 +1,7 @@
 {
-  "name": "Reffo - Video Reviewer",
+  "name": "Reffo Reviewer",
   "short_name": "Reffo",
-  "description": "A collective space for reviewing videos",
+  "description": "Fast, focused video feedback for teams.",
   "icons": [
     {
       "src": "/apple-icon.png",
