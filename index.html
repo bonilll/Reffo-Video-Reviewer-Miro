@@ -133,7 +133,7 @@
                         for (const it of sel) {
                           const content = (it && typeof it.content === 'string') ? it.content : '';
                           const maybeFromContent = extractUrl(content);
-                          const maybeDirect = typeof it.url === 'string' ? it.url : null;
+                          const maybeDirect = typeof (it as any).url === 'string' ? (it as any).url : null;
                           const maybe = maybeFromContent || maybeDirect;
                           if (maybe) { selectedUrl = maybe; break; }
                         }

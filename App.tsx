@@ -9,6 +9,7 @@ import ProjectWorkspace from './components/ProjectWorkspace';
 import { Project, Video } from './types';
 import type { Id } from './convex/_generated/dataModel';
 import logo from './assets/logo.svg';
+import googleIcon from './assets/icon-192x192.png';
 import { useThemePreference, applyTheme, ThemePref } from './useTheme';
 import { Sun, Moon } from 'lucide-react';
 import { Bell } from 'lucide-react';
@@ -29,7 +30,41 @@ type UploadPayload = {
   thumbnailUrl?: string;
 };
 
+type Route =
+  | { name: 'home' }
+  | { name: 'dashboard' }
+  | { name: 'profile' }
+  | { name: 'project'; id: string }
+  | { name: 'review'; id: string }
+  | { name: 'share'; token: string };
+
+function parseRoute(pathname: string): Route {
+  if (pathname === '/' || pathname === '') return { name: 'home' };
+  if (pathname === '/dashboard') return { name: 'dashboard' };
+  if (pathname === '/profile') return { name: 'profile' };
+  const projectMatch = pathname.match(/^\/project\/([^\/?#]+)/);
+  if (projectMatch) return { name: 'project', id: projectMatch[1] };
+  const reviewMatch = pathname.match(/^\/review\/([^\/?#]+)/);
+  if (reviewMatch) return { name: 'review', id: reviewMatch[1] };
+  const shareMatch = pathname.match(/^\/share\/([^\/?#]+)/);
+  if (shareMatch) return { name: 'share', token: shareMatch[1] };
+  // default to home
+  return { name: 'home' };
+}
+
+function navigate(path: string, replace = false) {
+  const url = path.startsWith('/') ? path : `/${path}`;
+  try {
+    if (replace) window.history.replaceState({}, '', url);
+    else window.history.pushState({}, '', url);
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  } catch (_) {
+    window.location.assign(url);
+  }
+}
+
 const App: React.FC = () => {
+  const [route, setRoute] = useState<Route>(() => parseRoute(window.location.pathname));
   const [view, setView] = useState<'dashboard' | 'reviewer' | 'profile' | 'project'>('dashboard');
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [sharedSelectedVideo, setSharedSelectedVideo] = useState<Video | null>(null);
@@ -47,10 +82,7 @@ const App: React.FC = () => {
   const sharedVideosQuery = useQuery(api.shares.videosSharedWithMe, currentUser ? {} : undefined);
 
   // Share-link handling
-  const shareToken = useMemo(() => {
-    const m = window.location.pathname.match(/^\/share\/(.+)$/);
-    return m ? m[1] : null;
-  }, []);
+  const shareToken = useMemo(() => (route.name === 'share' ? route.token : null), [route]);
   const shareResolution = useQuery(api.shares.resolveToken, shareToken ? { token: shareToken } : undefined);
   const shareVideo = useQuery(
     api.videos.getByShareToken,
@@ -252,7 +284,6 @@ const App: React.FC = () => {
     async (video: Video) => {
       setSelectedVideoId(video.id);
       setSharedSelectedVideo(null);
-      setView('reviewer');
       setReviewSourceUrl(null);
       try {
         if (video.storageKey) {
@@ -273,11 +304,57 @@ const App: React.FC = () => {
           console.error('Failed to update last reviewed timestamp', error);
         }
       }
+      navigate(`/review/${video.id}`);
     },
     [updateVideoMetadata, getDownloadUrl, currentUser]
   );
 
-  // If landing on /share/:token, open the linked review
+  // Route → internal state sync
+  useEffect(() => {
+    const onPop = () => setRoute(parseRoute(window.location.pathname));
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
+
+  useEffect(() => {
+    // derive view + IDs from route
+    if (route.name === 'home') {
+      // If signed in, prefer dashboard URL; otherwise keep landing.
+      if (isSignedIn) {
+        navigate('/dashboard', true);
+        return;
+      }
+      setView('dashboard');
+      setActiveProjectId(null);
+      return;
+    }
+    if (route.name === 'dashboard') {
+      setView('dashboard');
+      setActiveProjectId(null);
+      return;
+    }
+    if (route.name === 'profile') {
+      setView('profile');
+      setActiveProjectId(null);
+      return;
+    }
+    if (route.name === 'project') {
+      setActiveProjectId(route.id);
+      setView('project');
+      return;
+    }
+    if (route.name === 'review') {
+      setSelectedVideoId(route.id);
+      setView('reviewer');
+      return;
+    }
+    if (route.name === 'share') {
+      // handled below when shareResolution/shareVideo load
+      return;
+    }
+  }, [route]);
+
+  // If landing on /share/:token, open the linked review/project
   useEffect(() => {
     if (!shareToken) return;
     if (shareResolution === undefined) return; // loading
@@ -309,8 +386,8 @@ const App: React.FC = () => {
   }, [shareToken, shareResolution, shareVideo]);
 
   const handleGoBackToDashboard = useCallback(() => {
-    setView('dashboard');
     setSelectedVideoId(null);
+    navigate('/dashboard');
   }, []);
 
   const preference = userSettings?.workspace.theme ?? 'system';
@@ -343,7 +420,7 @@ const App: React.FC = () => {
               <div className="flex flex-wrap items-center gap-4">
                 <SignInButton mode="modal" signInOptions={{ strategy: 'oauth_google' }}>
                   <button className="inline-flex items-center gap-3 rounded-full bg-white px-6 py-3 text-sm font-semibold text-black shadow-lg transition hover:bg-white/90">
-                    <img src="/assets/icon-192x192.png" alt="Google" className="h-5 w-5" />
+                    <img src={googleIcon} alt="Google" className="h-5 w-5" />
                     Continue with Google
                   </button>
                 </SignInButton>
@@ -429,7 +506,10 @@ const App: React.FC = () => {
           <div className="min-h-screen flex flex-col">
             <AppHeader
               active={view === 'profile' ? 'profile' : 'dashboard'}
-              onNavigate={(target) => setView(target)}
+              onNavigate={(target) => {
+                if (target === 'dashboard') navigate('/dashboard');
+                else navigate('/profile');
+              }}
               user={{
                 name: currentUser.name ?? null,
                 email: currentUser.email,
@@ -446,14 +526,14 @@ const App: React.FC = () => {
                     avatar: currentUser.avatar ?? null,
                   }}
                   projects={projects}
-                  onBack={() => setView('dashboard')}
+                  onBack={() => navigate('/dashboard')}
                 />
               ) : view === 'project' && activeProjectId ? (
                 <ProjectWorkspace
                   project={projects.find((p) => p.id === activeProjectId)!}
                   videos={videos}
                   theme={preference}
-                  onBack={() => setView('dashboard')}
+                  onBack={() => navigate('/dashboard')}
                   onStartReview={handleStartReview}
                 />
               ) : (
@@ -477,7 +557,7 @@ const App: React.FC = () => {
                   onGetDownloadUrl={getDownloadUrl}
                   onOpenProject={(projectId) => {
                     setActiveProjectId(projectId);
-                    setView('project');
+                    navigate(`/project/${projectId}`);
                   }}
                 />
               )}

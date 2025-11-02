@@ -30,6 +30,7 @@ import { useMutation, useQuery } from 'convex/react';
 import { api } from '../convex/_generated/api';
 import { Project, Video, ShareGroup, ContentShare } from '../types';
 import { useThemePreference } from '../useTheme';
+import { publicBaseUrl } from '../utils/url';
 
 interface UploadMetadata {
   storageKey: string;
@@ -1118,7 +1119,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                     <div className="flex flex-wrap items-center gap-2">
                       <button
                         onClick={() => {
-                          const url = `${window.location.origin}/share/${share.linkToken}`;
+                          const url = `${publicBaseUrl()}/share/${share.linkToken}`;
                           if (navigator.clipboard && 'writeText' in navigator.clipboard) {
                             void navigator.clipboard.writeText(url);
                           } else {
@@ -1824,7 +1825,7 @@ export const ShareModal: React.FC<ShareModalProps> = ({
               {linkToken && (
                 <button
                   onClick={() => {
-                    const url = `${window.location.origin}/share/${linkToken}`;
+                    const url = `${publicBaseUrl()}/share/${linkToken}`;
                     if (navigator.clipboard && 'writeText' in navigator.clipboard) {
                       void navigator.clipboard.writeText(url);
                     } else {
