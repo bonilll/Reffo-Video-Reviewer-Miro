@@ -2,10 +2,13 @@
 
 import { spawnSync } from "node:child_process";
 
-const shouldSkipCodegen = Boolean(process.env.VERCEL) &&
-  !process.env.CONVEX_DEPLOY_KEY &&
-  !process.env.CONVEX_SELF_HOSTED_URL &&
-  !process.env.CONVEX_DEPLOYMENT;
+const isVercel = Boolean(process.env.VERCEL);
+const hasCloudCredentials = Boolean(process.env.CONVEX_DEPLOY_KEY);
+const hasSelfHostedCredentials =
+  Boolean(process.env.CONVEX_SELF_HOSTED_URL) &&
+  Boolean(process.env.CONVEX_SELF_HOSTED_ADMIN_KEY);
+
+const shouldSkipCodegen = isVercel && !hasCloudCredentials && !hasSelfHostedCredentials;
 
 if (shouldSkipCodegen) {
   console.log(
