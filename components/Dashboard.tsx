@@ -24,6 +24,8 @@ import {
   Info,
   ChevronDown,
 } from 'lucide-react';
+// Ensure saved animation is included in build output
+import lottieSaved from '../assets/animations/saved.json?url';
 import { useMutation, useQuery } from 'convex/react';
 import { api } from '../convex/_generated/api';
 import { Project, Video, ShareGroup, ContentShare } from '../types';
@@ -1149,7 +1151,7 @@ const Dashboard: React.FC<DashboardProps> = ({
           >
             {toast.tone === 'success' ? (
               <lottie-player
-                src="/assets/animations/saved.json"
+                src={lottieSaved}
                 autoplay
                 style={{ width: '36px', height: '36px' }}
                 ref={(el: any) => {

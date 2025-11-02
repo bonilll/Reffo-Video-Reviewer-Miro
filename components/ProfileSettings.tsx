@@ -16,6 +16,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { applyTheme, useThemePreference } from '../useTheme';
+import lottieLoader from '../assets/animations/loader.json?url';
 
 interface ProfileSettingsProps {
   user: {
@@ -174,7 +175,7 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
         <lottie-player
-          src="/assets/animations/loader.json"
+          src={lottieLoader}
           autoplay
           loop
           style={{ width: '160px', height: '160px' }}

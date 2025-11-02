@@ -12,6 +12,9 @@ import logo from './assets/logo.svg';
 import { useThemePreference, applyTheme, ThemePref } from './useTheme';
 import { Sun, Moon } from 'lucide-react';
 import { Bell } from 'lucide-react';
+// Lottie assets as static URLs to ensure they are included in Vite build
+import lottieLoader from './assets/animations/loader.json?url';
+import lottieImageLoader from './assets/animations/imageloader.json?url';
 
 type UploadPayload = {
   storageKey: string;
@@ -357,7 +360,7 @@ const App: React.FC = () => {
             <div className="w-full max-w-md rounded-3xl border border-white/10 bg-white/5 p-6 shadow-2xl backdrop-blur">
               <div className="rounded-2xl border border-white/10 bg-black/40 p-4">
                 <lottie-player
-                  src="/assets/animations/imageloader.json"
+                  src={lottieImageLoader}
                   autoplay
                   loop
                   mode="normal"
@@ -383,7 +386,7 @@ const App: React.FC = () => {
           <div className="flex-1 flex items-center justify-center p-6">
             <div className="flex flex-col items-center gap-4 text-white/70">
               <lottie-player
-                src="/assets/animations/loader.json"
+                src={lottieLoader}
                 autoplay
                 loop
                 style={{ width: '140px', height: '140px' }}
@@ -408,7 +411,7 @@ const App: React.FC = () => {
         ) : dataLoading ? (
           <div className="flex-1 flex items-center justify-center text-white/70">
             <lottie-player
-              src="/assets/animations/loader.json"
+              src={lottieLoader}
               autoplay
               loop
               style={{ width: '140px', height: '140px' }}
