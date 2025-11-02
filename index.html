@@ -5,6 +5,8 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/png" href="/assets/icon-192x192.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Miro Web SDK v2 -->
+    <script src="https://miro.com/app/static/sdk/v2/miro.js"></script>
     <title>Reffo Reviewer</title>
     <meta name="description" content="Fast, focused video feedback for teams. Review, collaborate, and ship faster with Reffo Reviewer." />
     <script src="https://unpkg.com/@lottiefiles/lottie-player@latest/dist/lottie-player.js" defer></script>
@@ -19,6 +21,18 @@
         } catch (e) {
           // default to light if anything goes wrong
           document.body.classList.add('theme-light');
+        }
+      })();
+      // If we are inside a Miro board, wait for the UI and log a marker.
+      (function() {
+        try {
+          if (window.miro && window.miro.board && window.miro.board.ui) {
+            window.miro.board.ui.onReady(() => {
+              console.log('Reffo Review loaded inside Miro');
+            });
+          }
+        } catch (e) {
+          // no-op outside Miro
         }
       })();
     </script>

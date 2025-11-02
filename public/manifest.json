@@ -1,0 +1,16 @@
+{
+  "name": "Reffo Review",
+  "url": "/",
+  "sdkVersion": "2.0",
+  "permissions": [
+    "boards:read",
+    "boards:write",
+    "identity:read"
+  ],
+  "toolbar": {
+    "toolbarSvgIcon": "/icon.svg",
+    "toolbarName": "Reffo Review",
+    "librarySvgIcon": "/icon.svg"
+  }
+}
+
