@@ -16,7 +16,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { applyTheme, useThemePreference } from '../useTheme';
-import lottieLoader from '../assets/animations/loader.json?url';
+import lottieLoader from '../assets/animations/Loader.json?url';
 
 interface ProfileSettingsProps {
   user: {

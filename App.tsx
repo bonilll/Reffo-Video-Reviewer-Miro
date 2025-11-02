@@ -13,7 +13,7 @@ import { useThemePreference, applyTheme, ThemePref } from './useTheme';
 import { Sun, Moon } from 'lucide-react';
 import { Bell } from 'lucide-react';
 // Lottie assets as static URLs to ensure they are included in Vite build
-import lottieLoader from './assets/animations/loader.json?url';
+import lottieLoader from './assets/animations/Loader.json?url';
 import lottieImageLoader from './assets/animations/imageloader.json?url';
 
 type UploadPayload = {
