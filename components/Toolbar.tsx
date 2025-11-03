@@ -1,6 +1,6 @@
 import React from 'react';
 import { AnnotationTool } from '../types';
-import { MousePointer2, Pen, Square, Circle, MoveUpRight, Type, MessageSquare, Undo, Redo } from 'lucide-react';
+import { MousePointer2, Pen, Square, Circle, MoveUpRight, Type, MessageSquare, Undo, Redo, SquareStack } from 'lucide-react';
 
 interface ToolbarProps {
   activeTool: AnnotationTool;
@@ -16,6 +16,7 @@ interface ToolbarProps {
   canUndo: boolean;
   canRedo: boolean;
   isDark?: boolean;
+  onOpenCompare?: () => void;
 }
 
 const tools = [
@@ -31,7 +32,7 @@ const colors = ['#ef4444', '#f97316', '#facc15', '#4ade80', '#38bdf8', '#a78bfa'
 
 const Toolbar: React.FC<ToolbarProps> = ({ 
   activeTool, setActiveTool, brushColor, setBrushColor, brushSize, setBrushSize,
-  fontSize, setFontSize, undo, redo, canUndo, canRedo, isDark = true
+  fontSize, setFontSize, undo, redo, canUndo, canRedo, isDark = true, onOpenCompare
 }) => {
   
   const isDrawingTool = [AnnotationTool.FREEHAND, AnnotationTool.RECTANGLE, AnnotationTool.ELLIPSE, AnnotationTool.ARROW].includes(activeTool);
@@ -78,6 +79,18 @@ const Toolbar: React.FC<ToolbarProps> = ({
           <Redo size={20} />
         </button>
       </div>
+      {onOpenCompare && (
+        <>
+          <div className={`w-px h-8 ${isDark ? 'bg-white/10' : 'bg-gray-200'}`} />
+          <button
+            title="Compare video"
+            onClick={onOpenCompare}
+            className={`p-2 rounded-full transition ${isDark ? 'hover:bg-white/10 text-white/80' : 'hover:bg-black/5 text-gray-800'}`}
+          >
+            <SquareStack size={20} />
+          </button>
+        </>
+      )}
       <div className={`w-px h-8 ${isDark ? 'bg-white/10' : 'bg-gray-200'}`} />
       <div className="flex items-center gap-2">
         {colors.map(color => (

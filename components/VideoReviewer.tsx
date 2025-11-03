@@ -13,6 +13,8 @@ import { useThemePreference, ThemePref } from '../useTheme';
 import { ShareModal } from './Dashboard';
 import { useUser } from '@clerk/clerk-react';
 
+type CompareMode = 'overlay' | 'side-by-side-horizontal' | 'side-by-side-vertical';
+
 interface VideoReviewerProps {
   video: Video;
   sourceUrl?: string;
@@ -76,11 +78,40 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [loopEnabled, setLoopEnabled] = useState(false);
   const [videoWidthPx, setVideoWidthPx] = useState(0);
+  const [compareModalOpen, setCompareModalOpen] = useState(false);
+  const [compareSource, setCompareSource] = useState<{ url: string; name: string; objectUrl?: boolean } | null>(null);
+  const [compareMode, setCompareMode] = useState<CompareMode>('overlay');
+  const [compareOpacity, setCompareOpacity] = useState(0.6);
+  const [compareDraft, setCompareDraft] = useState<{ url: string | null; name: string | null; objectUrl?: boolean; mode: CompareMode; opacity: number }>({ url: null, name: null, objectUrl: false, mode: 'overlay', opacity: 0.6 });
+  const compareVideoOverlayRef = useRef<HTMLVideoElement>(null);
+  const compareVideoSideRef = useRef<HTMLVideoElement>(null);
+  const draftUrlRef = useRef<string | null>(null);
+  const prevCompareUrlRef = useRef<string | null>(null);
 
   useEffect(() => {
     // Ensure 'Friends' are synced from groups even when landing directly in reviewer.
     void syncFriends({}).catch(() => undefined);
   }, [syncFriends]);
+
+  useEffect(() => {
+    const prev = prevCompareUrlRef.current;
+    const nextUrl = compareSource?.objectUrl ? compareSource.url : null;
+    if (prev && prev.startsWith('blob:') && prev !== nextUrl) {
+      URL.revokeObjectURL(prev);
+    }
+    prevCompareUrlRef.current = nextUrl ?? null;
+  }, [compareSource]);
+
+  useEffect(() => {
+    return () => {
+      if (prevCompareUrlRef.current && prevCompareUrlRef.current.startsWith('blob:')) {
+        URL.revokeObjectURL(prevCompareUrlRef.current);
+      }
+      if (draftUrlRef.current && draftUrlRef.current.startsWith('blob:')) {
+        URL.revokeObjectURL(draftUrlRef.current);
+      }
+    };
+  }, []);
 
   const updateVideoWidth = useCallback(() => {
     const w = videoRef.current?.getBoundingClientRect().width ?? 0;
@@ -110,6 +141,40 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
     return () => { cancelled = true; };
   }, [video.id, video.storageKey, video.src, sourceUrl, getDownloadUrlAction, updateVideoWidth]);
 
+  useEffect(() => {
+    setTimeout(updateVideoWidth, 60);
+  }, [compareSource, compareMode, updateVideoWidth]);
+
+  const getCompareEl = useCallback(() => (compareMode === 'overlay' ? compareVideoOverlayRef.current : compareVideoSideRef.current), [compareMode]);
+
+  useEffect(() => {
+    const el = getCompareEl();
+    if (!compareSource) {
+      el?.pause();
+      return;
+    }
+    if (el) {
+      el.muted = true;
+      el.loop = loopEnabled;
+      if (videoRef.current && !Number.isNaN(videoRef.current.currentTime)) {
+        try { el.currentTime = videoRef.current.currentTime; } catch {}
+      }
+    }
+  }, [compareSource, compareMode, loopEnabled, getCompareEl]);
+
+  useEffect(() => {
+    const el = getCompareEl();
+    if (!compareSource || !el) return;
+    if (isPlaying) {
+      const playPromise = el.play();
+      if (playPromise && typeof (playPromise as any).catch === 'function') {
+        (playPromise as any).catch(() => undefined);
+      }
+    } else {
+      el.pause();
+    }
+  }, [isPlaying, compareSource, compareMode, getCompareEl]);
+
   const convertAnnotationFromServer = useCallback((doc: any): Annotation => {
     const { id, videoId: docVideoId, authorId, createdAt, ...rest } = doc;
     return {
@@ -119,6 +184,79 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
       authorId,
       createdAt: new Date(createdAt ?? Date.now()).toISOString(),
     } as Annotation;
+  }, []);
+
+  const openCompareModal = useCallback(() => {
+    if (draftUrlRef.current && draftUrlRef.current.startsWith('blob:')) {
+      URL.revokeObjectURL(draftUrlRef.current);
+      draftUrlRef.current = null;
+    }
+    setCompareDraft({
+      url: compareSource?.url ?? null,
+      name: compareSource?.name ?? null,
+      objectUrl: false,
+      mode: compareMode,
+      opacity: compareOpacity,
+    });
+    setCompareModalOpen(true);
+  }, [compareSource, compareMode, compareOpacity]);
+
+  const closeCompareModal = useCallback(() => {
+    if (draftUrlRef.current && draftUrlRef.current.startsWith('blob:')) {
+      URL.revokeObjectURL(draftUrlRef.current);
+      draftUrlRef.current = null;
+    }
+    setCompareModalOpen(false);
+  }, []);
+
+  const applyCompareDraft = useCallback(() => {
+    if (compareDraft.url) {
+      setCompareSource({
+        url: compareDraft.url,
+        name: compareDraft.name ?? 'Secondary video',
+        objectUrl: compareDraft.objectUrl,
+      });
+      setCompareMode(compareDraft.mode);
+      setCompareOpacity(compareDraft.opacity);
+    } else {
+      setCompareSource(null);
+    }
+
+    if (draftUrlRef.current && compareDraft.url === draftUrlRef.current) {
+      draftUrlRef.current = null;
+    } else if (draftUrlRef.current && draftUrlRef.current.startsWith('blob:')) {
+      URL.revokeObjectURL(draftUrlRef.current);
+      draftUrlRef.current = null;
+    }
+
+    setCompareModalOpen(false);
+  }, [compareDraft]);
+
+  const clearCompare = useCallback(() => {
+    setCompareSource(null);
+    setCompareModalOpen(false);
+  }, []);
+
+  const handleCompareFileChange = useCallback((file: File | null) => {
+    if (draftUrlRef.current && draftUrlRef.current.startsWith('blob:')) {
+      URL.revokeObjectURL(draftUrlRef.current);
+      draftUrlRef.current = null;
+    }
+    if (!file) {
+      setCompareDraft(prev => ({ ...prev, url: null, name: null, objectUrl: false }));
+      return;
+    }
+    const objectUrl = URL.createObjectURL(file);
+    draftUrlRef.current = objectUrl;
+    setCompareDraft(prev => ({ ...prev, url: objectUrl, name: file.name, objectUrl: true }));
+  }, []);
+
+  const handleDraftModeChange = useCallback((mode: CompareMode) => {
+    setCompareDraft(prev => ({ ...prev, mode }));
+  }, []);
+
+  const handleDraftOpacityChange = useCallback((value: number) => {
+    setCompareDraft(prev => ({ ...prev, opacity: value }));
   }, []);
 
   const convertCommentFromServer = useCallback((doc: any): Comment => ({
@@ -212,6 +350,13 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
   const handleTimeUpdate = (time: number, frame: number) => {
     setCurrentTime(time);
     setCurrentFrame(frame);
+    const el = getCompareEl();
+    if (compareSource && el) {
+      const diff = Math.abs((el.currentTime || 0) - time);
+      if (diff > 0.2) {
+        try { el.currentTime = time; } catch {}
+      }
+    }
     if (loopEnabled && duration > 0) {
       // Fallback epsilon equals one frame duration
       const epsilon = 1 / Math.max(1, video.fps);
@@ -227,6 +372,10 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
         videoRef.current.currentTime = time;
         setCurrentTime(time);
         setCurrentFrame(Math.round(time * video.fps));
+    }
+    const el = getCompareEl();
+    if (compareSource && el) {
+      try { el.currentTime = time; } catch {}
     }
   };
 
@@ -586,48 +735,187 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
             canUndo={canUndo}
             canRedo={canRedo}
             isDark={isDark}
+            onOpenCompare={openCompareModal}
           />
-          <div className="w-full flex-1 relative flex items-center justify-center overflow-hidden group">
-            <VideoPlayer
-              ref={videoRef}
-              video={video}
-              sourceUrl={playbackUrl ?? undefined}
-              isPlaying={isPlaying}
-              setIsPlaying={setIsPlaying}
-              onTimeUpdate={handleTimeUpdate}
-              annotations={showAnnotations ? annotations : []}
-              comments={comments}
-              onSeek={handleSeek}
-              currentFrame={currentFrame}
-              externalControls
-              onDuration={setDuration}
-              loopEnabled={loopEnabled}
-            />
-            <AnnotationCanvas
-              video={video}
-              videoElement={videoRef.current}
-              currentFrame={currentFrame}
-              annotations={showAnnotations ? annotations : []}
-              onAddAnnotation={handleAddAnnotation}
-              onUpdateAnnotations={handleUpdateAnnotations}
-              onDeleteAnnotations={handleDeleteAnnotations}
-              activeTool={activeTool}
-              brushColor={brushColor}
-              brushSize={brushSize}
-              fontSize={fontSize}
-              selectedAnnotationIds={selectedAnnotationIds}
-              setSelectedAnnotationIds={setSelectedAnnotationIds}
-              comments={comments}
-              activeCommentId={activeCommentId}
-              onCommentPlacement={handleCommentPlacement}
-              activeCommentPopoverId={activeCommentPopoverId}
-              setActiveCommentPopoverId={setActiveCommentPopoverId}
-              onUpdateCommentPosition={handleUpdateCommentPosition}
-              onAddComment={handleAddComment}
-              pendingComment={pendingComment}
-              setPendingComment={setPendingComment}
-              isDark={isDark}
-            />
+          <div className="w-full flex-1 relative overflow-hidden">
+            {compareSource && compareMode !== 'overlay' ? (
+              <div className={`w-full h-full flex ${compareMode === 'side-by-side-vertical' ? 'flex-col' : 'flex-row'}`}>
+                <div className="relative flex-1 flex items-center justify-center overflow-hidden group">
+                  <VideoPlayer
+                    ref={videoRef}
+                    video={video}
+                    sourceUrl={playbackUrl ?? undefined}
+                    isPlaying={isPlaying}
+                    setIsPlaying={setIsPlaying}
+                    onTimeUpdate={handleTimeUpdate}
+                    annotations={showAnnotations ? annotations : []}
+                    comments={comments}
+                    onSeek={handleSeek}
+                    currentFrame={currentFrame}
+                    externalControls
+                    onDuration={setDuration}
+                    loopEnabled={loopEnabled}
+                  />
+                  <AnnotationCanvas
+                    video={video}
+                    videoElement={videoRef.current}
+                    currentFrame={currentFrame}
+                    annotations={showAnnotations ? annotations : []}
+                    onAddAnnotation={handleAddAnnotation}
+                    onUpdateAnnotations={handleUpdateAnnotations}
+                    onDeleteAnnotations={handleDeleteAnnotations}
+                    activeTool={activeTool}
+                    brushColor={brushColor}
+                    brushSize={brushSize}
+                    fontSize={fontSize}
+                    selectedAnnotationIds={selectedAnnotationIds}
+                    setSelectedAnnotationIds={setSelectedAnnotationIds}
+                    comments={comments}
+                    activeCommentId={activeCommentId}
+                    onCommentPlacement={handleCommentPlacement}
+                    activeCommentPopoverId={activeCommentPopoverId}
+                    setActiveCommentPopoverId={setActiveCommentPopoverId}
+                    onUpdateCommentPosition={handleUpdateCommentPosition}
+                    onAddComment={handleAddComment}
+                    pendingComment={pendingComment}
+                    setPendingComment={setPendingComment}
+                    isDark={isDark}
+                  />
+                </div>
+                <div className="relative flex-1 flex items-center justify-center overflow-hidden bg-black/80">
+                  <video
+                    key={`cmp-side-${compareMode}-${compareSource.url}`}
+                    ref={compareVideoSideRef}
+                    src={compareSource.url}
+                    className="w-full h-full object-contain"
+                    preload="metadata"
+                    muted
+                    playsInline
+                    autoPlay={isPlaying}
+                    onLoadedMetadata={(e) => {
+                      try {
+                        const el = e.currentTarget as HTMLVideoElement;
+                        el.muted = true;
+                        el.loop = loopEnabled;
+                        const t = videoRef.current?.currentTime ?? 0;
+                        if (!Number.isNaN(t)) el.currentTime = t;
+                        if (isPlaying) { const p = el.play(); (p as any)?.catch?.(()=>{}); }
+                      } catch {}
+                    }}
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="relative w-full h-full flex items-center justify-center overflow-hidden group">
+                <VideoPlayer
+                  ref={videoRef}
+                  video={video}
+                  sourceUrl={playbackUrl ?? undefined}
+                  isPlaying={isPlaying}
+                  setIsPlaying={setIsPlaying}
+                  onTimeUpdate={handleTimeUpdate}
+                  annotations={showAnnotations ? annotations : []}
+                  comments={comments}
+                  onSeek={handleSeek}
+                  currentFrame={currentFrame}
+                  externalControls
+                  onDuration={setDuration}
+                  loopEnabled={loopEnabled}
+                />
+                <AnnotationCanvas
+                  video={video}
+                  videoElement={videoRef.current}
+                  currentFrame={currentFrame}
+                  annotations={showAnnotations ? annotations : []}
+                  onAddAnnotation={handleAddAnnotation}
+                  onUpdateAnnotations={handleUpdateAnnotations}
+                  onDeleteAnnotations={handleDeleteAnnotations}
+                  activeTool={activeTool}
+                  brushColor={brushColor}
+                  brushSize={brushSize}
+                  fontSize={fontSize}
+                  selectedAnnotationIds={selectedAnnotationIds}
+                  setSelectedAnnotationIds={setSelectedAnnotationIds}
+                  comments={comments}
+                  activeCommentId={activeCommentId}
+                  onCommentPlacement={handleCommentPlacement}
+                  activeCommentPopoverId={activeCommentPopoverId}
+                  setActiveCommentPopoverId={setActiveCommentPopoverId}
+                  onUpdateCommentPosition={handleUpdateCommentPosition}
+                  onAddComment={handleAddComment}
+                  pendingComment={pendingComment}
+                  setPendingComment={setPendingComment}
+                  isDark={isDark}
+                />
+                {compareSource && compareMode === 'overlay' && (
+                  <video
+                    key={`cmp-overlay-${compareMode}-${compareSource.url}`}
+                    ref={compareVideoOverlayRef}
+                    src={compareSource.url}
+                    className="absolute inset-0 w-full h-full object-contain pointer-events-none"
+                    style={{ opacity: compareOpacity }}
+                    preload="metadata"
+                    muted
+                    playsInline
+                    autoPlay={isPlaying}
+                    onLoadedMetadata={(e) => {
+                      try {
+                        const el = e.currentTarget as HTMLVideoElement;
+                        el.muted = true;
+                        el.loop = loopEnabled;
+                        const t = videoRef.current?.currentTime ?? 0;
+                        if (!Number.isNaN(t)) el.currentTime = t;
+                        if (isPlaying) { const p = el.play(); (p as any)?.catch?.(()=>{}); }
+                      } catch {}
+                    }}
+                  />
+                )}
+              </div>
+            )}
+            {compareSource && (
+              <div
+                className={`absolute top-6 right-6 z-30 min-w-[240px] rounded-xl border px-4 py-3 shadow-lg ${isDark ? 'bg-black/70 border-white/10 text-white/80' : 'bg-white/90 border-gray-200 text-gray-800'}`}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs uppercase tracking-wide font-semibold">Compare</p>
+                    <p className="text-xs truncate max-w-[200px]">{compareSource.name}</p>
+                  </div>
+                  <button
+                    onClick={clearCompare}
+                    className={`text-[11px] uppercase font-semibold ${isDark ? 'text-white/60 hover:text-white' : 'text-gray-600 hover:text-gray-900'}`}
+                  >
+                    Remove
+                  </button>
+                </div>
+                <div className="mt-3 flex items-center justify-between text-[11px]">
+                  <span>Mode</span>
+                  <button
+                    onClick={openCompareModal}
+                    className={`${isDark ? 'bg-white/10 hover:bg-white/20 text-white' : 'bg-black/5 hover:bg-black/10 text-gray-800'} px-3 py-1 rounded-full text-[11px] font-semibold`}
+                  >
+                    {compareMode === 'overlay' ? 'Overlay' : compareMode === 'side-by-side-horizontal' ? 'Horizontal' : 'Vertical'}
+                  </button>
+                </div>
+                {compareMode === 'overlay' && (
+                  <div className="mt-3">
+                    <label className="flex items-center justify-between text-[11px] uppercase gap-3">
+                      <span className={`${isDark ? 'text-white/60' : 'text-gray-600'}`}>Opacity</span>
+                      <span className={`${isDark ? 'text-white/80' : 'text-gray-800'}`}>{Math.round(compareOpacity * 100)}%</span>
+                    </label>
+                    <input
+                      type="range"
+                      min={0.1}
+                      max={1}
+                      step={0.05}
+                      value={compareOpacity}
+                      onChange={(e) => setCompareOpacity(Number(e.target.value))}
+                      className={`mt-2 w-full ${isDark ? 'accent-white' : 'accent-black'}`}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
           </div>
           {/* Left Controls: restricted to video display width and not under comments */}
           <div className="flex-none">
@@ -732,6 +1020,103 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
           onUnshare={(id) => handleUnshare(id)}
           onClose={() => setShareOpen(false)}
         />
+      )}
+      {compareModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+          <div className="absolute inset-0 bg-black/60" onClick={closeCompareModal} />
+          <div className={`relative w-full max-w-xl rounded-2xl border px-6 py-6 shadow-2xl ${isDark ? 'bg-black/90 border-white/10 text-white/80' : 'bg-white border-gray-200 text-gray-900'}`}>
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold">Compare video</h2>
+              <button onClick={closeCompareModal} className={`${isDark ? 'text-white/60 hover:text-white' : 'text-gray-500 hover:text-gray-900'} text-sm`}>Close</button>
+            </div>
+            <div className="mt-5 space-y-6">
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Upload comparison clip</label>
+                <input
+                  type="file"
+                  accept="video/*"
+                  onChange={(e) => handleCompareFileChange(e.target.files?.[0] ?? null)}
+                  className={`${isDark ? 'w-full rounded-lg border border-white/20 bg-black/40 px-3 py-2 text-sm text-white placeholder:text-white/40' : 'w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400'}`}
+                />
+                {compareDraft.name && (
+                  <p className="text-xs opacity-70">Selected: {compareDraft.name}</p>
+                )}
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => handleCompareFileChange(null)}
+                    className={`${isDark ? 'text-white/60 hover:text-white' : 'text-gray-600 hover:text-gray-900'} text-xs underline`}
+                  >
+                    Clear selection
+                  </button>
+                  {compareSource && (
+                    <button
+                      onClick={clearCompare}
+                      className={`${isDark ? 'text-red-300 hover:text-red-200' : 'text-red-600 hover:text-red-700'} text-xs underline`}
+                    >
+                      Remove current compare
+                    </button>
+                  )}
+                </div>
+              </div>
+              <div className="space-y-3">
+                <p className="text-sm font-medium">Display mode</p>
+                <div className="grid gap-2 sm:grid-cols-3">
+                  {[
+                    { id: 'overlay', label: 'Overlay' },
+                    { id: 'side-by-side-horizontal', label: 'Horizontal' },
+                    { id: 'side-by-side-vertical', label: 'Vertical' },
+                  ].map((mode) => (
+                    <label
+                      key={mode.id}
+                      className={`${compareDraft.mode === mode.id ? (isDark ? 'border-white/40 bg-white/10 text-white' : 'border-black bg-black/5 text-gray-900') : (isDark ? 'border-white/20 text-white/70 hover:border-white/40' : 'border-gray-300 text-gray-600 hover:border-gray-500')} flex cursor-pointer items-center justify-center rounded-xl border px-4 py-3 text-sm font-semibold transition`}
+                    >
+                      <input
+                        type="radio"
+                        name="compare-mode"
+                        value={mode.id}
+                        checked={compareDraft.mode === mode.id}
+                        onChange={() => handleDraftModeChange(mode.id as CompareMode)}
+                        className="hidden"
+                      />
+                      {mode.label}
+                    </label>
+                  ))}
+                </div>
+                {compareDraft.mode === 'overlay' && (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-xs uppercase">
+                      <span className={`${isDark ? 'text-white/60' : 'text-gray-600'}`}>Opacity</span>
+                      <span className={`${isDark ? 'text-white/80' : 'text-gray-800'}`}>{Math.round(compareDraft.opacity * 100)}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={0.1}
+                      max={1}
+                      step={0.05}
+                      value={compareDraft.opacity}
+                      onChange={(e) => handleDraftOpacityChange(Number(e.target.value))}
+                      className={`w-full ${isDark ? 'accent-white' : 'accent-black'}`}
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                onClick={closeCompareModal}
+                className={`${isDark ? 'text-white/60 hover:text-white' : 'text-gray-600 hover:text-gray-900'} text-sm font-semibold`}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={applyCompareDraft}
+                className={`${isDark ? 'bg-white text-black hover:bg-white/90' : 'bg-black text-white hover:bg-black/90'} px-4 py-2 text-sm font-semibold rounded-full transition`}
+              >
+                Apply
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

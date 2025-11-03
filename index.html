@@ -26,8 +26,9 @@
       // Miro SDK v2 helpers and flows
       (function() {
         try {
-          if (window.miro && window.miro.board && window.miro.board.ui && typeof window.miro.board.ui.on === 'function') {
-            (async () => {
+          if (window.__reffoCleanMiro) { return; }
+          if (window.miro && typeof window.miro.onReady === 'function') {
+            window.miro.onReady(async () => {
               const ui = window.miro.board.ui;
 
               // Helper: get center of viewport
@@ -188,8 +189,8 @@
                   } catch (_) {}
                 }, 50);
               }
-              console.log('Reffo Reviewer: panel-load prompt initialized');
-            })();
+              console.log('Reffo Reviewer: icon:click registered; panel-load prompt initialized');
+            });
           }
         } catch (e) {
           // no-op outside Miro
@@ -199,6 +200,7 @@
       // When running inside Miro, add a small floating link to open the site in a new tab.
       (function() {
         try {
+          if (window.__reffoCleanMiro) { return; }
           if (window.miro && window.miro.board) {
             const link = document.createElement('a');
             link.id = 'reffo-open-web';
@@ -232,6 +234,116 @@
           // ignore
         }
       })();
+    </script>
+    <!-- Clean Miro plugin logic: icon click → ask for link (if none selected), create sticky, open fullscreen -->
+    <script>
+      (function () {
+        // Mark legacy blocks to skip
+        try { window.__reffoCleanMiro = true; } catch (_) {}
+
+        function extractUrlFromText(text) {
+          const m = (text || '').match(/https?:\/\/\S+/);
+          if (m) return m[0];
+          if ((text || '').startsWith('/share/')) return location.origin + text;
+          return null;
+        }
+
+        function askForLink(initialValue = '') {
+          return new Promise((resolve) => {
+            const overlay = document.createElement('div');
+            overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);backdrop-filter:blur(4px);z-index:9999';
+            const box = document.createElement('div');
+            box.style.cssText = 'position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(520px,92vw);padding:16px;border-radius:12px;border:1px solid rgba(255,255,255,.2);background:#111;color:#fff;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;';
+            box.innerHTML = '<div style="font-weight:700;margin-bottom:8px">Paste a Reffo Review link</div>'+
+                            '<div style="font-size:12px;opacity:.8;margin-bottom:8px">Example: https://…/share/{token} or /share/{token}</div>';
+            const input = document.createElement('input');
+            input.type = 'text'; input.value = initialValue; input.placeholder = 'https://…/share/abc123 or /share/abc123';
+            input.style.cssText = 'width:100%;padding:10px 12px;border-radius:10px;border:1px solid rgba(255,255,255,.2);background:#161616;color:#fff;outline:none;';
+            const row = document.createElement('div');
+            row.style.cssText = 'display:flex;gap:8px;margin-top:12px;justify-content:flex-end;';
+            const cancel = document.createElement('button');
+            cancel.textContent = 'Cancel'; cancel.style.cssText = 'padding:8px 12px;border-radius:999px;border:1px solid rgba(255,255,255,.15);background:transparent;color:#ddd;';
+            cancel.onclick = () => { document.body.removeChild(overlay); resolve(null); };
+            const ok = document.createElement('button');
+            ok.textContent = 'Open'; ok.style.cssText = 'padding:8px 14px;border-radius:999px;border:1px solid #fff;background:#fff;color:#111;font-weight:700;';
+            ok.onclick = () => { const v = input.value.trim(); document.body.removeChild(overlay); resolve(v || null); };
+            input.addEventListener('keydown', (e) => { if (e.key === 'Enter') ok.click(); if (e.key === 'Escape') cancel.click(); });
+            row.appendChild(cancel); row.appendChild(ok);
+            box.appendChild(input); box.appendChild(row); overlay.appendChild(box);
+            document.body.appendChild(overlay); input.focus();
+          });
+        }
+
+        async function handleIconClick() {
+          try {
+            let selectedUrl = null;
+            try {
+              const sel = await window.miro.board.getSelection();
+              if (Array.isArray(sel) && sel.length) {
+                for (const it of sel) {
+                  const content = (it && typeof it.content === 'string') ? it.content : '';
+                  const maybeDirect = typeof (it || {}).url === 'string' ? (it || {}).url : null;
+                  const maybe = extractUrlFromText(content) || maybeDirect;
+                  if (maybe) { selectedUrl = maybe; break; }
+                }
+              }
+            } catch (_) {}
+
+            if (!selectedUrl) {
+              const input = await askForLink('');
+              if (!input) return;
+              selectedUrl = input.startsWith('http') ? input : (location.origin + input);
+              try {
+                const vp = await window.miro.board.viewport.get();
+                await window.miro.board.createStickyNote({
+                  content: `Video reviewed\n${selectedUrl}`,
+                  x: vp.x + vp.width / 2,
+                  y: vp.y + vp.height / 2,
+                  shape: 'square',
+                  style: { fillColor: 'light_yellow' },
+                });
+              } catch (_) {}
+            }
+
+            try {
+              if (typeof window.miro.board.ui.openModal === 'function') {
+                await window.miro.board.ui.openModal({ url: selectedUrl, fullscreen: true, width: 1600, height: 1000 });
+              } else {
+                await window.miro.board.ui.openPanel({ url: selectedUrl, height: 1200 });
+              }
+            } catch (e) {
+              try { await window.miro.board.ui.openPanel({ url: selectedUrl, height: 1200 }); } catch (_) {}
+            }
+          } catch (_) {}
+        }
+
+        async function init() {
+          try {
+            if (window.miro && window.miro.board && window.miro.board.ui) {
+              await window.miro.board.ui.on('icon:click', handleIconClick);
+              console.log('Reffo Reviewer: icon:click registered (clean)');
+            }
+          } catch (_) {}
+        }
+        try { if (window.miro && typeof window.miro.onReady === 'function') window.miro.onReady(init); } catch (_) {}
+        init();
+      })();
+    </script>
+    <!-- Minimal Miro icon:click handler (as requested) -->
+    <script>
+      async function init() {
+        try {
+          if (window.miro && window.miro.board && window.miro.board.ui) {
+            await window.miro.board.ui.on("icon:click", async () => {
+              await window.miro.board.ui.openPanel({ url: "/" });
+            });
+            console.log("Miro icon:click registered (minimal)");
+          }
+        } catch (e) {
+          // Ignore outside Miro
+        }
+      }
+      init();
     </script>
     <div id="root"></div>
     <script type="module" src="/index.tsx"></script>

@@ -9,7 +9,7 @@ import ProjectWorkspace from './components/ProjectWorkspace';
 import { Project, Video } from './types';
 import type { Id } from './convex/_generated/dataModel';
 import logo from './assets/logo.svg';
-import googleIcon from './assets/icon-192x192.png';
+import googleLogo from './assets/google.svg';
 import { useThemePreference, applyTheme, ThemePref } from './useTheme';
 import { Sun, Moon } from 'lucide-react';
 import { Bell } from 'lucide-react';
@@ -72,6 +72,7 @@ const App: React.FC = () => {
   const [reviewSourceUrl, setReviewSourceUrl] = useState<string | null>(null);
   const [isEnsuringUser, setIsEnsuringUser] = useState(false);
   const [ensureError, setEnsureError] = useState<string | null>(null);
+  const [isMiroEmbed, setIsMiroEmbed] = useState(false);
   const { isSignedIn } = useUser();
 
   const currentUser = useQuery(api.users.current, isSignedIn ? {} : undefined);
@@ -275,6 +276,14 @@ const App: React.FC = () => {
 
   const dataLoading = Boolean(currentUser) && (projectsQuery === undefined || videosQuery === undefined);
 
+  // Detect if running inside Miro panel so we can adapt the landing layout
+  useEffect(() => {
+    try {
+      const isEmbed = Boolean((window as any).miro && (window as any).miro.board && (window as any).miro.board.ui);
+      setIsMiroEmbed(isEmbed);
+    } catch {}
+  }, []);
+
   const currentVideo = useMemo(() => {
     if (!selectedVideoId) return null;
     return videos.find((video) => video.id === selectedVideoId) ?? sharedSelectedVideo;
@@ -397,66 +406,59 @@ const App: React.FC = () => {
     // Rely on body.theme-dark / body.theme-light from useThemePreference + index.css
     <div className={"min-h-screen flex flex-col transition-colors"}>
       <SignedOut>
-        <div className="min-h-screen">
-          <div className="mx-auto flex w-full max-w-6xl flex-col-reverse items-center gap-12 px-6 py-16 lg:flex-row lg:py-24">
-            <div className="w-full space-y-8">
-              <div className="flex items-center gap-3 text-sm text-white/60">
-                <img src={logo} alt="Reffo" className="h-8 w-auto" />
-                <span className="uppercase tracking-widest text-[10px] text-white/40">Collaborative review suite</span>
+        {isMiroEmbed ? (
+          <div className="min-h-screen w-full px-4 py-6">
+            <div className="mx-auto w-full max-w-sm rounded-2xl border border-white/10 bg-black/40 p-5 text-center shadow-2xl backdrop-blur">
+              <div className="mb-2 flex items-center justify-center gap-2 text-white">
+                <img src={logo} alt="Reffo" className="h-7 w-auto" />
+                <span className="text-base font-semibold">Reffo Reviewer</span>
               </div>
-              <div className="space-y-6">
-                <h1 className="text-4xl font-semibold text-white sm:text-5xl">
-                  Feedback that moves productions forward.
-                </h1>
-                <p className="text-base text-white/70 sm:text-lg">
-                  Reffo centralises your edits, comments, and approvals in one secure workspace built for fast-paced video teams.
-                </p>
-                <ul className="space-y-3 text-sm text-white/70">
-                  <li>• Frame-accurate comments synced with cloud storage.</li>
-                  <li>• Projects, permissions, and delivery-ready share links.</li>
-                  <li>• Designed for studios collaborating across time zones.</li>
-                </ul>
-              </div>
-              <div className="flex flex-wrap items-center gap-4">
-                <SignInButton mode="modal" signInOptions={{ strategy: 'oauth_google' }}>
-                  <button className="inline-flex items-center gap-3 rounded-full bg-white px-6 py-3 text-sm font-semibold text-black shadow-lg transition hover:bg-white/90">
-                    <img src={googleIcon} alt="Google" className="h-5 w-5" />
+              <p className="mb-5 text-xs text-white/60">Fast, focused video feedback.</p>
+              <div className="flex flex-col items-stretch gap-3">
+                <SignInButton mode="redirect" signInOptions={{ strategy: 'oauth_google' }} afterSignInUrl="/dashboard">
+                  <button className="inline-flex items-center justify-center gap-3 rounded-full bg-white px-6 py-3 text-sm font-semibold text-black shadow-lg transition hover:bg-white/90">
+                    <img src={googleLogo} alt="Google" className="h-5 w-5" />
                     Continue with Google
                   </button>
                 </SignInButton>
-                <SignInButton mode="modal">
-                  <button className="rounded-full border border-white/20 px-6 py-3 text-sm font-semibold text-white/80 transition hover:text-white">
-                    Sign in with email
-                  </button>
-                </SignInButton>
               </div>
-              <p className="text-xs text-white/40">
-                By continuing you agree to our Terms of Service and Privacy Policy.
-              </p>
+              <p className="mt-4 text-[11px] text-white/40">By continuing you agree to our Terms and Privacy Policy.</p>
             </div>
-            <div className="w-full max-w-md rounded-3xl border border-white/10 bg-white/5 p-6 shadow-2xl backdrop-blur">
-              <div className="rounded-2xl border border-white/10 bg-black/40 p-4">
-                <lottie-player
-                  src={lottieImageLoader}
-                  autoplay
-                  loop
-                  mode="normal"
-                  style={{ width: '100%', height: '280px' }}
-                ></lottie-player>
+          </div>
+        ) : (
+          <div className="min-h-screen flex items-center justify-center px-6 py-12">
+            <div className="w-full max-w-xl space-y-8">
+              <div className="text-center">
+                <div className="mx-auto mb-2 flex items-center justify-center gap-2">
+                  <img src={logo} alt="Reffo" className="h-8 w-auto" />
+                  <h1 className="text-2xl font-semibold text-white sm:text-3xl">Reffo Reviewer</h1>
+                </div>
+                <p className="text-sm text-white/70 sm:text-base">Fast, focused video feedback for teams.</p>
               </div>
-              <div className="mt-6 space-y-3 text-sm text-white/70">
-                <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+              <div className="mx-auto w-full max-w-md rounded-2xl border border-white/10 bg-white/5 p-6 shadow-2xl backdrop-blur">
+                <div className="space-y-3">
+                  <SignInButton mode="redirect" signInOptions={{ strategy: 'oauth_google' }} afterSignInUrl="/dashboard">
+                    <button className="w-full inline-flex items-center justify-center gap-3 rounded-full bg-white px-6 py-3 text-sm font-semibold text-black shadow-lg transition hover:bg-white/90">
+                      <img src={googleLogo} alt="Google" className="h-5 w-5" />
+                      Continue with Google
+                    </button>
+                  </SignInButton>
+                </div>
+                <p className="mt-4 text-center text-xs text-white/40">By continuing you agree to our Terms of Service and Privacy Policy.</p>
+              </div>
+              <div className="hidden md:grid md:grid-cols-2 md:gap-4">
+                <div className="rounded-2xl border border-white/10 bg-black/30 p-4 text-sm text-white/70">
                   <p className="text-xs uppercase text-white/40">Trusted workflows</p>
                   <p className="mt-1 text-white/80">Import, comment, and ship faster with a pipeline built for editors, directors, and producers.</p>
                 </div>
-                <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                <div className="rounded-2xl border border-white/10 bg-black/30 p-4 text-sm text-white/70">
                   <p className="text-xs uppercase text-white/40">Launch ready</p>
                   <p className="mt-1 text-white/80">Invite your crew in minutes and keep feedback in sync across every project.</p>
                 </div>
               </div>
             </div>
           </div>
-        </div>
+        )}
       </SignedOut>
       <SignedIn>
         {currentUser === undefined || isEnsuringUser ? (
