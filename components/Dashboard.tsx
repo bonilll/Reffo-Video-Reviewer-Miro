@@ -139,9 +139,18 @@ const VideoActionsMenu: React.FC<{
   }, []);
 
   return (
-    <div className="relative" ref={ref}>
+    <div
+      className="relative"
+      ref={ref}
+      onMouseDown={(e) => e.stopPropagation()}
+      onClick={(e) => e.stopPropagation()}
+    >
       <button
-        onClick={() => setOpen((value) => !value)}
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((value) => !value);
+        }}
+        onMouseDown={(e) => e.stopPropagation()}
         className="p-1 rounded-md text-white/60 hover:text-white hover:bg-white/10"
       >
         <MoreHorizontal size={18} />
@@ -150,7 +159,8 @@ const VideoActionsMenu: React.FC<{
         <div className={`absolute right-0 mt-2 w-48 rounded-xl border shadow-2xl backdrop-blur ${isDark ? 'border-white/10 bg-black/90' : 'border-gray-200 bg-white'}`}>
           <button
             className={`flex w-full items-center gap-2 px-4 py-2 text-left text-sm ${isDark ? 'text-white/80 hover:bg-white/10' : 'text-gray-800 hover:bg-black/5'}`}
-            onClick={() => {
+            onClick={(e) => {
+              e.stopPropagation();
               onRename();
               setOpen(false);
             }}
@@ -159,7 +169,8 @@ const VideoActionsMenu: React.FC<{
           </button>
           <button
             className={`flex w-full items-center gap-2 px-4 py-2 text-left text-sm ${isDark ? 'text-white/80 hover:bg-white/10' : 'text-gray-800 hover:bg-black/5'}`}
-            onClick={() => {
+            onClick={(e) => {
+              e.stopPropagation();
               onMove();
               setOpen(false);
             }}
@@ -168,7 +179,8 @@ const VideoActionsMenu: React.FC<{
           </button>
           <button
             className={`flex w-full items-center gap-2 px-4 py-2 text-left text-sm ${isDark ? 'text-white/80 hover:bg-white/10' : 'text-gray-800 hover:bg-black/5'}`}
-            onClick={() => {
+            onClick={(e) => {
+              e.stopPropagation();
               onShare();
               setOpen(false);
             }}
@@ -178,7 +190,8 @@ const VideoActionsMenu: React.FC<{
           <div className={`my-1 h-px ${isDark ? 'bg-white/10' : 'bg-gray-200'}`} />
           <button
             className={`flex w-full items-center gap-2 px-4 py-2 text-left text-sm ${isDark ? 'text-red-300 hover:bg-white/10' : 'text-red-600 hover:bg-black/5'}`}
-            onClick={() => {
+            onClick={(e) => {
+              e.stopPropagation();
               onDelete();
               setOpen(false);
             }}

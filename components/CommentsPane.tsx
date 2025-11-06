@@ -472,7 +472,7 @@ const CommentsPane: React.FC<CommentsPaneProps> = ({ comments, currentFrame, onA
               value={newCommentText}
               onChange={handleTextareaChange}
               placeholder={`Add comment at frame ${currentFrame}…`}
-              className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-white resize-none"
+              className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-white resize-none min-h-[104px]"
               rows={2}
               ref={textareaRef}
             />

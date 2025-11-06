@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
-import { SignedIn, SignedOut, SignInButton, useUser, useClerk } from '@clerk/clerk-react';
+import { SignedIn, SignedOut, useUser, useClerk, useSignIn } from '@clerk/clerk-react';
 import { useQuery, useMutation, useAction } from 'convex/react';
 import { api } from './convex/_generated/api';
 import VideoReviewer from './components/VideoReviewer';
@@ -48,6 +48,7 @@ function parseRoute(pathname: string): Route {
   if (reviewMatch) return { name: 'review', id: reviewMatch[1] };
   const shareMatch = pathname.match(/^\/share\/([^\/?#]+)/);
   if (shareMatch) return { name: 'share', token: shareMatch[1] };
+  
   // default to home
   return { name: 'home' };
 }
@@ -74,6 +75,7 @@ const App: React.FC = () => {
   const [ensureError, setEnsureError] = useState<string | null>(null);
   const [isMiroEmbed, setIsMiroEmbed] = useState(false);
   const { isSignedIn } = useUser();
+  const { signIn, isLoaded: isSignInLoaded } = useSignIn();
 
   const currentUser = useQuery(api.users.current, isSignedIn ? {} : undefined);
   const userSettings = useQuery(api.settings.getOrNull, currentUser ? {} : undefined);
@@ -289,6 +291,19 @@ const App: React.FC = () => {
     return videos.find((video) => video.id === selectedVideoId) ?? sharedSelectedVideo;
   }, [videos, selectedVideoId, sharedSelectedVideo]);
 
+  const handleGoogleSignIn = useCallback(async () => {
+    if (!isSignInLoaded || !signIn) return;
+    try {
+      await signIn.authenticateWithRedirect({
+        strategy: 'oauth_google',
+        redirectUrl: window.location.href,
+        redirectUrlComplete: '/dashboard',
+      });
+    } catch (err) {
+      console.error('Google sign-in redirect failed', err);
+    }
+  }, [isSignInLoaded, signIn]);
+
   const handleStartReview = useCallback(
     async (video: Video) => {
       setSelectedVideoId(video.id);
@@ -394,6 +409,9 @@ const App: React.FC = () => {
     }
   }, [shareToken, shareResolution, shareVideo]);
 
+  // No special handling required for top-level redirects;
+  // Clerk manages the Google OAuth flow entirely after authenticateWithRedirect.
+
   const handleGoBackToDashboard = useCallback(() => {
     setSelectedVideoId(null);
     navigate('/dashboard');
@@ -415,12 +433,13 @@ const App: React.FC = () => {
               </div>
               <p className="mb-5 text-xs text-white/60">Fast, focused video feedback.</p>
               <div className="flex flex-col items-stretch gap-3">
-                <SignInButton mode="redirect" signInOptions={{ strategy: 'oauth_google' }} afterSignInUrl="/dashboard">
-                  <button className="inline-flex items-center justify-center gap-3 rounded-full bg-white px-6 py-3 text-sm font-semibold text-black shadow-lg transition hover:bg-white/90">
-                    <img src={googleLogo} alt="Google" className="h-5 w-5" />
-                    Continue with Google
-                  </button>
-                </SignInButton>
+                <button
+                  onClick={handleGoogleSignIn}
+                  className="inline-flex items-center justify-center gap-3 rounded-full bg-white px-6 py-3 text-sm font-semibold text-black shadow-lg transition hover:bg-white/90"
+                >
+                  <img src={googleLogo} alt="Google" className="h-5 w-5" />
+                  Continue with Google
+                </button>
               </div>
               <p className="mt-4 text-[11px] text-white/40">By continuing you agree to our Terms and Privacy Policy.</p>
             </div>
@@ -437,12 +456,13 @@ const App: React.FC = () => {
               </div>
               <div className="mx-auto w-full max-w-md rounded-2xl border border-white/10 bg-white/5 p-6 shadow-2xl backdrop-blur">
                 <div className="space-y-3">
-                  <SignInButton mode="redirect" signInOptions={{ strategy: 'oauth_google' }} afterSignInUrl="/dashboard">
-                    <button className="w-full inline-flex items-center justify-center gap-3 rounded-full bg-white px-6 py-3 text-sm font-semibold text-black shadow-lg transition hover:bg-white/90">
-                      <img src={googleLogo} alt="Google" className="h-5 w-5" />
-                      Continue with Google
-                    </button>
-                  </SignInButton>
+                  <button
+                    onClick={handleGoogleSignIn}
+                    className="w-full inline-flex items-center justify-center gap-3 rounded-full bg-white px-6 py-3 text-sm font-semibold text-black shadow-lg transition hover:bg-white/90"
+                  >
+                    <img src={googleLogo} alt="Google" className="h-5 w-5" />
+                    Continue with Google
+                  </button>
                 </div>
                 <p className="mt-4 text-center text-xs text-white/40">By continuing you agree to our Terms of Service and Privacy Policy.</p>
               </div>

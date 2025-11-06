@@ -225,7 +225,11 @@ const NewCommentPopover: React.FC<NewCommentPopoverProps> = ({ position, rendere
           <button type="button" onClick={onCancel} className={`${isDark ? 'text-white/70 bg-white/10 hover:bg-white/20' : 'text-gray-700 bg-gray-200 hover:bg-gray-300'} px-4 py-2 rounded-full text-xs font-semibold`}>
             Cancel
           </button>
-          <button type="submit" className={`${isDark ? 'text-black bg-white hover:bg-white/90' : 'text-white bg-black hover:bg-black/90'} px-4 py-2 rounded-full text-xs font-semibold disabled:opacity-40`} disabled={!text.trim()}>
+          <button
+            type="submit"
+            className={`${isDark ? 'text-black bg-white hover:bg-white/90' : 'text-black bg-white border border-gray-300 hover:bg-gray-50'} px-4 py-2 rounded-full text-xs font-semibold disabled:opacity-40`}
+            disabled={!text.trim()}
+          >
             Post
           </button>
         </div>

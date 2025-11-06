@@ -190,9 +190,9 @@ const CommentPopover: React.FC<CommentPopoverProps> = ({ comment, comments, onAd
           <div className={`absolute left-1/2 -bottom-[5px] -ml-[5px] w-2.5 h-2.5 transform rotate-45 ${isDark ? 'bg-black/80 border-b border-r border-white/10' : 'bg-white border-b border-r border-gray-200'}`} />
         )}
 
-        <div className="flex items-center justify-between px-3 py-2 border-b border-white/10">
-            <span className="text-xs font-semibold uppercase text-white/40">Thread</span>
-            <button onClick={onClose} className="p-1 text-white/50 hover:text-white rounded-full hover:bg-white/10 transition-colors" title="Close">
+        <div className={`flex items-center justify-between px-3 py-2 border-b ${isDark ? 'border-white/10' : 'border-gray-200'}`}>
+            <span className={`text-xs font-semibold uppercase ${isDark ? 'text-white/40' : 'text-gray-600'}`}>Thread</span>
+            <button onClick={onClose} className={`${isDark ? 'p-1 text-white/50 hover:text-white rounded-full hover:bg-white/10' : 'p-1 text-gray-600 hover:text-gray-900 rounded-full hover:bg-gray-100'} transition-colors`} title="Close">
                 <X size={16} />
             </button>
         </div>
@@ -201,18 +201,18 @@ const CommentPopover: React.FC<CommentPopoverProps> = ({ comment, comments, onAd
             {thread.map(c => <CommentThreadItem key={c.id} comment={c} />)}
         </div>
 
-        <div className="px-3 py-2 border-t border-white/10 bg-black/70">
+        <div className={`px-3 py-2 border-t ${isDark ? 'border-white/10 bg-black/70' : 'border-gray-200 bg-white'}`}>
             <form onSubmit={handleReplySubmit} className="flex gap-2 items-center relative">
-                 <img src={avatar} alt="You" className="w-7 h-7 rounded-full border border-white/10" />
+                 <img src={avatar} alt="You" className={`w-7 h-7 rounded-full ${isDark ? 'border border-white/10' : 'border border-gray-200'}`} />
                  <input 
                     type="text"
                     value={replyText}
                     onChange={onReplyChange}
                     placeholder="Reply..."
-                    className="w-full bg-white/5 border border-white/10 rounded-full px-3 py-1.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-white"
+                    className={`${isDark ? 'w-full bg-white/5 border border-white/10 rounded-full px-3 py-1.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-white' : 'w-full bg-gray-50 border border-gray-300 rounded-full px-3 py-1.5 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900'}`}
                     ref={inputRef}
                 />
-                <button type="submit" className="bg-white text-black p-2 rounded-full text-sm font-semibold flex-shrink-0 hover:bg-white/90" title="Reply">
+                <button type="submit" className={`${isDark ? 'bg-white text-black hover:bg-white/90' : 'bg-black text-white hover:bg-black/90'} p-2 rounded-full text-sm font-semibold flex-shrink-0`} title="Reply">
                     <CornerDownRight size={16} />
                 </button>
                 {suggestOpen && suggestions.length > 0 && (

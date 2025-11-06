@@ -145,35 +145,53 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
     setTimeout(updateVideoWidth, 60);
   }, [compareSource, compareMode, updateVideoWidth]);
 
-  const getCompareEl = useCallback(() => (compareMode === 'overlay' ? compareVideoOverlayRef.current : compareVideoSideRef.current), [compareMode]);
+  const compareElements = useCallback(() => {
+    const els: HTMLVideoElement[] = [];
+    if (compareVideoOverlayRef.current) els.push(compareVideoOverlayRef.current);
+    if (compareVideoSideRef.current) els.push(compareVideoSideRef.current);
+    return els;
+  }, []);
 
   useEffect(() => {
-    const el = getCompareEl();
-    if (!compareSource) {
-      el?.pause();
-      return;
-    }
-    if (el) {
+    const els = compareElements();
+    els.forEach((el) => {
+      if (!compareSource) {
+        el.pause();
+        el.removeAttribute('src');
+        el.load();
+        return;
+      }
       el.muted = true;
       el.loop = loopEnabled;
-      if (videoRef.current && !Number.isNaN(videoRef.current.currentTime)) {
-        try { el.currentTime = videoRef.current.currentTime; } catch {}
+      const sync = () => {
+        if (videoRef.current && !Number.isNaN(videoRef.current.currentTime)) {
+          try { el.currentTime = videoRef.current.currentTime; } catch {}
+        }
+        if (isPlaying) {
+          const p = el.play();
+          (p as any)?.catch?.(() => undefined);
+        }
+      };
+      if (el.readyState >= 1) {
+        sync();
+      } else {
+        el.addEventListener('loadedmetadata', sync, { once: true });
       }
-    }
-  }, [compareSource, compareMode, loopEnabled, getCompareEl]);
+    });
+  }, [compareSource, loopEnabled, isPlaying, compareElements]);
 
   useEffect(() => {
-    const el = getCompareEl();
-    if (!compareSource || !el) return;
-    if (isPlaying) {
-      const playPromise = el.play();
-      if (playPromise && typeof (playPromise as any).catch === 'function') {
-        (playPromise as any).catch(() => undefined);
+    const els = compareElements();
+    els.forEach((el) => {
+      if (!compareSource) return;
+      if (isPlaying) {
+        const p = el.play();
+        (p as any)?.catch?.(() => undefined);
+      } else {
+        el.pause();
       }
-    } else {
-      el.pause();
-    }
-  }, [isPlaying, compareSource, compareMode, getCompareEl]);
+    });
+  }, [isPlaying, compareSource, compareElements]);
 
   const convertAnnotationFromServer = useCallback((doc: any): Annotation => {
     const { id, videoId: docVideoId, authorId, createdAt, ...rest } = doc;
@@ -350,12 +368,13 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
   const handleTimeUpdate = (time: number, frame: number) => {
     setCurrentTime(time);
     setCurrentFrame(frame);
-    const el = getCompareEl();
-    if (compareSource && el) {
-      const diff = Math.abs((el.currentTime || 0) - time);
-      if (diff > 0.2) {
-        try { el.currentTime = time; } catch {}
-      }
+    if (compareSource) {
+      compareElements().forEach((el) => {
+        const diff = Math.abs((el.currentTime || 0) - time);
+        if (diff > 0.2) {
+          try { el.currentTime = time; } catch {}
+        }
+      });
     }
     if (loopEnabled && duration > 0) {
       // Fallback epsilon equals one frame duration
@@ -373,9 +392,10 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
         setCurrentTime(time);
         setCurrentFrame(Math.round(time * video.fps));
     }
-    const el = getCompareEl();
-    if (compareSource && el) {
-      try { el.currentTime = time; } catch {}
+    if (compareSource) {
+      compareElements().forEach((el) => {
+        try { el.currentTime = time; } catch {}
+      });
     }
   };
 
@@ -937,7 +957,6 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
                   />
                   <div className={`mt-2 grid grid-cols-[1fr_auto_1fr] items-center text-xs uppercase ${isDark ? 'text-white/70' : 'text-gray-600'}`}>
                     <div />
-                    <span className={`${isDark ? 'px-3 py-1 rounded-full border border-white/10 bg-white/10 text-white/70' : 'px-3 py-1 rounded-full border border-gray-300 bg-white text-gray-700'}`}>{currentFrame} f</span>
                     <div className="justify-self-end">
                       <span>{video.width}×{video.height} • {video.fps} fps</span>
                     </div>
