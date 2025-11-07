@@ -139,6 +139,7 @@ const App: React.FC = () => {
   const [pendingVerificationEmail, setPendingVerificationEmail] = useState<string | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
   const [authLoading, setAuthLoading] = useState(false);
+  const MIRO_SESSION_STORAGE_KEY = 'reffo_miro_session_id';
 
   // Compute our first-party origin to validate postMessage
   const siteOrigin = useMemo(() => {
@@ -402,6 +403,19 @@ const App: React.FC = () => {
     }
   }, [route, authLoaded, authSignedIn, sessionId, siteOrigin]);
 
+  // Rehydrate session in Miro iframe on load using stored sessionId (cookies may be blocked)
+  useEffect(() => {
+    if (!authLoaded) return;
+    if (!isMiroEmbed) return;
+    if (authSignedIn) return;
+    try {
+      const stored = localStorage.getItem(MIRO_SESSION_STORAGE_KEY);
+      if (stored) {
+        setActive({ session: stored }).catch(() => {});
+      }
+    } catch {}
+  }, [authLoaded, isMiroEmbed, authSignedIn, setActive]);
+
   const currentVideo = useMemo(() => {
     if (!selectedVideoId) return null;
     return videos.find((video) => video.id === selectedVideoId) ?? sharedSelectedVideo;
@@ -442,20 +456,23 @@ const App: React.FC = () => {
       if (event.data && event.data.type === 'oauth-success') {
         window.removeEventListener('message', onMessage);
         const sessionId = event.data.sessionId as string | undefined;
-        const finalize = () => {
-          // Hard refresh ensures Clerk picks up session reliably inside iframe
-          window.location.reload();
-        };
-        if (sessionId) {
-          // Try to activate session directly to avoid reload race conditions
-          setActive({ session: sessionId }).then(finalize).catch(finalize);
-        } else {
-          finalize();
+        try {
+          if (sessionId) {
+            // Persist for future reloads in Miro context
+            localStorage.setItem(MIRO_SESSION_STORAGE_KEY, sessionId);
+            setActive({ session: sessionId })
+              .then(() => navigate('/dashboard', true))
+              .catch(() => navigate('/dashboard', true));
+          } else {
+            navigate('/dashboard', true);
+          }
+        } catch {
+          navigate('/dashboard', true);
         }
       }
     };
     window.addEventListener('message', onMessage);
-  }, [siteOrigin]);
+  }, [siteOrigin, setActive]);
 
   const handleGoogleSignIn = useCallback(async () => {
     if (isMiroEmbed) {
@@ -1256,7 +1273,10 @@ const AppHeader: React.FC<AppHeaderProps & { isDark: boolean }> = ({
             )}
           </button>
           <button
-            onClick={() => signOut()}
+            onClick={async () => {
+              try { localStorage.removeItem('reffo_miro_session_id'); } catch {}
+              await signOut();
+            }}
             className={isDark ? 'rounded-full border border-white/20 bg-black/30 px-3 py-1.5 text-xs text-white/70 hover:text-white' : 'rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-700 hover:text-gray-900'}
           >
             Logout
