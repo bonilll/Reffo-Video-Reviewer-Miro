@@ -36,7 +36,9 @@ type Route =
   | { name: 'profile' }
   | { name: 'project'; id: string }
   | { name: 'review'; id: string }
-  | { name: 'share'; token: string };
+  | { name: 'share'; token: string }
+  | { name: 'oauthStart'; provider: 'google' }
+  | { name: 'oauthComplete' };
 
 type NotificationRecord = {
   id: string;
@@ -85,6 +87,9 @@ function parseRoute(pathname: string): Route {
   if (reviewMatch) return { name: 'review', id: reviewMatch[1] };
   const shareMatch = pathname.match(/^\/share\/([^\/?#]+)/);
   if (shareMatch) return { name: 'share', token: shareMatch[1] };
+  const oauthStartMatch = pathname.match(/^\/oauth-start\/google$/);
+  if (oauthStartMatch) return { name: 'oauthStart', provider: 'google' };
+  if (pathname === '/oauth-complete') return { name: 'oauthComplete' };
   
   // default to home
   return { name: 'home' };
@@ -134,6 +139,16 @@ const App: React.FC = () => {
   const [pendingVerificationEmail, setPendingVerificationEmail] = useState<string | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
   const [authLoading, setAuthLoading] = useState(false);
+
+  // Compute our first-party origin to validate postMessage
+  const siteOrigin = useMemo(() => {
+    try {
+      const url = (import.meta as any).env?.VITE_PUBLIC_SITE_URL || window.location.origin;
+      return new URL(url).origin;
+    } catch {
+      return window.location.origin;
+    }
+  }, []);
   const { isSignedIn } = useUser();
   const { signIn, isLoaded: isSignInLoaded } = useSignIn();
   const { signUp, isLoaded: isSignUpLoaded } = useSignUp();
@@ -352,6 +367,41 @@ const App: React.FC = () => {
     } catch {}
   }, []);
 
+  // OAuth popup start page logic
+  useEffect(() => {
+    if (route.name !== 'oauthStart') return;
+    (async () => {
+      if (!isSignInLoaded || !signIn) return;
+      try {
+        const strategy = 'oauth_google' as const;
+        await signIn.authenticateWithRedirect({
+          strategy,
+          redirectUrl: window.location.href,
+          redirectUrlComplete: '/oauth-complete',
+        });
+      } catch (err) {
+        console.error('OAuth start failed', err);
+      }
+    })();
+  }, [route, isSignInLoaded, signIn]);
+
+  // OAuth popup completion page logic
+  useEffect(() => {
+    if (route.name !== 'oauthComplete') return;
+    // When Clerk sets the session after redirect, notify opener and close
+    if (isSignedIn) {
+      try {
+        const data = { type: 'oauth-success' };
+        if (window.opener) {
+          window.opener.postMessage(data, siteOrigin);
+        }
+        setTimeout(() => window.close(), 250);
+      } catch (err) {
+        console.error('Failed to postMessage oauth-success', err);
+      }
+    }
+  }, [route, isSignedIn, siteOrigin]);
+
   const currentVideo = useMemo(() => {
     if (!selectedVideoId) return null;
     return videos.find((video) => video.id === selectedVideoId) ?? sharedSelectedVideo;
@@ -372,7 +422,37 @@ const App: React.FC = () => {
     if (pendingProjectFocus.projectId !== activeProjectId) return null;
     return pendingProjectFocus;
   }, [pendingProjectFocus, view, activeProjectId]);
+  const startOAuthPopup = useCallback((provider: 'google') => {
+    const w = 500;
+    const h = 700;
+    const dualScreenLeft = window.screenLeft ?? (window as any).screenX ?? 0;
+    const dualScreenTop = window.screenTop ?? (window as any).screenY ?? 0;
+    const width = window.innerWidth ?? document.documentElement.clientWidth ?? screen.width;
+    const height = window.innerHeight ?? document.documentElement.clientHeight ?? screen.height;
+    const left = Math.max(0, width / 2 - w / 2) + dualScreenLeft;
+    const top = Math.max(0, height / 2 - h / 2) + dualScreenTop;
+    const popup = window.open(
+      `/oauth-start/${provider}`,
+      'oauthWindow',
+      `scrollbars=yes,width=${w},height=${h},top=${top},left=${left}`,
+    );
+    if (!popup) return;
+    const onMessage = (event: MessageEvent) => {
+      if (event.origin !== siteOrigin) return;
+      if (event.data && event.data.type === 'oauth-success') {
+        window.removeEventListener('message', onMessage);
+        // Refresh to reflect new session
+        navigate('/dashboard', true);
+      }
+    };
+    window.addEventListener('message', onMessage);
+  }, [siteOrigin]);
+
   const handleGoogleSignIn = useCallback(async () => {
+    if (isMiroEmbed) {
+      startOAuthPopup('google');
+      return;
+    }
     if (!isSignInLoaded || !signIn) return;
     try {
       await signIn.authenticateWithRedirect({
@@ -383,7 +463,7 @@ const App: React.FC = () => {
     } catch (err) {
       console.error('Google sign-in redirect failed', err);
     }
-  }, [isSignInLoaded, signIn]);
+  }, [isMiroEmbed, isSignInLoaded, signIn, startOAuthPopup]);
 
   const handleSwitchAuthMode = useCallback((mode: 'signin' | 'signup') => {
     setAuthMode(mode);
@@ -787,6 +867,26 @@ const App: React.FC = () => {
 
   const preference = userSettings?.workspace.theme ?? 'system';
   const isDark = useThemePreference(preference);
+
+  // Minimal pages for OAuth popup routing
+  if (route.name === 'oauthStart') {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-6 text-white">
+        <div className="rounded-2xl border border-white/10 bg-black/50 px-6 py-8 text-center shadow-2xl">
+          <p className="text-sm text-white/70">Redirecting to Google…</p>
+        </div>
+      </div>
+    );
+  }
+  if (route.name === 'oauthComplete') {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-6 text-white">
+        <div className="rounded-2xl border border-white/10 bg-black/50 px-6 py-8 text-center shadow-2xl">
+          <p className="text-sm text-white/70">Finishing sign‑in… You can close this window.</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     // Rely on body.theme-dark / body.theme-light from useThemePreference + index.css
