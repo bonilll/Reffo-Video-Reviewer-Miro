@@ -38,6 +38,43 @@ type Route =
   | { name: 'review'; id: string }
   | { name: 'share'; token: string };
 
+type NotificationRecord = {
+  id: string;
+  type: string;
+  message: string;
+  videoId: string | null;
+  projectId: string | null;
+  commentId: string | null;
+  frame: number | null;
+  mentionText: string | null;
+  fromUserId: string | null;
+  createdAt: number;
+  readAt: number | null;
+};
+
+type ReviewFocus = {
+  videoId: string;
+  commentId?: string | null;
+  frame?: number | null;
+  mentionText?: string | null;
+};
+
+const formatTimeAgo = (timestamp: number): string => {
+  const now = Date.now();
+  const diff = Math.max(0, now - timestamp);
+  const seconds = Math.floor(diff / 1000);
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  const weeks = Math.floor(days / 7);
+  if (weeks < 4) return `${weeks}w ago`;
+  return new Date(timestamp).toLocaleDateString();
+};
+
 function parseRoute(pathname: string): Route {
   if (pathname === '/' || pathname === '') return { name: 'home' };
   if (pathname === '/dashboard') return { name: 'dashboard' };
@@ -71,6 +108,8 @@ const App: React.FC = () => {
   const [sharedSelectedVideo, setSharedSelectedVideo] = useState<Video | null>(null);
   const [selectedVideoId, setSelectedVideoId] = useState<string | null>(null);
   const [reviewSourceUrl, setReviewSourceUrl] = useState<string | null>(null);
+  const [pendingReviewFocus, setPendingReviewFocus] = useState<ReviewFocus | null>(null);
+  const [pendingProjectFocus, setPendingProjectFocus] = useState<{ projectId: string; message?: string } | null>(null);
   const [isEnsuringUser, setIsEnsuringUser] = useState(false);
   const [ensureError, setEnsureError] = useState<string | null>(null);
   const [isMiroEmbed, setIsMiroEmbed] = useState(false);
@@ -83,6 +122,7 @@ const App: React.FC = () => {
   const videosQuery = useQuery(api.videos.list, currentUser ? { projectId: undefined } : undefined);
   const sharedProjectsQuery = useQuery(api.shares.projectsSharedWithMe, currentUser ? {} : undefined);
   const sharedVideosQuery = useQuery(api.shares.videosSharedWithMe, currentUser ? {} : undefined);
+  const notifications = useQuery(api.notifications.list, {}) as NotificationRecord[] | undefined;
 
   // Share-link handling
   const shareToken = useMemo(() => (route.name === 'share' ? route.token : null), [route]);
@@ -102,6 +142,9 @@ const App: React.FC = () => {
   const removeVideo = useMutation(api.videos.remove);
   const generateUploadUrl = useAction(api.storage.generateVideoUploadUrl);
   const getDownloadUrl = useAction(api.storage.getDownloadUrl);
+  const markNotificationRead = useMutation(api.notifications.markRead);
+  const markAllNotificationsRead = useMutation(api.notifications.markAllRead);
+  const hasUnreadNotifications = useMemo(() => notifications?.some((n) => !n.readAt) ?? false, [notifications]);
 
   const handleCreateProject = useCallback(
     async (name: string) => {
@@ -291,6 +334,21 @@ const App: React.FC = () => {
     return videos.find((video) => video.id === selectedVideoId) ?? sharedSelectedVideo;
   }, [videos, selectedVideoId, sharedSelectedVideo]);
 
+  const activeReviewFocus = useMemo(() => {
+    if (!pendingReviewFocus || !currentVideo) return null;
+    if (pendingReviewFocus.videoId !== currentVideo.id) return null;
+    return {
+      commentId: pendingReviewFocus.commentId ?? null,
+      frame: pendingReviewFocus.frame ?? null,
+      mentionText: pendingReviewFocus.mentionText ?? null,
+    };
+  }, [pendingReviewFocus, currentVideo]);
+
+  const activeProjectHighlight = useMemo(() => {
+    if (!pendingProjectFocus || view !== 'project' || !activeProjectId) return null;
+    if (pendingProjectFocus.projectId !== activeProjectId) return null;
+    return pendingProjectFocus;
+  }, [pendingProjectFocus, view, activeProjectId]);
   const handleGoogleSignIn = useCallback(async () => {
     if (!isSignInLoaded || !signIn) return;
     try {
@@ -309,6 +367,7 @@ const App: React.FC = () => {
       setSelectedVideoId(video.id);
       setSharedSelectedVideo(null);
       setReviewSourceUrl(null);
+      setPendingReviewFocus(null);
       try {
         if (video.storageKey) {
           const url = await getDownloadUrl({ storageKey: video.storageKey });
@@ -330,7 +389,7 @@ const App: React.FC = () => {
       }
       navigate(`/review/${video.id}`);
     },
-    [updateVideoMetadata, getDownloadUrl, currentUser]
+    [updateVideoMetadata, getDownloadUrl, currentUser, navigate]
   );
 
   // Route → internal state sync
@@ -414,8 +473,68 @@ const App: React.FC = () => {
 
   const handleGoBackToDashboard = useCallback(() => {
     setSelectedVideoId(null);
+    setPendingReviewFocus(null);
+    setPendingProjectFocus(null);
     navigate('/dashboard');
-  }, []);
+  }, [navigate]);
+
+  const handleNotificationClick = useCallback(
+    (notification: NotificationRecord) => {
+      void markNotificationRead({ notificationId: notification.id as Id<'notifications'> }).catch((error) => {
+        console.error('Failed to mark notification read', error);
+      });
+
+      if (notification.type === 'mention' && notification.videoId) {
+        setPendingReviewFocus({
+          videoId: notification.videoId,
+          commentId: notification.commentId ?? null,
+          frame: notification.frame ?? null,
+          mentionText: notification.mentionText ?? null,
+        });
+        navigate(`/review/${notification.videoId}`);
+        return;
+      }
+
+      if (notification.type === 'share') {
+        if (notification.projectId) {
+          setPendingProjectFocus({ projectId: notification.projectId, message: notification.message });
+          navigate(`/project/${notification.projectId}`);
+          return;
+        }
+        if (notification.videoId) {
+          setPendingReviewFocus({ videoId: notification.videoId });
+          navigate(`/review/${notification.videoId}`);
+          return;
+        }
+      }
+
+      if (notification.videoId) {
+        setPendingReviewFocus({
+          videoId: notification.videoId,
+          commentId: notification.commentId ?? null,
+          frame: notification.frame ?? null,
+          mentionText: notification.mentionText ?? null,
+        });
+        navigate(`/review/${notification.videoId}`);
+        return;
+      }
+
+      if (notification.projectId) {
+        setPendingProjectFocus({ projectId: notification.projectId, message: notification.message });
+        navigate(`/project/${notification.projectId}`);
+        return;
+      }
+
+      navigate('/dashboard');
+    },
+    [markNotificationRead, navigate],
+  );
+
+  const handleMarkAllNotificationsRead = useCallback(() => {
+    void markAllNotificationsRead({}).catch((error) => {
+      console.error('Failed to mark notifications read', error);
+    });
+  }, [markAllNotificationsRead]);
 
   const preference = userSettings?.workspace.theme ?? 'system';
   const isDark = useThemePreference(preference);
@@ -523,6 +642,13 @@ const App: React.FC = () => {
             sourceUrl={reviewSourceUrl ?? undefined}
             onGoBack={handleGoBackToDashboard}
             theme={preference}
+            initialFocus={activeReviewFocus}
+            onConsumeInitialFocus={() => {
+              setPendingReviewFocus((focus) => {
+                if (!focus) return null;
+                return focus.videoId === currentVideo.id ? null : focus;
+              });
+            }}
           />
         ) : (
           <div className="min-h-screen flex flex-col">
@@ -538,6 +664,10 @@ const App: React.FC = () => {
                 avatar: currentUser.avatar ?? null,
               }}
               isDark={isDark}
+              notifications={notifications ?? []}
+              hasUnreadNotifications={hasUnreadNotifications}
+              onNotificationClick={handleNotificationClick}
+              onMarkAllNotificationsRead={handleMarkAllNotificationsRead}
             />
             <main className="flex-1 overflow-y-auto px-6 py-10 lg:px-12">
               {view === 'profile' ? (
@@ -557,6 +687,13 @@ const App: React.FC = () => {
                   theme={preference}
                   onBack={() => navigate('/dashboard')}
                   onStartReview={handleStartReview}
+                  highlightMessage={activeProjectHighlight ? activeProjectHighlight.message ?? 'This project was shared with you.' : null}
+                  onDismissHighlight={() => {
+                    setPendingProjectFocus((focus) => {
+                      if (!focus) return null;
+                      return focus.projectId === activeProjectId ? null : focus;
+                    });
+                  }}
                 />
               ) : (
                 <Dashboard
@@ -601,15 +738,27 @@ interface AppHeaderProps {
     email: string;
     avatar?: string | null;
   };
+  notifications: NotificationRecord[];
+  hasUnreadNotifications: boolean;
+  onNotificationClick: (notification: NotificationRecord) => void;
+  onMarkAllNotificationsRead: () => void;
 }
 
-const AppHeader: React.FC<AppHeaderProps & { isDark: boolean }> = ({ active, onNavigate, user, isDark }) => {
+const AppHeader: React.FC<AppHeaderProps & { isDark: boolean }> = ({
+  active,
+  onNavigate,
+  user,
+  isDark,
+  notifications,
+  hasUnreadNotifications,
+  onNotificationClick,
+  onMarkAllNotificationsRead,
+}) => {
   const { signOut } = useClerk();
   const settingsDoc = useQuery(api.settings.getOrNull, {});
   const updateSettings = useMutation(api.settings.update);
-  const notifications = useQuery(api.notifications.list, {});
-  const markAllRead = useMutation(api.notifications.markAllRead);
   const [notifOpen, setNotifOpen] = React.useState(false);
+  const displayNotifications = notifications ?? [];
   const base = user.name || user.email;
   const initials = base
     .split(' ')
@@ -649,22 +798,58 @@ const AppHeader: React.FC<AppHeaderProps & { isDark: boolean }> = ({ active, onN
             >
               <Bell size={16} />
             </button>
-            {notifications && notifications.some((n: any) => !n.readAt) && (
+            {hasUnreadNotifications && (
               <span className="absolute -right-1 -top-1 inline-block h-2 w-2 rounded-full bg-red-500" />
             )}
             {notifOpen && (
               <div className={`absolute right-0 mt-2 w-80 rounded-xl border shadow-2xl backdrop-blur ${isDark ? 'border-white/10 bg-black/90 text-white' : 'border-gray-200 bg-white text-gray-900'}`}>
                 <div className="flex items-center justify-between px-3 py-2 text-xs">
                   <span className={isDark ? 'text-white/70' : 'text-gray-600'}>Notifications</span>
-                  <button onClick={() => markAllRead({})} className={isDark ? 'text-white/60 hover:text-white' : 'text-gray-600 hover:text-gray-900'}>Mark all read</button>
+                  <button
+                    onClick={() => {
+                      setNotifOpen(false);
+                      onMarkAllNotificationsRead();
+                    }}
+                    disabled={!hasUnreadNotifications}
+                    className={`${hasUnreadNotifications ? (isDark ? 'text-white/60 hover:text-white' : 'text-gray-600 hover:text-gray-900') : (isDark ? 'text-white/30 cursor-default' : 'text-gray-300 cursor-default')}`}
+                  >
+                    Mark all read
+                  </button>
                 </div>
                 <div className="max-h-80 overflow-auto py-1">
-                  {(notifications ?? []).map((n: any) => (
-                    <div key={n.id} className={`px-3 py-2 text-sm ${n.readAt ? (isDark ? 'text-white/60' : 'text-gray-600') : (isDark ? 'text-white' : 'text-gray-900')}`}>
-                      {n.message}
-                    </div>
+                  {displayNotifications.map((notification) => (
+                    <button
+                      key={notification.id}
+                      onClick={() => {
+                        setNotifOpen(false);
+                        onNotificationClick(notification);
+                      }}
+                      className={`w-full px-3 py-2 text-left transition ${
+                        notification.readAt
+                          ? isDark
+                            ? 'text-white/60 hover:bg-white/10'
+                            : 'text-gray-600 hover:bg-gray-50'
+                          : isDark
+                            ? 'bg-white/10 text-white hover:bg-white/20'
+                            : 'bg-gray-100 text-gray-900 hover:bg-gray-200'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium truncate">{notification.message}</p>
+                          {notification.mentionText && (
+                            <p className={`mt-1 text-xs line-clamp-2 ${isDark ? 'text-white/60' : 'text-gray-600'}`}>
+                              “{notification.mentionText}”
+                            </p>
+                          )}
+                        </div>
+                        <span className={`shrink-0 text-[11px] ${isDark ? 'text-white/40' : 'text-gray-400'}`}>
+                          {formatTimeAgo(notification.createdAt)}
+                        </span>
+                      </div>
+                    </button>
                   ))}
-                  {(notifications?.length ?? 0) === 0 && (
+                  {displayNotifications.length === 0 && (
                     <div className={isDark ? 'px-3 py-6 text-center text-white/50' : 'px-3 py-6 text-center text-gray-500'}>No notifications</div>
                   )}
                 </div>

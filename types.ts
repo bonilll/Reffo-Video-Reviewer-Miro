@@ -17,6 +17,7 @@ export enum AnnotationTool {
   TEXT = 'text',
   COMMENT = 'comment',
   IMAGE = 'image',
+  VIDEO = 'video',
 }
 
 export interface BaseAnnotation {
@@ -49,6 +50,26 @@ export interface ImageAnnotation extends BaseAnnotation {
   width: number; // normalized
   height: number; // normalized
   rotation: number; // in radians
+  storageKey?: string;
+  originalWidth?: number;
+  originalHeight?: number;
+  byteSize?: number;
+  mimeType?: string;
+}
+
+export interface VideoAnnotation extends BaseAnnotation {
+  type: AnnotationTool.VIDEO;
+  src: string;
+  center: Point;
+  width: number;
+  height: number;
+  rotation: number;
+  storageKey?: string;
+  originalWidth?: number;
+  originalHeight?: number;
+  byteSize?: number;
+  mimeType?: string;
+  duration?: number;
 }
 
 export interface EllipseAnnotation extends BaseAnnotation {
@@ -72,7 +93,7 @@ export interface TextAnnotation extends BaseAnnotation {
   fontSize: number;
 }
 
-export type Annotation = FreehandAnnotation | RectangleAnnotation | EllipseAnnotation | ArrowAnnotation | TextAnnotation | ImageAnnotation;
+export type Annotation = FreehandAnnotation | RectangleAnnotation | EllipseAnnotation | ArrowAnnotation | TextAnnotation | ImageAnnotation | VideoAnnotation;
 
 export interface Comment {
   id: string;

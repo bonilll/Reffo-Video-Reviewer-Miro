@@ -19,6 +19,7 @@ import type * as shares from "../shares.js";
 import type * as storage from "../storage.js";
 import type * as users from "../users.js";
 import type * as utils_auth from "../utils/auth.js";
+import type * as utils_imageCompression from "../utils/imageCompression.js";
 import type * as utils_storage from "../utils/storage.js";
 import type * as videos from "../videos.js";
 
@@ -48,6 +49,7 @@ declare const fullApi: ApiFromModules<{
   storage: typeof storage;
   users: typeof users;
   "utils/auth": typeof utils_auth;
+  "utils/imageCompression": typeof utils_imageCompression;
   "utils/storage": typeof utils_storage;
   videos: typeof videos;
 }>;

@@ -5,6 +5,8 @@ import { Comment } from '../types';
 import { MessageSquare, CheckCircle2, Circle, Trash2, Pencil, ChevronDown, ChevronUp } from 'lucide-react';
 import { useMutation } from 'convex/react';
 
+const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 interface CommentProps {
   comment: Comment;
   replies: Comment[];
@@ -16,10 +18,13 @@ interface CommentProps {
   setActive: () => void;
   isReply?: boolean;
   isDark?: boolean;
+  highlightCommentId?: string | null;
+  highlightTerm?: string | null;
+  onSelectComment?: (id: string) => void;
 }
 
 const CommentItem: React.FC<CommentProps & { friends?: Array<{ id: string; contactEmail: string; contactName: string | null }> }>
- = ({ comment, replies, onAddComment, onToggleResolve, onJumpToFrame, onDeleteComment, isActive, setActive, friends, isReply = false, isDark = true }) => {
+ = ({ comment, replies, onAddComment, onToggleResolve, onJumpToFrame, onDeleteComment, isActive, setActive, friends, isReply = false, isDark = true, highlightCommentId, highlightTerm, onSelectComment }) => {
   const [showReply, setShowReply] = useState(false);
   const [replyText, setReplyText] = useState('');
   const [open, setOpen] = useState(false);
@@ -75,6 +80,25 @@ const CommentItem: React.FC<CommentProps & { friends?: Array<{ id: string; conta
     const q = quickQuery.toLowerCase();
     return base.filter((s) => s.label.toLowerCase().includes(q) || s.email.toLowerCase().includes(q)).slice(0, 5);
   }, [friends, quickOpen, quickQuery]);
+
+  const shouldHighlight = highlightCommentId ? comment.id === highlightCommentId : false;
+  const effectiveHighlight = shouldHighlight && highlightTerm ? highlightTerm.trim() : null;
+  const highlightLower = effectiveHighlight?.toLowerCase() ?? null;
+
+  const highlightedSegments = useMemo(() => {
+    if (!effectiveHighlight) return null;
+    try {
+      const regex = new RegExp(`(${escapeRegExp(effectiveHighlight)})`, 'ig');
+      return editText.split(regex);
+    } catch {
+      return null;
+    }
+  }, [editText, effectiveHighlight]);
+
+  const highlightSpanClass = isDark ? 'bg-white/20 text-white px-1 rounded font-semibold' : 'bg-gray-200 text-gray-900 px-1 rounded font-semibold';
+  const highlightRingClass = shouldHighlight && !isActive
+    ? (isDark ? 'ring-2 ring-white/40 ring-offset-2 ring-offset-black/40' : 'ring-2 ring-gray-600/40 ring-offset-2 ring-offset-white')
+    : '';
 
   const onQuickChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
@@ -166,7 +190,7 @@ const CommentItem: React.FC<CommentProps & { friends?: Array<{ id: string; conta
 
   return (
     <div 
-        className={`${isReply ? 'p-2' : 'p-3'} border-b border-white/10 transition-colors ${isActive ? 'bg-white/10' : 'hover:bg-white/5'}`}
+        className={`${isReply ? 'p-2' : 'p-3'} border-b border-white/10 transition-colors ${isActive ? 'bg-white/10' : 'hover:bg-white/5'} ${highlightRingClass}`}
         onClick={setActive}
     >
       <div className="flex items-start gap-2.5">
@@ -191,10 +215,24 @@ const CommentItem: React.FC<CommentProps & { friends?: Array<{ id: string; conta
             </form>
           ) : (
             <p
-              className="text-sm text-white/80 mt-1 whitespace-pre-wrap break-words"
+              className={`${isDark ? 'text-sm text-white/80' : 'text-sm text-gray-800'} mt-1 whitespace-pre-wrap break-words`}
               style={{ hyphens: 'auto', wordBreak: 'break-word', overflowWrap: 'anywhere' }}
             >
-              {editText}
+              {highlightedSegments
+                ? highlightedSegments.map((segment, idx) => {
+                    if (!segment) {
+                      return <React.Fragment key={idx} />;
+                    }
+                    if (highlightLower && segment.toLowerCase() === highlightLower) {
+                      return (
+                        <span key={idx} className={highlightSpanClass}>
+                          {segment}
+                        </span>
+                      );
+                    }
+                    return <React.Fragment key={idx}>{segment}</React.Fragment>;
+                  })
+                : editText}
             </p>
           )}
           <div className="flex flex-wrap items-center gap-2 text-[11px] text-white/60 mt-2">
@@ -261,16 +299,19 @@ const CommentItem: React.FC<CommentProps & { friends?: Array<{ id: string; conta
             <CommentItem 
               key={reply.id} 
               comment={reply}
-              replies={[]} 
+              replies={[]}
               onAddComment={onAddComment} 
               onToggleResolve={onToggleResolve}
               onJumpToFrame={onJumpToFrame}
               onDeleteComment={onDeleteComment}
-              isActive={false}
-              setActive={() => {}}
+              isActive={highlightCommentId ? reply.id === highlightCommentId : false}
+              setActive={() => onSelectComment?.(reply.id)}
               isReply
               friends={friends}
               isDark={isDark}
+              highlightCommentId={highlightCommentId}
+              highlightTerm={highlightTerm}
+              onSelectComment={onSelectComment}
             />
           ))}
           {/* Quick reply box after the first reply */}
@@ -321,9 +362,11 @@ interface CommentsPaneProps {
   setActiveCommentId: (id: string | null) => void;
   onDeleteComment: (id: string) => void;
   isDark?: boolean;
+  highlightCommentId?: string | null;
+  highlightTerm?: string | null;
 }
 
-const CommentsPane: React.FC<CommentsPaneProps> = ({ comments, currentFrame, onAddComment, onToggleResolve, onJumpToFrame, activeCommentId, setActiveCommentId, onDeleteComment, isDark = true }) => {
+const CommentsPane: React.FC<CommentsPaneProps> = ({ comments, currentFrame, onAddComment, onToggleResolve, onJumpToFrame, activeCommentId, setActiveCommentId, onDeleteComment, isDark = true, highlightCommentId = null, highlightTerm = null }) => {
   const [newCommentText, setNewCommentText] = useState('');
   const [filter, setFilter] = useState<'all' | 'open' | 'resolved'>('all');
   const activeCommentRef = useRef<HTMLDivElement>(null);
@@ -461,6 +504,9 @@ const CommentsPane: React.FC<CommentsPaneProps> = ({ comments, currentFrame, onA
                 setActive={() => setActiveCommentId(comment.id)}
                 friends={contacts}
                 isDark={isDark}
+                highlightCommentId={highlightCommentId ?? null}
+                highlightTerm={highlightTerm ?? null}
+                onSelectComment={setActiveCommentId}
              />
           </div>
         ))}

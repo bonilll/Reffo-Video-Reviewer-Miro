@@ -1,4 +1,4 @@
-import { Point, Annotation, AnnotationTool, RectangleAnnotation, EllipseAnnotation, ArrowAnnotation, FreehandAnnotation, Comment, TextAnnotation, ImageAnnotation } from '../types';
+import { Point, Annotation, AnnotationTool, RectangleAnnotation, EllipseAnnotation, ArrowAnnotation, FreehandAnnotation, Comment, TextAnnotation, ImageAnnotation, VideoAnnotation } from '../types';
 
 interface VideoDimensions {
     containerWidth: number;
@@ -101,8 +101,9 @@ const getAnnotationPoints = (anno: Annotation, renderedRect: RenderedRect, video
     switch (anno.type) {
         case AnnotationTool.IMAGE:
         case AnnotationTool.RECTANGLE:
-        case AnnotationTool.ELLIPSE: {
-            const rectAnno = anno as RectangleAnnotation | EllipseAnnotation | ImageAnnotation;
+        case AnnotationTool.ELLIPSE:
+        case AnnotationTool.VIDEO: {
+            const rectAnno = anno as RectangleAnnotation | EllipseAnnotation | ImageAnnotation | VideoAnnotation;
             const center = normalizedToCanvas(rectAnno.center, renderedRect);
             const width = rectAnno.width * renderedRect.width;
             const height = rectAnno.height * renderedRect.height;
@@ -240,8 +241,9 @@ export const isPointInAnnotation = (point: Point, anno: Annotation, renderedRect
 
     switch (anno.type) {
         case AnnotationTool.IMAGE:
-        case AnnotationTool.RECTANGLE: {
-            const rectAnno = anno as RectangleAnnotation | ImageAnnotation;
+        case AnnotationTool.RECTANGLE:
+        case AnnotationTool.VIDEO: {
+            const rectAnno = anno as RectangleAnnotation | ImageAnnotation | VideoAnnotation;
             const center = normalizedToCanvas(rectAnno.center, renderedRect);
             const width = rectAnno.width * renderedRect.width;
             const height = rectAnno.height * renderedRect.height;
@@ -351,7 +353,8 @@ export const applyTransform = (currentPoint: Point, state: TransformState, rende
                     case AnnotationTool.IMAGE:
                     case AnnotationTool.RECTANGLE:
                     case AnnotationTool.ELLIPSE:
-                        (newAnno as ImageAnnotation | RectangleAnnotation | EllipseAnnotation).center = { x: (newAnno as any).center.x + dx, y: (newAnno as any).center.y + dy };
+                    case AnnotationTool.VIDEO:
+                        (newAnno as ImageAnnotation | RectangleAnnotation | EllipseAnnotation | VideoAnnotation).center = { x: (newAnno as any).center.x + dx, y: (newAnno as any).center.y + dy };
                         break;
                     case AnnotationTool.ARROW:
                         newAnno.start = { x: newAnno.start.x + dx, y: newAnno.start.y + dy };
@@ -378,7 +381,8 @@ export const applyTransform = (currentPoint: Point, state: TransformState, rende
                     case AnnotationTool.IMAGE:
                     case AnnotationTool.RECTANGLE:
                     case AnnotationTool.ELLIPSE:
-                        const typedAnno = newAnno as ImageAnnotation | RectangleAnnotation | EllipseAnnotation;
+                    case AnnotationTool.VIDEO:
+                        const typedAnno = newAnno as ImageAnnotation | RectangleAnnotation | EllipseAnnotation | VideoAnnotation;
                         typedAnno.rotation = (typedAnno.rotation || 0) + angleDelta;
                         const initialCenter = normalizedToCanvas(typedAnno.center, renderedRect);
                         const rotatedCenter = rotatePoint(initialCenter, state.pivot, angleDelta);
@@ -432,7 +436,8 @@ export const applyTransform = (currentPoint: Point, state: TransformState, rende
                         case AnnotationTool.IMAGE:
                         case AnnotationTool.RECTANGLE:
                         case AnnotationTool.ELLIPSE:
-                            const typedAnno = newAnno as ImageAnnotation | RectangleAnnotation | EllipseAnnotation;
+                        case AnnotationTool.VIDEO:
+                            const typedAnno = newAnno as ImageAnnotation | RectangleAnnotation | EllipseAnnotation | VideoAnnotation;
                             typedAnno.width *= Math.abs(scaleX);
                             typedAnno.height *= Math.abs(scaleY);
                             const newCenterX = state.pivot.x + (normalizedToCanvas(typedAnno.center, renderedRect).x - state.pivot.x) * scaleX;

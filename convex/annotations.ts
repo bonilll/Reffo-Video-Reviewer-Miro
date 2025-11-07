@@ -1,9 +1,60 @@
 import { mutation, query } from "./_generated/server";
 import { ConvexError, v } from "convex/values";
+import { api, internal } from "./_generated/api";
 import { getCurrentUserDoc, getCurrentUserOrThrow } from "./utils/auth";
 import type { Id } from "./_generated/dataModel";
 
 const annotationValidator = v.any();
+
+const MAX_IMAGE_BYTES = 20 * 1024 * 1024; // 20 MiB ceiling requested by product
+const MAX_VIDEO_BYTES = 200 * 1024 * 1024;
+
+const getMediaPayload = (annotation: any): any | null => {
+  if (!annotation || typeof annotation !== "object") return null;
+  const type = (annotation as any).type;
+  if (type === "image" || type === "video") return annotation as any;
+  return null;
+};
+
+const getMediaType = (annotation: any): "image" | "video" | null => {
+  if (!annotation || typeof annotation !== "object") return null;
+  const type = (annotation as any).type;
+  if (type === "image" || type === "video") return type;
+  return null;
+};
+
+const extractMediaStorageKey = (annotation: any): string | null => {
+  const payload = getMediaPayload(annotation);
+  const key = payload?.storageKey;
+  return typeof key === "string" && key.length > 0 ? key : null;
+};
+
+const validateMediaAnnotation = (annotation: any) => {
+  const mediaType = getMediaType(annotation);
+  if (!mediaType) return;
+  const payload = getMediaPayload(annotation);
+  if (!payload) return;
+
+  const size = payload.byteSize ?? payload.size;
+  if (typeof size === "number") {
+    if (mediaType === "image" && size > MAX_IMAGE_BYTES) {
+      throw new ConvexError("IMAGE_TOO_LARGE");
+    }
+    if (mediaType === "video" && size > MAX_VIDEO_BYTES) {
+      throw new ConvexError("VIDEO_TOO_LARGE");
+    }
+  }
+
+  if (typeof payload.src !== "string" || payload.src.length === 0) {
+    throw new ConvexError("INVALID_MEDIA_ANNOTATION");
+  }
+};
+
+const enqueueAssetDeletion = async (ctx: any, annotation: any) => {
+  const key = extractMediaStorageKey(annotation);
+  if (!key) return;
+  await ctx.scheduler.runAfter(0, internal.storage.deleteObject, { storageKey: key });
+};
 
 async function canViewVideo(ctx: any, userId: Id<'users'>, videoId: Id<'videos'>) {
   const video = await ctx.db.get(videoId);
@@ -131,6 +182,8 @@ export const create = mutation({
       throw new ConvexError("INVALID_ANNOTATION");
     }
 
+    validateMediaAnnotation(annotation);
+
     const frame = (annotation as any).frame;
     if (typeof frame !== "number") {
       throw new ConvexError("INVALID_FRAME");
@@ -174,16 +227,25 @@ export const update = mutation({
     if (typeof annotation !== "object" || annotation === null) {
       throw new ConvexError("INVALID_ANNOTATION");
     }
+    validateMediaAnnotation(annotation);
     const frame = (annotation as any).frame;
     if (typeof frame !== "number") {
       throw new ConvexError("INVALID_FRAME");
     }
+
+    const existingData = existing.data;
+    const existingKey = extractMediaStorageKey(existingData);
+    const nextKey = extractMediaStorageKey(annotation);
 
     await ctx.db.patch(annotationId, {
       frame,
       data: annotation,
       updatedAt: Date.now(),
     });
+
+    if (existingKey && existingKey !== nextKey) {
+      await enqueueAssetDeletion(ctx, existingData);
+    }
   },
 });
 
@@ -201,6 +263,7 @@ export const removeMany = mutation({
         throw new ConvexError("FORBIDDEN");
       }
 
+      await enqueueAssetDeletion(ctx, existing.data);
       await ctx.db.delete(annotationId);
     }
   },
@@ -221,6 +284,11 @@ export const clearForVideo = mutation({
       .withIndex("byVideo", (q) => q.eq("videoId", videoId))
       .collect();
 
-    await Promise.all(annotations.map((annotation) => ctx.db.delete(annotation._id)));
+    await Promise.all(
+      annotations.map(async (annotation) => {
+        await enqueueAssetDeletion(ctx, annotation.data);
+        await ctx.db.delete(annotation._id);
+      }),
+    );
   },
 });

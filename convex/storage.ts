@@ -57,6 +57,23 @@ const buildAvatarKey = (userId: string, fileName?: string) => {
   return `video_review/users/${userId}/profile/avatar-${Date.now()}${extension}`;
 };
 
+const buildAnnotationKey = (
+  userId: string,
+  videoId: string,
+  assetType: "image" | "video",
+  fileName?: string,
+) => {
+  const safeFileName = fileName?.replace(/[^a-zA-Z0-9_.-]/g, "annotation");
+  const extension = safeFileName?.includes(".")
+    ? safeFileName.slice(safeFileName.lastIndexOf("."))
+    : assetType === "image"
+      ? ".jpg"
+      : ".mp4";
+  const safeVideoId = videoId.replace(/[^a-zA-Z0-9_-]/g, "");
+  const folder = assetType === "image" ? "images" : "videos";
+  return `video_review/users/${userId}/annotations/${safeVideoId}/${folder}/${Date.now()}-${randomUUID()}${extension}`;
+};
+
 const buildPublicUrl = (storageKey: string) =>
   `${PUBLIC_BASE.replace(/\/$/, "")}/${storageKey}`;
 
@@ -133,6 +150,40 @@ export const generateProfileImageUploadUrl = action({
 
     const uploadUrl = await getSignedUrl(s3Client, command, { expiresIn: 60 * 5 });
     return { storageKey, uploadUrl, publicUrl: buildPublicUrl(storageKey) };
+  },
+});
+
+export const generateAnnotationAssetUploadUrl = action({
+  args: {
+    contentType: v.string(),
+    fileName: v.optional(v.string()),
+    videoId: v.id("videos"),
+    assetType: v.union(v.literal("image"), v.literal("video")),
+  },
+  async handler(ctx, { contentType, fileName, videoId, assetType }) {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new ConvexError("NOT_AUTHENTICATED");
+    }
+
+    const userId = await ctx.runMutation(api.users.ensure);
+    const storageKey = buildAnnotationKey(userId, videoId, assetType, fileName ?? undefined);
+
+    const command = new PutObjectCommand({
+      Bucket: BUCKET,
+      Key: storageKey,
+      ContentType: contentType,
+    });
+
+    const uploadUrl = await getSignedUrl(s3Client, command, {
+      expiresIn: 60 * 5,
+    });
+
+    return {
+      storageKey,
+      uploadUrl,
+      publicUrl: buildPublicUrl(storageKey),
+    };
   },
 });
 

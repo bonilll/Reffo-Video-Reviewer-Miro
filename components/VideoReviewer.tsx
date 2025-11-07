@@ -12,17 +12,50 @@ import type { Id } from '../convex/_generated/dataModel';
 import { useThemePreference, ThemePref } from '../useTheme';
 import { ShareModal } from './Dashboard';
 import { useUser } from '@clerk/clerk-react';
+import { compressImageFile } from '../utils/imageCompression';
 
 type CompareMode = 'overlay' | 'side-by-side-horizontal' | 'side-by-side-vertical';
+
+interface ReviewFocusContext {
+  commentId?: string | null;
+  frame?: number | null;
+  mentionText?: string | null;
+}
 
 interface VideoReviewerProps {
   video: Video;
   sourceUrl?: string;
   onGoBack: () => void;
   theme?: ThemePref;
+  initialFocus?: ReviewFocusContext | null;
+  onConsumeInitialFocus?: () => void;
 }
 
-const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBack, theme = 'system' }) => {
+const uploadBlobWithProgress = (url: string, blob: Blob, onProgress?: (percent: number) => void) =>
+  new Promise<void>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('PUT', url, true);
+    xhr.upload.onprogress = (event) => {
+      if (!onProgress || !event.lengthComputable) return;
+      const percent = (event.loaded / event.total) * 100;
+      onProgress(Math.max(0, Math.min(100, percent)));
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        onProgress?.(100);
+        resolve();
+      } else {
+        reject(new Error(`Upload failed with status ${xhr.status}`));
+      }
+    };
+    xhr.onerror = () => reject(new Error('Upload failed'));
+    if (blob.type) {
+      xhr.setRequestHeader('Content-Type', blob.type);
+    }
+    xhr.send(blob);
+  });
+
+const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBack, theme = 'system', initialFocus = null, onConsumeInitialFocus }) => {
   const isDark = useThemePreference(theme);
   const { user: clerkUser } = useUser();
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
@@ -47,6 +80,8 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
   const [activeCommentId, setActiveCommentId] = useState<string | null>(null);
   const [activeCommentPopoverId, setActiveCommentPopoverId] = useState<string | null>(null);
   const [showAnnotations, setShowAnnotations] = useState(true);
+  const [highlightedCommentId, setHighlightedCommentId] = useState<string | null>(null);
+  const [mentionHighlight, setMentionHighlight] = useState<string | null>(null);
 
   const videoId = video.id as Id<'videos'>;
 
@@ -62,6 +97,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
   const deleteCommentMutation = useMutation(api.comments.remove);
   const updateCommentPositionMutation = useMutation(api.comments.updatePosition);
   const getDownloadUrlAction = useAction(api.storage.getDownloadUrl);
+  const generateAnnotationAssetUploadUrl = useAction(api.storage.generateAnnotationAssetUploadUrl);
   const syncFriends = useMutation(api.shareGroups.syncFriendsFromGroups);
   // Sharing data (reuse Dashboard flows)
   const shareGroups = useQuery(api.shareGroups.list, clerkUser ? {} : undefined);
@@ -87,11 +123,138 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
   const compareVideoSideRef = useRef<HTMLVideoElement>(null);
   const draftUrlRef = useRef<string | null>(null);
   const prevCompareUrlRef = useRef<string | null>(null);
+  const appliedFocusRef = useRef<string | null>(null);
 
   useEffect(() => {
     // Ensure 'Friends' are synced from groups even when landing directly in reviewer.
     void syncFriends({}).catch(() => undefined);
   }, [syncFriends]);
+
+  const loadVideoMetadata = useCallback((file: File) => {
+    return new Promise<{ width: number; height: number; duration: number }>((resolve, reject) => {
+      const videoEl = document.createElement('video');
+      const revoke = () => {
+        if (videoEl.src.startsWith('blob:')) URL.revokeObjectURL(videoEl.src);
+      };
+      videoEl.preload = 'metadata';
+      videoEl.onloadedmetadata = () => {
+        const meta = {
+          width: videoEl.videoWidth || 1920,
+          height: videoEl.videoHeight || 1080,
+          duration: Number.isFinite(videoEl.duration) ? videoEl.duration : 0,
+        };
+        revoke();
+        resolve(meta);
+      };
+      videoEl.onerror = () => {
+        revoke();
+        reject(new Error('Unable to read video metadata.'));
+      };
+      videoEl.src = URL.createObjectURL(file);
+    });
+  }, []);
+
+  const uploadAnnotationAsset = useCallback(
+    async (
+      file: File,
+      kind: 'image' | 'video',
+      onProgress: (progressPercent: number) => void,
+    ): Promise<{
+      src: string;
+      storageKey: string;
+      byteSize: number;
+      mimeType: string;
+      width: number;
+      height: number;
+      originalWidth: number;
+      originalHeight: number;
+      duration?: number;
+    }> => {
+      try {
+        if (kind === 'image') {
+          onProgress?.(5);
+          const compressed = await compressImageFile(file, {
+            maxBytes: 20 * 1024 * 1024,
+            maxDimension: 2560,
+            minDimension: 320,
+          });
+          onProgress?.(20);
+
+          const uploadDetails = await generateAnnotationAssetUploadUrl({
+            contentType: compressed.mimeType,
+            fileName: file.name,
+            videoId: video.id,
+            assetType: 'image',
+          });
+          if (!uploadDetails) {
+            throw new Error('Unable to obtain upload credentials');
+          }
+          onProgress?.(30);
+
+          await uploadBlobWithProgress(uploadDetails.uploadUrl, compressed.blob, (p) => {
+            const mapped = 30 + p * 0.7;
+            onProgress?.(Math.min(99, mapped));
+          });
+
+          onProgress?.(100);
+          return {
+            src: uploadDetails.publicUrl,
+            storageKey: uploadDetails.storageKey,
+            byteSize: compressed.blob.size,
+            mimeType: compressed.mimeType,
+            width: compressed.width,
+            height: compressed.height,
+            originalWidth: compressed.originalWidth,
+            originalHeight: compressed.originalHeight,
+          };
+        }
+
+        const MAX_VIDEO_BYTES = 200 * 1024 * 1024;
+        if (file.size > MAX_VIDEO_BYTES) {
+          throw new Error('Video exceeds the 200MB limit. Please upload a shorter clip.');
+        }
+
+        onProgress?.(5);
+        const metadata = await loadVideoMetadata(file);
+        onProgress?.(15);
+
+        const mimeType = file.type && file.type.startsWith('video/') ? file.type : 'video/mp4';
+        const uploadDetails = await generateAnnotationAssetUploadUrl({
+          contentType: mimeType,
+          fileName: file.name,
+          videoId: video.id,
+          assetType: 'video',
+        });
+        if (!uploadDetails) {
+          throw new Error('Unable to obtain upload credentials');
+        }
+        onProgress?.(25);
+
+        await uploadBlobWithProgress(uploadDetails.uploadUrl, file, (p) => {
+          const mapped = 25 + p * 0.7;
+          onProgress?.(Math.min(99, mapped));
+        });
+
+        onProgress?.(100);
+        return {
+          src: uploadDetails.publicUrl,
+          storageKey: uploadDetails.storageKey,
+          byteSize: file.size,
+          mimeType,
+          width: metadata.width,
+          height: metadata.height,
+          originalWidth: metadata.width,
+          originalHeight: metadata.height,
+          duration: metadata.duration,
+        };
+      } catch (error) {
+        console.error('Annotation media upload failed', error);
+        const message = error instanceof Error ? error.message : 'Media upload failed';
+        throw new Error(message);
+      }
+    },
+    [generateAnnotationAssetUploadUrl, loadVideoMetadata, video.id],
+  );
 
   useEffect(() => {
     const prev = prevCompareUrlRef.current;
@@ -542,6 +705,13 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
     }
   };
 
+  useEffect(() => {
+    setHighlightedCommentId(null);
+    setMentionHighlight(null);
+    setActiveCommentPopoverId(null);
+    appliedFocusRef.current = null;
+  }, [video.id]);
+
   // Handle deep linking
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -556,9 +726,82 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
     }
     if (noteId) {
       setActiveCommentId(noteId);
-      setIsCommentsPaneOpen(true);
+      setHighlightedCommentId(noteId);
+      setMentionHighlight(null);
+      setActiveCommentPopoverId(noteId);
     }
   }, [video.fps]);
+
+  useEffect(() => {
+    if (!initialFocus) {
+      appliedFocusRef.current = null;
+      return;
+    }
+
+    const key = [
+      video.id,
+      initialFocus.commentId ?? '',
+      initialFocus.frame ?? '',
+      initialFocus.mentionText ?? '',
+    ].join('|');
+
+    if (appliedFocusRef.current === key) {
+      return;
+    }
+
+    const targetComment = initialFocus.commentId
+      ? comments.find((c) => c.id === initialFocus.commentId)
+      : null;
+
+    if (initialFocus.commentId && !targetComment) {
+      // Wait until the comment is available locally
+      return;
+    }
+
+    if (initialFocus.commentId) {
+      setActiveCommentId(initialFocus.commentId);
+      setHighlightedCommentId(initialFocus.commentId);
+      setMentionHighlight(initialFocus.mentionText ?? null);
+      setActiveCommentPopoverId(initialFocus.commentId);
+    } else {
+      setHighlightedCommentId(null);
+      setMentionHighlight(null);
+      setActiveCommentPopoverId(null);
+    }
+
+    const resolvedFrame =
+      initialFocus.frame ??
+      (targetComment && typeof targetComment.frame === 'number' ? targetComment.frame : undefined);
+
+    if (typeof resolvedFrame === 'number' && Number.isFinite(video.fps) && video.fps > 0) {
+      const time = resolvedFrame / video.fps;
+      if (videoRef.current) {
+        try {
+          videoRef.current.currentTime = time;
+        } catch {}
+      }
+      setCurrentTime(time);
+      setCurrentFrame(resolvedFrame);
+      if (compareSource) {
+        compareElements().forEach((el) => {
+          try {
+            el.currentTime = time;
+          } catch {}
+        });
+      }
+    }
+
+    appliedFocusRef.current = key;
+    onConsumeInitialFocus?.();
+  }, [
+    initialFocus,
+    comments,
+    video.id,
+    video.fps,
+    compareSource,
+    compareElements,
+    onConsumeInitialFocus,
+  ]);
 
 
   // Derived helpers for external controls
@@ -800,6 +1043,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
                     pendingComment={pendingComment}
                     setPendingComment={setPendingComment}
                     isDark={isDark}
+                    onUploadAsset={uploadAnnotationAsset}
                   />
                 </div>
                 <div className="relative flex-1 flex items-center justify-center overflow-hidden bg-black/80">
@@ -866,6 +1110,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
                   pendingComment={pendingComment}
                   setPendingComment={setPendingComment}
                   isDark={isDark}
+                  onUploadAsset={uploadAnnotationAsset}
                 />
                 {compareSource && compareMode === 'overlay' && (
                   <video
@@ -1025,6 +1270,8 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
             setActiveCommentId={setActiveCommentId}
             onDeleteComment={handleDeleteComment}
             isDark={isDark}
+            highlightCommentId={highlightedCommentId}
+            highlightTerm={mentionHighlight}
           />
         </div>
       </div>

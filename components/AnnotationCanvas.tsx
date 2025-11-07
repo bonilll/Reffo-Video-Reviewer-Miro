@@ -1,9 +1,9 @@
 import React, { useRef, useEffect, useState, useMemo, useCallback } from 'react';
-import { Annotation, Point, Video, AnnotationTool, RectangleAnnotation, EllipseAnnotation, PointerPosition, Comment, TextAnnotation, ImageAnnotation } from '../types';
+import { Annotation, Point, Video, AnnotationTool, RectangleAnnotation, EllipseAnnotation, PointerPosition, Comment, TextAnnotation, ImageAnnotation, VideoAnnotation } from '../types';
 import * as geo from '../utils/geometry';
 import CommentPopover from './CommentPopover';
 import NewCommentPopover from './NewCommentPopover';
-import { CheckCircle2, UploadCloud } from 'lucide-react';
+import { CheckCircle2, UploadCloud, Play, Pause, Volume2, VolumeX, Repeat } from 'lucide-react';
 
 interface AnnotationCanvasProps {
   video: Video;
@@ -30,6 +30,21 @@ interface AnnotationCanvasProps {
   pendingComment: { position: Point } | null;
   setPendingComment: (p: { position: Point } | null) => void;
   isDark?: boolean;
+  onUploadAsset: (
+    file: File,
+    kind: 'image' | 'video',
+    onProgress: (progressPercent: number) => void
+  ) => Promise<{
+    src: string;
+    storageKey: string;
+    byteSize: number;
+    mimeType: string;
+    width: number;
+    height: number;
+    originalWidth: number;
+    originalHeight: number;
+    duration?: number;
+  }>;
 }
 
 interface MovingCommentState {
@@ -41,7 +56,7 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
   video, videoElement, currentFrame, annotations, onAddAnnotation, onUpdateAnnotations, onDeleteAnnotations,
   activeTool, brushColor, brushSize, fontSize, selectedAnnotationIds, setSelectedAnnotationIds,
   comments, activeCommentId, onCommentPlacement, activeCommentPopoverId, setActiveCommentPopoverId,
-  onUpdateCommentPosition, onAddComment, pendingComment, setPendingComment, isDark = true,
+  onUpdateCommentPosition, onAddComment, pendingComment, setPendingComment, isDark = true, onUploadAsset,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isDrawing, setIsDrawing] = useState(false);
@@ -60,8 +75,32 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const [isDraggingOver, setIsDraggingOver] = useState(false);
+  const [assetUploadProgress, setAssetUploadProgress] = useState<number | null>(null);
+  const [assetUploadError, setAssetUploadError] = useState<string | null>(null);
+  const [assetUploadLabel, setAssetUploadLabel] = useState<string | null>(null);
   const imageCache = useRef<Record<string, HTMLImageElement>>({});
   const redrawRequest = useRef(0);
+  const videoRefs = useRef<Record<string, HTMLVideoElement | null>>({});
+  
+  type VideoControlState = {
+    isPlaying: boolean;
+    isMuted: boolean;
+    loop: boolean;
+    progress: number;
+    duration: number;
+  };
+  
+  const defaultVideoControlState: VideoControlState = {
+    isPlaying: false,
+    isMuted: false,
+    loop: false,
+    progress: 0,
+    duration: 0,
+  };
+  
+  const [videoControls, setVideoControls] = useState<Record<string, VideoControlState>>({});
+  const videoControlsRef = useRef<Record<string, VideoControlState>>({});
+  const [hoveredVideoId, setHoveredVideoId] = useState<string | null>(null);
   
   const renderedRect = useMemo(() => {
     if (!containerRect || !video) return null;
@@ -81,20 +120,173 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
     return annotations.filter(a => selectedAnnotationIds.includes(a.id));
   }, [annotations, selectedAnnotationIds]);
 
+  const effectiveAnnotations = useMemo(() => {
+    if (!transformedAnnotations) return annotationsForFrame;
+    const byId = new Map<string, Annotation>();
+    annotationsForFrame.forEach((anno) => {
+      byId.set(anno.id, anno);
+    });
+    transformedAnnotations.forEach((anno) => {
+      byId.set(anno.id, anno as Annotation);
+    });
+    return Array.from(byId.values());
+  }, [annotationsForFrame, transformedAnnotations]);
+
+  const videoAnnotationsToRender = useMemo(() => {
+    return effectiveAnnotations.filter((a): a is VideoAnnotation => a.type === AnnotationTool.VIDEO);
+  }, [effectiveAnnotations]);
+
   const annotationsToDraw = useMemo(() => {
-      const baseAnnotations = annotationsForFrame.filter(a => a.id !== (editingText as any)?.id);
-      if (!transformedAnnotations) return baseAnnotations;
-      
-      const transformedIds = new Set(transformedAnnotations.map(t => t.id));
-      const nonTransformed = baseAnnotations.filter(a => !transformedIds.has(a.id));
-      return [...nonTransformed, ...transformedAnnotations];
-  }, [annotationsForFrame, transformedAnnotations, editingText]);
+    return effectiveAnnotations
+      .filter((a) => a.id !== (editingText as any)?.id);
+  }, [effectiveAnnotations, editingText]);
 
   const commentsOnFrame = useMemo(() => {
     return comments
       .filter(c => c.frame === currentFrame && c.position)
       .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
   }, [comments, currentFrame]);
+  
+  useEffect(() => {
+    videoControlsRef.current = videoControls;
+  }, [videoControls]);
+  
+  const setVideoControlState = useCallback((id: string, patch: Partial<VideoControlState>) => {
+    setVideoControls((prev) => ({
+      ...prev,
+      [id]: { ...(prev[id] ?? defaultVideoControlState), ...patch },
+    }));
+  }, []);
+
+  const toggleVideoPlay = useCallback(
+    (id: string) => {
+      const node = videoRefs.current[id];
+      if (!node) return;
+      if (node.paused) {
+        const playPromise = node.play();
+        playPromise
+          ?.then(() => {
+            setVideoControlState(id, { isPlaying: true });
+          })
+          .catch(() => {
+            setVideoControlState(id, { isPlaying: false });
+          });
+      } else {
+        node.pause();
+        setVideoControlState(id, { isPlaying: false });
+      }
+    },
+    [setVideoControlState],
+  );
+
+  const toggleVideoMute = useCallback(
+    (id: string) => {
+      const node = videoRefs.current[id];
+      if (!node) return;
+      const nextMuted = !node.muted;
+      node.muted = nextMuted;
+      setVideoControlState(id, { isMuted: nextMuted });
+    },
+    [setVideoControlState],
+  );
+
+  const toggleVideoLoop = useCallback(
+    (id: string) => {
+      const node = videoRefs.current[id];
+      if (!node) return;
+      const nextLoop = !node.loop;
+      node.loop = nextLoop;
+      setVideoControlState(id, { loop: nextLoop });
+    },
+    [setVideoControlState],
+  );
+
+  const handleVideoTimeUpdate = useCallback(
+    (id: string, target: HTMLVideoElement) => {
+      const duration = Number.isFinite(target.duration) && target.duration > 0 ? target.duration : (videoControlsRef.current[id]?.duration ?? 0);
+      setVideoControlState(id, {
+        progress: target.currentTime,
+        duration,
+        isPlaying: !target.paused,
+      });
+    },
+    [setVideoControlState],
+  );
+
+  const handleVideoLoadedMetadata = useCallback(
+    (id: string, target: HTMLVideoElement) => {
+      const duration = Number.isFinite(target.duration) && target.duration > 0 ? target.duration : 0;
+      setVideoControlState(id, { duration });
+    },
+    [setVideoControlState],
+  );
+
+  const handleVideoScrub = useCallback(
+    (id: string, percent: number) => {
+      const node = videoRefs.current[id];
+      if (!node || !Number.isFinite(node.duration) || node.duration <= 0) return;
+      const newTime = Math.max(0, Math.min(node.duration, (percent / 100) * node.duration));
+      node.currentTime = newTime;
+      setVideoControlState(id, { progress: newTime, duration: node.duration });
+    },
+    [setVideoControlState],
+  );
+
+  const setVideoRef = useCallback(
+    (id: string, node: HTMLVideoElement | null) => {
+      if (!node) {
+        delete videoRefs.current[id];
+        return;
+      }
+      videoRefs.current[id] = node;
+      node.controls = false;
+      node.playsInline = true;
+      node.preload = 'metadata';
+      const state = videoControlsRef.current[id] ?? defaultVideoControlState;
+      node.loop = state.loop;
+      node.muted = state.isMuted;
+    },
+    [],
+  );
+
+  const removeVideoAttachment = useCallback((id: string) => {
+    const node = videoRefs.current[id];
+    if (node) {
+      try { node.pause?.(); } catch {}
+      delete videoRefs.current[id];
+    }
+    setVideoControls((prev) => {
+      if (!(id in prev)) return prev;
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      Object.values(videoRefs.current).forEach((node) => {
+        try { node?.pause?.(); } catch {}
+      });
+      videoRefs.current = {};
+    };
+  }, []);
+
+  const formatTime = useCallback((seconds: number) => {
+    if (!Number.isFinite(seconds) || seconds < 0) return '0:00';
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  }, []);
+
+  const handleRemoveVideoAnnotation = useCallback(
+    (id: string) => {
+      removeVideoAttachment(id);
+      setSelectedAnnotationIds((prev) => prev.filter((selected) => selected !== id));
+      onDeleteAnnotations([id]);
+    },
+    [removeVideoAttachment, onDeleteAnnotations, setSelectedAnnotationIds],
+  );
 
   // Handle keyboard events for deletion
   useEffect(() => {
@@ -102,12 +294,13 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
         if (e.target instanceof HTMLTextAreaElement) return;
         if ((e.key === 'Delete' || e.key === 'Backspace') && selectedAnnotationIds.length > 0) {
             e.preventDefault();
+            selectedAnnotationIds.forEach(removeVideoAttachment);
             onDeleteAnnotations(selectedAnnotationIds);
         }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedAnnotationIds, onDeleteAnnotations]);
+  }, [selectedAnnotationIds, onDeleteAnnotations, removeVideoAttachment]);
   
   // Resize observer for canvas
   useEffect(() => {
@@ -409,14 +602,34 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
   };
   
   const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (editingText || pendingComment) return;
+    if (editingText || pendingComment) {
+      if (hoveredVideoId !== null) setHoveredVideoId(null);
+      return;
+    }
     if (!e.buttons) {
-      if(isDrawing || marquee || transform || movingCommentState) handlePointerUp();
+      if (isDrawing || marquee || transform || movingCommentState) {
+        handlePointerUp();
+        if (hoveredVideoId !== null) setHoveredVideoId(null);
+      } else {
+        const idlePos = getPointerPosition(e);
+        if (!idlePos || !renderedRect) {
+          if (hoveredVideoId !== null) setHoveredVideoId(null);
+        } else {
+          const hit = [...videoAnnotationsToRender].reverse().find(
+            (anno) => geo.isPointInAnnotation(idlePos.normalized, anno, renderedRect, video.height / renderedRect.height)
+          );
+          const nextId = hit?.id ?? null;
+          if (nextId !== hoveredVideoId) setHoveredVideoId(nextId);
+        }
+      }
       return;
     }
 
     const pos = getPointerPosition(e);
-    if (!pos || !renderedRect) return;
+    if (!pos || !renderedRect) {
+      if (hoveredVideoId !== null) setHoveredVideoId(null);
+      return;
+    }
 
     // Check if we should START a comment move (promote a potential move to a real one)
     if (movingCommentState && !transformedComment) {
@@ -454,8 +667,15 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
         return;
     }
 
-    if (!isDrawing || !drawingShape) return;
-    
+    if (!isDrawing || !drawingShape) {
+      const hit = [...videoAnnotationsToRender].reverse().find(
+        (anno) => geo.isPointInAnnotation(pos.normalized, anno, renderedRect, video.height / renderedRect.height)
+      );
+      const nextId = hit?.id ?? null;
+      if (nextId !== hoveredVideoId) setHoveredVideoId(nextId);
+      return;
+    }
+
     setDrawingShape(prev => {
       if (!prev) return null;
       switch(prev.type) {
@@ -520,7 +740,7 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
           onAddAnnotation(finalShape as any);
       }
     }
-    
+
     // Universal cleanup for all transient interaction states
     setIsDrawing(false);
     setDrawingShape(null);
@@ -529,7 +749,25 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
     setTransformedAnnotations(null);
     setMovingCommentState(null);
     setTransformedComment(null);
+    setHoveredVideoId(null);
   };
+
+  const handleControlsPointerEnter = useCallback((id: string) => {
+    setHoveredVideoId(id);
+  }, []);
+
+  const handleControlsPointerLeave = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>, id: string) => {
+      const nextTarget = event.relatedTarget as Node | null;
+      if (nextTarget && event.currentTarget.contains(nextTarget)) {
+        return;
+      }
+      if (hoveredVideoId === id) {
+        setHoveredVideoId(null);
+      }
+    },
+    [hoveredVideoId],
+  );
   
   const handleTextareaBlur = () => {
     if (editingText && editingText.text.trim()) {
@@ -586,43 +824,83 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
     setIsDraggingOver(false);
   };
 
-  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+  const handleDrop = async (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setIsDraggingOver(false);
 
+    if (assetUploadProgress !== null) {
+      return;
+    }
+
     const file = e.dataTransfer.files?.[0];
-    if (file && file.type.startsWith('image/')) {
-      const reader = new FileReader();
-      reader.onload = (loadEvent) => {
-        const src = loadEvent.target?.result as string;
-        if (!src) return;
+    if (!file || (!file.type.startsWith('image/') && !file.type.startsWith('video/'))) return;
 
-        const pos = getPointerPosition(e);
-        if (!pos) return;
+    const pos = getPointerPosition(e);
+    if (!pos) return;
 
-        const img = new Image();
-        img.src = src;
-        img.onload = () => {
-            const aspectRatio = img.width / img.height;
-            const defaultWidth = 0.2; // 20% of video width
-            const defaultHeight = (defaultWidth / aspectRatio) * (video.width / video.height);
+    const kind: 'image' | 'video' = file.type.startsWith('video/') ? 'video' : 'image';
 
-            // FIX: Create an explicitly typed variable to pass to `onAddAnnotation` to avoid excess property errors with discriminated unions.
-            const newAnnotation: Omit<ImageAnnotation, 'id' | 'videoId' | 'authorId' | 'createdAt'> = {
-              type: AnnotationTool.IMAGE,
-              frame: currentFrame,
-              src,
-              center: pos.normalized,
-              width: defaultWidth,
-              height: defaultHeight,
-              rotation: 0,
-              color: 'transparent', // Not used but required
-              lineWidth: 0, // Not used but required
-            };
-            onAddAnnotation(newAnnotation);
-        }
-      };
-      reader.readAsDataURL(file);
+    setAssetUploadError(null);
+    setAssetUploadLabel(kind === 'image' ? 'Uploading image…' : 'Uploading video…');
+    setAssetUploadProgress(0);
+
+    try {
+      const asset = await onUploadAsset(file, kind, (progress) => {
+        setAssetUploadProgress(Math.max(0, Math.min(100, Math.round(progress))));
+      });
+
+      const aspectRatio = asset.width && asset.height ? asset.width / asset.height : 1;
+      const baseWidth = kind === 'image' ? 0.2 : 0.25;
+      const widthNormalized = Math.min(Math.max(baseWidth, 0.05), 0.9);
+      const computedHeight = (widthNormalized / Math.max(aspectRatio, 0.01)) * (video.width / Math.max(video.height, 1));
+      const heightNormalized = Math.min(Math.max(computedHeight, 0.05), 0.9);
+
+      if (kind === 'image') {
+        const newAnnotation: Omit<ImageAnnotation, 'id' | 'videoId' | 'authorId' | 'createdAt'> = {
+          type: AnnotationTool.IMAGE,
+          frame: currentFrame,
+          src: asset.src,
+          storageKey: asset.storageKey,
+          byteSize: asset.byteSize,
+          mimeType: asset.mimeType,
+          originalWidth: asset.originalWidth,
+          originalHeight: asset.originalHeight,
+          center: pos.normalized,
+          width: widthNormalized,
+          height: heightNormalized,
+          rotation: 0,
+          color: 'transparent',
+          lineWidth: 0,
+        };
+        onAddAnnotation(newAnnotation);
+      } else {
+        const newAnnotation: Omit<VideoAnnotation, 'id' | 'videoId' | 'authorId' | 'createdAt'> = {
+          type: AnnotationTool.VIDEO,
+          frame: currentFrame,
+          src: asset.src,
+          storageKey: asset.storageKey,
+          byteSize: asset.byteSize,
+          mimeType: asset.mimeType,
+          originalWidth: asset.originalWidth,
+          originalHeight: asset.originalHeight,
+          duration: asset.duration,
+          center: pos.normalized,
+          width: widthNormalized,
+          height: heightNormalized,
+          rotation: 0,
+          color: 'transparent',
+          lineWidth: 0,
+        };
+        onAddAnnotation(newAnnotation);
+      }
+    } catch (error) {
+      console.error('Failed to upload annotation asset', error);
+      const message = error instanceof Error ? error.message : 'Unable to upload media';
+      setAssetUploadError(message);
+      setTimeout(() => setAssetUploadError(null), 5000);
+    } finally {
+      setAssetUploadProgress(null);
+      setAssetUploadLabel(null);
     }
   };
 
@@ -643,12 +921,204 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
         style={{ cursor: getCursor() }}
       />
 
+      {renderedRect && videoAnnotationsToRender.length > 0 && (
+        <>
+          <div className="absolute top-0 left-0 w-full h-full z-10 pointer-events-none">
+            {videoAnnotationsToRender.map((videoAnno) => {
+              if (!videoAnno.center || videoAnno.width == null || videoAnno.height == null) return null;
+              const center = geo.normalizedToCanvas(videoAnno.center, renderedRect);
+              const widthPx = videoAnno.width * renderedRect.width;
+              const heightPx = videoAnno.height * renderedRect.height;
+              const cssTransform = `translate(-50%, -50%) rotate(${videoAnno.rotation || 0}rad)`;
+              const resolvedSrc = videoAnno.src;
+              const isSelected = selectedAnnotationIds.includes(videoAnno.id);
+              const videoState = videoControls[videoAnno.id] ?? defaultVideoControlState;
+              const progressPercent = videoState.duration > 0
+                ? Math.min(100, Math.max(0, (videoState.progress / videoState.duration) * 100))
+                : 0;
+              const currentTimeLabel = formatTime(videoState.progress);
+              const durationLabel = formatTime(videoState.duration || 0);
+              const removeClass = isDark
+                ? 'rounded-full bg-black/70 px-2.5 py-1 text-xs font-semibold text-white shadow-lg hover:bg-black/80'
+                : 'rounded-full bg-white/90 px-2.5 py-1 text-xs font-semibold text-gray-800 shadow hover:bg-white';
+              const durationClass = isDark
+                ? 'rounded-full bg-black/60 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-white shadow'
+                : 'rounded-full bg-white/90 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-gray-800 shadow';
+              // Use transform state (annotation transform), not CSS transform string
+              const interactionsActive = Boolean(transform || isDrawing || marquee || movingCommentState);
+              const showControls = hoveredVideoId === videoAnno.id && !interactionsActive;
+              const controlsCompact = widthPx < 260;
+              const controlGap = controlsCompact ? 'gap-2' : 'gap-3';
+              const controlPx = controlsCompact ? 'px-2.5' : 'px-3';
+              const controlPy = controlsCompact ? 'py-1.5' : 'py-2';
+              const controlIcon = controlsCompact ? 12 : 14;
+              const timeLabelClass = controlsCompact ? 'text-[9px]' : 'text-[10px]';
+
+              return (
+                <React.Fragment key={videoAnno.id}>
+                  <div
+                    className="absolute"
+                    style={{
+                      left: `${center.x}px`,
+                      top: `${center.y}px`,
+                      width: `${widthPx}px`,
+                      height: `${heightPx}px`,
+                      transform: cssTransform,
+                      transformOrigin: 'center',
+                      pointerEvents: 'none',
+                    }}
+                  >
+                    <div className="relative h-full w-full pointer-events-none">
+                      <video
+                        ref={(node) => setVideoRef(videoAnno.id, node)}
+                        src={resolvedSrc}
+                        muted={videoState.isMuted}
+                        playsInline
+                        loop={videoState.loop}
+                        className={isDark
+                          ? 'h-full w-full rounded-xl object-cover shadow-2xl outline outline-2 outline-white/15'
+                          : 'h-full w-full rounded-xl object-cover shadow-xl outline outline-2 outline-gray-200 bg-white'}
+                        style={{ pointerEvents: 'none' }}
+                        onTimeUpdate={(event) => handleVideoTimeUpdate(videoAnno.id, event.currentTarget)}
+                        onLoadedMetadata={(event) => handleVideoLoadedMetadata(videoAnno.id, event.currentTarget)}
+                        onPlay={() => setVideoControlState(videoAnno.id, { isPlaying: true })}
+                        onPause={() => setVideoControlState(videoAnno.id, { isPlaying: false })}
+                        onEnded={() => setVideoControlState(videoAnno.id, { isPlaying: false })}
+                      />
+                      {isSelected && (
+                        <div className="absolute inset-0 pointer-events-none">
+                          <div className={`absolute inset-0 rounded-xl ${isDark ? 'border border-white/60' : 'border border-gray-700/80'}`} />
+                        </div>
+                      )}
+                      {showControls && (
+                        <div className="absolute inset-0 pointer-events-none z-40">
+                          <div
+                            className="absolute top-2 right-2 flex items-center gap-2 pointer-events-auto"
+                            onPointerDown={(evt) => evt.stopPropagation()}
+                            onPointerEnter={() => handleControlsPointerEnter(videoAnno.id)}
+                            onPointerLeave={(evt) => handleControlsPointerLeave(evt, videoAnno.id)}
+                          >
+                            <button
+                              type="button"
+                              onClick={(evt) => {
+                                evt.preventDefault();
+                                evt.stopPropagation();
+                                handleRemoveVideoAnnotation(videoAnno.id);
+                              }}
+                              className={removeClass}
+                            >
+                              Remove
+                            </button>
+                            {Number.isFinite(videoState.duration) && videoState.duration > 0 && (
+                              <span className={durationClass}>
+                                {durationLabel}
+                              </span>
+                            )}
+                          </div>
+                          <div
+                            className="absolute bottom-2 left-1/2 w-[min(420px,90%)] -translate-x-1/2 pointer-events-auto"
+                            onPointerDown={(evt) => evt.stopPropagation()}
+                            onPointerEnter={() => handleControlsPointerEnter(videoAnno.id)}
+                            onPointerLeave={(evt) => handleControlsPointerLeave(evt, videoAnno.id)}
+                          >
+                            <div
+                              className={`flex items-center ${controlGap} rounded-full ${controlPx} ${controlPy} shadow-lg ${
+                                isDark ? 'bg-black/70 text-white' : 'bg-white/90 text-gray-900 border border-gray-200'
+                              } ${controlsCompact ? 'justify-center' : ''}`}
+                            >
+                              <button
+                                type="button"
+                                onClick={() => toggleVideoPlay(videoAnno.id)}
+                                className={`${
+                                  isDark
+                                    ? 'rounded-full bg-white/10 p-1.5 text-white hover:bg-white/20'
+                                    : 'rounded-full bg-gray-100 p-1.5 text-gray-800 hover:bg-gray-200'
+                                } ${controlsCompact ? 'p-1' : ''}`}
+                                aria-label={videoState.isPlaying ? 'Pause clip' : 'Play clip'}
+                              >
+                                {videoState.isPlaying ? <Pause size={controlIcon} /> : <Play size={controlIcon} />}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => toggleVideoMute(videoAnno.id)}
+                                className={`${
+                                  isDark
+                                    ? 'rounded-full bg-white/10 p-1.5 text-white hover:bg-white/20'
+                                    : 'rounded-full bg-gray-100 p-1.5 text-gray-800 hover:bg-gray-200'
+                                } ${controlsCompact ? 'p-1' : ''}`}
+                                aria-label={videoState.isMuted ? 'Unmute clip' : 'Mute clip'}
+                              >
+                                {videoState.isMuted ? <VolumeX size={controlIcon} /> : <Volume2 size={controlIcon} />}
+                              </button>
+                              <button
+                                type="button"
+                                onPointerDown={(evt) => evt.stopPropagation()}
+                                onClick={() => toggleVideoLoop(videoAnno.id)}
+                                className={`${
+                                  isDark
+                                    ? 'rounded-full bg-white/10 px-2 py-1 text-[11px] text-white hover:bg-white/20'
+                                    : 'rounded-full bg-gray-100 px-2 py-1 text-[11px] text-gray-800 hover:bg-gray-200'
+                                } ${controlsCompact ? 'text-[10px] px-1.5 py-0.5' : ''}`}
+                                aria-label="Toggle loop"
+                              >
+                                {controlsCompact ? (
+                                  <Repeat size={controlIcon} />
+                                ) : (
+                                  videoState.loop ? 'Loop' : 'No Loop'
+                                )}
+                              </button>
+                              {!controlsCompact && (
+                                <>
+                                  <div className="flex-1 flex items-center gap-2">
+                                    <input
+                                      type="range"
+                                      min={0}
+                                      max={100}
+                                      value={progressPercent}
+                                      onChange={(evt) => handleVideoScrub(videoAnno.id, Number(evt.target.value))}
+                                      onPointerDown={(evt) => evt.stopPropagation()}
+                                      className={`w-full ${isDark ? 'accent-white/80' : 'accent-gray-800'}`}
+                                    />
+                                  </div>
+                                  <span className={`${timeLabelClass} font-semibold tabular-nums ${isDark ? 'text-white/70' : 'text-gray-600'}`}>
+                                    {currentTimeLabel} / {durationLabel}
+                                  </span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </React.Fragment>
+              );
+            })}
+          </div>
+        </>
+      )}
+
       {isDraggingOver && (
         <div className="absolute inset-0 bg-black/50 border-4 border-dashed border-white rounded-lg flex items-center justify-center pointer-events-none z-50">
           <div className="text-center text-white">
             <UploadCloud size={64} className="mx-auto" />
-            <p className="mt-4 text-xl font-semibold">Drop image to upload</p>
+            <p className="mt-4 text-xl font-semibold">Drop media to upload</p>
           </div>
+        </div>
+      )}
+
+      {assetUploadProgress !== null && (
+        <div className="absolute inset-0 flex items-center justify-center bg-black/70 pointer-events-none z-50">
+          <div className="text-center text-white space-y-3">
+            <UploadCloud size={48} className="mx-auto" />
+            <p className="text-lg font-semibold">{assetUploadLabel ?? 'Uploading asset…'} {assetUploadProgress}%</p>
+          </div>
+        </div>
+      )}
+
+      {assetUploadError && (
+        <div className={`absolute bottom-6 left-1/2 -translate-x-1/2 px-4 py-2 rounded-full text-sm shadow-lg z-50 ${isDark ? 'bg-black/80 text-white' : 'bg-white text-gray-900 border border-gray-200'}`}>
+          {assetUploadError}
         </div>
       )}
       

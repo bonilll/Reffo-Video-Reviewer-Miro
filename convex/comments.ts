@@ -159,21 +159,31 @@ export const create = mutation({
 
     // Mentions: parse @Name and notify
     const mentionMatches = text.match(/@([A-Za-z0-9_\-\. ]{2,})/g) || [];
-    const names = mentionMatches.map((m) => m.slice(1).trim().toLowerCase());
-    if (names.length) {
-      // Find contacts by name from author's friends
-      const friends = await ctx.db.query('friends').withIndex('byOwner', (q: any) => q.eq('ownerId', user._id)).collect();
-      for (const n of names) {
-        const targetFriend = friends.find((f: any) => (f.contactName ?? '').toLowerCase() === n);
+    if (mentionMatches.length) {
+      const friends = await ctx.db
+        .query('friends')
+        .withIndex('byOwner', (q: any) => q.eq('ownerId', user._id))
+        .collect();
+      const notified = new Set<string>();
+      for (const raw of mentionMatches) {
+        const normalized = raw.slice(1).trim().toLowerCase();
+        if (!normalized) continue;
+        const targetFriend = friends.find(
+          (f: any) => (f.contactName ?? '').toLowerCase() === normalized,
+        );
         if (targetFriend) {
           const targetUserId = targetFriend.contactUserId as Id<'users'> | undefined;
-          if (targetUserId && targetUserId !== user._id) {
+          if (targetUserId && targetUserId !== user._id && !notified.has(targetUserId)) {
+            notified.add(targetUserId);
             await ctx.db.insert('notifications', {
               userId: targetUserId,
               type: 'mention',
               message: `${author?.name ?? author?.email ?? 'Someone'} mentioned you in a comment`,
               videoId,
               projectId: undefined,
+              commentId,
+              frame: frame ?? undefined,
+              mentionText: raw.trim(),
               fromUserId: user._id,
               createdAt: Date.now(),
               readAt: undefined,
