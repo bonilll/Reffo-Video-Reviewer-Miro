@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
-import { SignedIn, SignedOut, useUser, useClerk, useSignIn } from '@clerk/clerk-react';
+import { SignedIn, SignedOut, useUser, useClerk, useSignIn, useSignUp } from '@clerk/clerk-react';
 import { useQuery, useMutation, useAction } from 'convex/react';
 import { api } from './convex/_generated/api';
 import VideoReviewer from './components/VideoReviewer';
@@ -101,6 +101,19 @@ function navigate(path: string, replace = false) {
   }
 }
 
+const getClerkErrorMessage = (error: unknown): string => {
+  if (error && typeof error === 'object' && 'errors' in (error as any)) {
+    const clerkErrors = (error as any).errors;
+    if (Array.isArray(clerkErrors) && clerkErrors.length > 0) {
+      return clerkErrors[0]?.longMessage || clerkErrors[0]?.message || 'Unable to complete the request.';
+    }
+  }
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return 'Unable to complete the request.';
+};
+
 const App: React.FC = () => {
   const [route, setRoute] = useState<Route>(() => parseRoute(window.location.pathname));
   const [view, setView] = useState<'dashboard' | 'reviewer' | 'profile' | 'project'>('dashboard');
@@ -113,8 +126,18 @@ const App: React.FC = () => {
   const [isEnsuringUser, setIsEnsuringUser] = useState(false);
   const [ensureError, setEnsureError] = useState<string | null>(null);
   const [isMiroEmbed, setIsMiroEmbed] = useState(false);
+  const [authMode, setAuthMode] = useState<'signin' | 'signup' | 'verify'>('signin');
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authConfirmPassword, setAuthConfirmPassword] = useState('');
+  const [verificationCode, setVerificationCode] = useState('');
+  const [pendingVerificationEmail, setPendingVerificationEmail] = useState<string | null>(null);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [authLoading, setAuthLoading] = useState(false);
   const { isSignedIn } = useUser();
   const { signIn, isLoaded: isSignInLoaded } = useSignIn();
+  const { signUp, isLoaded: isSignUpLoaded } = useSignUp();
+  const { setActive } = useClerk();
 
   const currentUser = useQuery(api.users.current, isSignedIn ? {} : undefined);
   const userSettings = useQuery(api.settings.getOrNull, currentUser ? {} : undefined);
@@ -362,6 +385,232 @@ const App: React.FC = () => {
     }
   }, [isSignInLoaded, signIn]);
 
+  const handleSwitchAuthMode = useCallback((mode: 'signin' | 'signup') => {
+    setAuthMode(mode);
+    setAuthError(null);
+    setVerificationCode('');
+    setPendingVerificationEmail(null);
+  }, []);
+
+  const handleEmailSignIn = useCallback(async () => {
+    if (!isSignInLoaded || !signIn) return;
+    const identifier = authEmail.trim();
+    if (!identifier || !authPassword) {
+      setAuthError('Enter your email and password to continue.');
+      return;
+    }
+    setAuthLoading(true);
+    setAuthError(null);
+    try {
+      const result = await signIn.create({ identifier, password: authPassword });
+      if (result.status === 'complete' && result.createdSessionId) {
+        await setActive({ session: result.createdSessionId });
+      } else {
+        setAuthError('Additional verification is required. Please complete sign-in via the Clerk modal.');
+      }
+    } catch (error) {
+      setAuthError(getClerkErrorMessage(error));
+    } finally {
+      setAuthLoading(false);
+    }
+  }, [authEmail, authPassword, isSignInLoaded, signIn, setActive]);
+
+  const handleEmailSignUp = useCallback(async () => {
+    if (!isSignUpLoaded || !signUp) return;
+    const emailAddress = authEmail.trim();
+    if (!emailAddress || !authPassword) {
+      setAuthError('Enter an email and password to create your account.');
+      return;
+    }
+    if (authPassword !== authConfirmPassword) {
+      setAuthError('Passwords must match.');
+      return;
+    }
+    setAuthLoading(true);
+    setAuthError(null);
+    try {
+      await signUp.create({ emailAddress, password: authPassword });
+      await signUp.prepareEmailAddressVerification({ strategy: 'email_code' });
+      setPendingVerificationEmail(emailAddress);
+      setVerificationCode('');
+      setAuthMode('verify');
+    } catch (error) {
+      setAuthError(getClerkErrorMessage(error));
+    } finally {
+      setAuthLoading(false);
+    }
+  }, [authEmail, authPassword, authConfirmPassword, isSignUpLoaded, signUp]);
+
+  const handleEmailVerification = useCallback(async () => {
+    if (!isSignUpLoaded || !signUp) return;
+    const code = verificationCode.trim();
+    if (!code) {
+      setAuthError('Enter the verification code from your email.');
+      return;
+    }
+    setAuthLoading(true);
+    setAuthError(null);
+    try {
+      const result = await signUp.attemptEmailAddressVerification({ code });
+      if (result.status === 'complete' && result.createdSessionId) {
+        await setActive({ session: result.createdSessionId });
+      } else {
+        setAuthError('Unable to verify the code. Please try again.');
+      }
+    } catch (error) {
+      setAuthError(getClerkErrorMessage(error));
+    } finally {
+      setAuthLoading(false);
+    }
+  }, [isSignUpLoaded, signUp, verificationCode, setActive]);
+
+  const handleResendVerification = useCallback(async () => {
+    if (!isSignUpLoaded || !signUp) return;
+    try {
+      await signUp.prepareEmailAddressVerification({ strategy: 'email_code' });
+      setAuthError(null);
+    } catch (error) {
+      setAuthError(getClerkErrorMessage(error));
+    }
+  }, [isSignUpLoaded, signUp]);
+
+  const handleAuthSubmit = useCallback(
+    (event: React.FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      if (authMode === 'signin') {
+        void handleEmailSignIn();
+      } else if (authMode === 'signup') {
+        void handleEmailSignUp();
+      } else {
+        void handleEmailVerification();
+      }
+    },
+    [authMode, handleEmailSignIn, handleEmailSignUp, handleEmailVerification],
+  );
+
+  const renderEmailAuthSection = (compact = false) => {
+    const dividerTextClass = compact ? 'text-[10px]' : 'text-[11px]';
+    const inputClass = compact
+      ? 'w-full rounded-xl border border-white/15 bg-black/20 px-3 py-2 text-sm text-white placeholder-white/60 focus:border-white/40 focus:outline-none'
+      : 'w-full rounded-xl border border-white/15 bg-black/30 px-4 py-2.5 text-sm text-white placeholder-white/60 focus:border-white/50 focus:outline-none';
+    const buttonClass = compact
+      ? 'w-full rounded-xl bg-white/90 py-2.5 text-sm font-semibold text-black transition hover:bg-white'
+      : 'w-full rounded-full bg-white py-3 text-sm font-semibold text-black transition hover:bg-white/90';
+    const secondaryButtonClass = compact
+      ? 'text-[11px] font-semibold text-white hover:text-white/80'
+      : 'text-xs font-semibold text-white hover:text-white/80';
+    const submitDisabled = authMode === 'signin'
+      ? !authEmail.trim() || !authPassword || authLoading
+      : authMode === 'signup'
+        ? !authEmail.trim() || !authPassword || !authConfirmPassword || authLoading
+        : false;
+    const verificationDisabled = authLoading || verificationCode.trim().length === 0;
+    const sectionSpacing = compact ? 'mt-4 space-y-3' : 'mt-6 space-y-4';
+
+    return (
+      <div className={sectionSpacing}>
+        <div className="flex items-center gap-3">
+          <span className="h-px flex-1 bg-white/15" />
+          <span className={`text-white/60 uppercase tracking-[0.35em] ${dividerTextClass}`}>or email</span>
+          <span className="h-px flex-1 bg-white/15" />
+        </div>
+        <form onSubmit={handleAuthSubmit} className="space-y-3">
+          {authMode === 'verify' ? (
+            <>
+              <p className="text-xs text-white/70">
+                We sent a 6-digit code to {pendingVerificationEmail ?? authEmail}. Enter it below to finish creating your account.
+              </p>
+              <input
+                type="text"
+                inputMode="numeric"
+                maxLength={6}
+                autoFocus
+                className={`${inputClass} tracking-widest text-center text-base font-semibold uppercase`}
+                value={verificationCode}
+                onChange={(e) => setVerificationCode(e.target.value)}
+                placeholder="123456"
+              />
+              <button type="submit" className={buttonClass} disabled={verificationDisabled}>
+                {authLoading ? 'Verifying…' : 'Verify and continue'}
+              </button>
+              <div className="flex items-center justify-between text-[11px] text-white/60">
+                <button type="button" className="underline underline-offset-4" onClick={handleResendVerification} disabled={authLoading}>
+                  Resend code
+                </button>
+                <button type="button" className="underline underline-offset-4" onClick={() => handleSwitchAuthMode('signin')}>
+                  Use a different email
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="space-y-1">
+                <label className={compact ? 'text-xs text-white/70' : 'text-sm text-white/80'} htmlFor={`auth-email-${compact ? 'compact' : 'full'}`}>
+                  Email
+                </label>
+                <input
+                  id={`auth-email-${compact ? 'compact' : 'full'}`}
+                  type="email"
+                  autoComplete="email"
+                  className={inputClass}
+                  value={authEmail}
+                  onChange={(e) => setAuthEmail(e.target.value)}
+                  placeholder="name@studio.com"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className={compact ? 'text-xs text-white/70' : 'text-sm text-white/80'} htmlFor={`auth-password-${compact ? 'compact' : 'full'}`}>
+                  Password
+                </label>
+                <input
+                  id={`auth-password-${compact ? 'compact' : 'full'}`}
+                  type="password"
+                  autoComplete={authMode === 'signin' ? 'current-password' : 'new-password'}
+                  className={inputClass}
+                  value={authPassword}
+                  onChange={(e) => setAuthPassword(e.target.value)}
+                  placeholder="••••••••"
+                />
+              </div>
+              {authMode === 'signup' && (
+                <div className="space-y-1">
+                  <label className={compact ? 'text-xs text-white/70' : 'text-sm text-white/80'} htmlFor={`auth-confirm-${compact ? 'compact' : 'full'}`}>
+                    Confirm password
+                  </label>
+                  <input
+                    id={`auth-confirm-${compact ? 'compact' : 'full'}`}
+                    type="password"
+                    autoComplete="new-password"
+                    className={inputClass}
+                    value={authConfirmPassword}
+                    onChange={(e) => setAuthConfirmPassword(e.target.value)}
+                    placeholder="Repeat password"
+                  />
+                </div>
+              )}
+              <button type="submit" className={buttonClass} disabled={submitDisabled}>
+                {authLoading ? 'Please wait…' : authMode === 'signin' ? 'Sign in with email' : 'Create free account'}
+              </button>
+            </>
+          )}
+          {authError && <p className="text-xs text-rose-300">{authError}</p>}
+        </form>
+        {authMode !== 'verify' && (
+          <p className="text-center text-xs text-white/60">
+            {authMode === 'signin' ? "Don't have an account?" : 'Already have an account?'}{' '}
+            <button
+              type="button"
+              className={secondaryButtonClass}
+              onClick={() => handleSwitchAuthMode(authMode === 'signin' ? 'signup' : 'signin')}
+            >
+              {authMode === 'signin' ? 'Create one' : 'Sign in'}
+            </button>
+          </p>
+        )}
+      </div>
+    );
+  };
+
   const handleStartReview = useCallback(
     async (video: Video) => {
       setSelectedVideoId(video.id);
@@ -559,6 +808,7 @@ const App: React.FC = () => {
                   <img src={googleLogo} alt="Google" className="h-5 w-5" />
                   Continue with Google
                 </button>
+                {renderEmailAuthSection(true)}
               </div>
               <p className="mt-4 text-[11px] text-white/40">By continuing you agree to our Terms and Privacy Policy.</p>
             </div>
@@ -582,6 +832,7 @@ const App: React.FC = () => {
                     <img src={googleLogo} alt="Google" className="h-5 w-5" />
                     Continue with Google
                   </button>
+                  {renderEmailAuthSection()}
                 </div>
                 <p className="mt-4 text-center text-xs text-white/40">By continuing you agree to our Terms of Service and Privacy Policy.</p>
               </div>
@@ -754,7 +1005,7 @@ const AppHeader: React.FC<AppHeaderProps & { isDark: boolean }> = ({
   onNotificationClick,
   onMarkAllNotificationsRead,
 }) => {
-  const { signOut } = useClerk();
+  const { signOut, setActive } = useClerk();
   const settingsDoc = useQuery(api.settings.getOrNull, {});
   const updateSettings = useMutation(api.settings.update);
   const [notifOpen, setNotifOpen] = React.useState(false);
