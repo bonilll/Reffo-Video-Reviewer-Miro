@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
-import { SignedIn, SignedOut, useUser, useClerk, useSignIn, useSignUp } from '@clerk/clerk-react';
+import { SignedIn, SignedOut, useUser, useClerk, useSignIn, useSignUp, useAuth } from '@clerk/clerk-react';
 import { useQuery, useMutation, useAction } from 'convex/react';
 import { api } from './convex/_generated/api';
 import VideoReviewer from './components/VideoReviewer';
@@ -385,22 +385,22 @@ const App: React.FC = () => {
     })();
   }, [route, isSignInLoaded, signIn]);
 
-  // OAuth popup completion page logic
+  // OAuth popup completion page logic: post sessionId to opener, then close.
+  const { isLoaded: authLoaded, isSignedIn: authSignedIn, sessionId } = useAuth();
   useEffect(() => {
     if (route.name !== 'oauthComplete') return;
-    // When Clerk sets the session after redirect, notify opener and close
-    if (isSignedIn) {
-      try {
-        const data = { type: 'oauth-success' };
-        if (window.opener) {
-          window.opener.postMessage(data, siteOrigin);
-        }
-        setTimeout(() => window.close(), 250);
-      } catch (err) {
-        console.error('Failed to postMessage oauth-success', err);
+    if (!authLoaded) return;
+    try {
+      const message: any = { type: 'oauth-success' };
+      if (authSignedIn && sessionId) message.sessionId = sessionId;
+      if (window.opener) {
+        window.opener.postMessage(message, siteOrigin);
       }
+      setTimeout(() => window.close(), 200);
+    } catch (err) {
+      console.error('Failed to postMessage oauth-success', err);
     }
-  }, [route, isSignedIn, siteOrigin]);
+  }, [route, authLoaded, authSignedIn, sessionId, siteOrigin]);
 
   const currentVideo = useMemo(() => {
     if (!selectedVideoId) return null;
@@ -441,8 +441,17 @@ const App: React.FC = () => {
       if (event.origin !== siteOrigin) return;
       if (event.data && event.data.type === 'oauth-success') {
         window.removeEventListener('message', onMessage);
-        // Refresh to reflect new session
-        navigate('/dashboard', true);
+        const sessionId = event.data.sessionId as string | undefined;
+        const finalize = () => {
+          // Hard refresh ensures Clerk picks up session reliably inside iframe
+          window.location.reload();
+        };
+        if (sessionId) {
+          // Try to activate session directly to avoid reload race conditions
+          setActive({ session: sessionId }).then(finalize).catch(finalize);
+        } else {
+          finalize();
+        }
       }
     };
     window.addEventListener('message', onMessage);
