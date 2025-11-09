@@ -1,4 +1,5 @@
 import { mutation } from "./_generated/server";
+import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 
 function pickCanonical(users: Array<any>) {
@@ -122,3 +123,108 @@ export const dedupeUsersAndRepairOwnership = mutation({
   },
 });
 
+export const relinkUserIds = mutation({
+  args: {
+    fromUserId: v.id('users'),
+    toUserId: v.id('users'),
+    setCreatedAt: v.optional(v.number()),
+  },
+  async handler(ctx, { fromUserId, toUserId, setCreatedAt }) {
+    if (fromUserId === toUserId) {
+      return { updated: 0 };
+    }
+
+    const now = Date.now();
+    let updated = 0;
+
+    // Optionally set createdAt on destination user
+    if (setCreatedAt !== undefined) {
+      const to = await ctx.db.get(toUserId);
+      if (to) {
+        await ctx.db.patch(toUserId, { createdAt: setCreatedAt, updatedAt: now });
+      }
+    }
+
+    // projects.ownerId
+    const projOwned = await ctx.db.query('projects').withIndex('byOwner', (q) => q.eq('ownerId', fromUserId)).collect();
+    await Promise.all(projOwned.map((p) => ctx.db.patch(p._id, { ownerId: toUserId }))); updated += projOwned.length;
+
+    // videos.ownerId
+    const vidOwned = await ctx.db.query('videos').withIndex('byOwner', (q) => q.eq('ownerId', fromUserId)).collect();
+    await Promise.all(vidOwned.map((v) => ctx.db.patch(v._id, { ownerId: toUserId }))); updated += vidOwned.length;
+
+    // annotations.authorId
+    const anns = await ctx.db.query('annotations').collect();
+    const annsHit = anns.filter((a: any) => a.authorId === fromUserId);
+    await Promise.all(annsHit.map((a: any) => ctx.db.patch(a._id, { authorId: toUserId }))); updated += annsHit.length;
+
+    // comments.authorId
+    const comments = await ctx.db.query('comments').collect();
+    const commentsHit = comments.filter((c: any) => c.authorId === fromUserId);
+    await Promise.all(commentsHit.map((c: any) => ctx.db.patch(c._id, { authorId: toUserId }))); updated += commentsHit.length;
+
+    // shareGroups.ownerId
+    const sgs = await ctx.db.query('shareGroups').withIndex('byOwner', (q) => q.eq('ownerId', fromUserId)).collect();
+    await Promise.all(sgs.map((g) => ctx.db.patch(g._id, { ownerId: toUserId }))); updated += sgs.length;
+
+    // shareGroupMembers.userId
+    const sgm = await ctx.db.query('shareGroupMembers').collect();
+    const sgmHit = sgm.filter((m: any) => m.userId === fromUserId);
+    await Promise.all(sgmHit.map((m: any) => ctx.db.patch(m._id, { userId: toUserId }))); updated += sgmHit.length;
+
+    // contentShares.ownerId
+    const shares = await ctx.db.query('contentShares').withIndex('byOwner', (q) => q.eq('ownerId', fromUserId)).collect();
+    await Promise.all(shares.map((s) => ctx.db.patch(s._id, { ownerId: toUserId }))); updated += shares.length;
+
+    // friends.ownerId
+    const friendsOwned = await ctx.db.query('friends').withIndex('byOwner', (q) => q.eq('ownerId', fromUserId)).collect();
+    for (const fr of friendsOwned) {
+      const exists = await ctx.db
+        .query('friends')
+        .withIndex('byOwner', (q) => q.eq('ownerId', toUserId))
+        .filter((q) => q.eq(q.field('contactEmail'), fr.contactEmail))
+        .first();
+      if (exists) {
+        await ctx.db.delete(fr._id);
+      } else {
+        await ctx.db.patch(fr._id, { ownerId: toUserId }); updated++;
+      }
+    }
+    // friends.contactUserId
+    const friendsAll = await ctx.db.query('friends').collect();
+    const friendsHit = friendsAll.filter((f: any) => f.contactUserId === fromUserId);
+    await Promise.all(friendsHit.map((f: any) => ctx.db.patch(f._id, { contactUserId: toUserId }))); updated += friendsHit.length;
+
+    // notifications
+    const notes = await ctx.db.query('notifications').collect();
+    const notesUser = notes.filter((n: any) => n.userId === fromUserId);
+    const notesFrom = notes.filter((n: any) => n.fromUserId === fromUserId);
+    await Promise.all(notesUser.map((n: any) => ctx.db.patch(n._id, { userId: toUserId }))); updated += notesUser.length;
+    await Promise.all(notesFrom.map((n: any) => ctx.db.patch(n._id, { fromUserId: toUserId }))); updated += notesFrom.length;
+
+    // userSettings
+    const dupeSettings = await ctx.db.query('userSettings').withIndex('byUser', (q) => q.eq('userId', fromUserId)).collect();
+    const canonicalSettings = await ctx.db.query('userSettings').withIndex('byUser', (q) => q.eq('userId', toUserId)).first();
+    for (const s of dupeSettings) {
+      if (canonicalSettings) {
+        const mergedAuto = Array.from(new Set([
+          ...(canonicalSettings.workspace?.autoShareGroupIds ?? []),
+          ...(s.workspace?.autoShareGroupIds ?? []),
+        ]));
+        await ctx.db.patch(canonicalSettings._id, {
+          workspace: {
+            ...canonicalSettings.workspace,
+            autoShareGroupIds: mergedAuto,
+            defaultProjectId: canonicalSettings.workspace?.defaultProjectId ?? s.workspace?.defaultProjectId,
+            theme: canonicalSettings.workspace?.theme ?? s.workspace?.theme ?? 'system',
+          },
+        } as any);
+        await ctx.db.delete(s._id); updated++;
+      } else {
+        await ctx.db.patch(s._id, { userId: toUserId }); updated++;
+      }
+    }
+
+    return { updated };
+  },
+});
