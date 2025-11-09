@@ -49,6 +49,7 @@ type NotificationRecord = {
   commentId: string | null;
   readAt: number | null;
   mentionText?: string | null;
+  videoId?: string | null;
 };
 
 const uploadBlobWithProgress = (url: string, blob: Blob, onProgress?: (percent: number) => void) =>

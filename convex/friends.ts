@@ -22,7 +22,12 @@ export const add = mutation({
       .filter((q) => q.eq(q.field('contactEmail'), email.toLowerCase()))
       .first();
     if (existing) return existing._id;
-    const contact = await ctx.db.query('users').withIndex('byEmail', (q) => q.eq('email', email.toLowerCase())).unique();
+    // Handle potential duplicate users by email; choose the most recently updated.
+    const contactDocs = await ctx.db
+      .query('users')
+      .withIndex('byEmail', (q) => q.eq('email', email.toLowerCase()))
+      .collect();
+    const contact = contactDocs.sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))[0] ?? null;
     return await ctx.db.insert('friends', {
       ownerId: user._id,
       contactUserId: contact?._id,
@@ -42,4 +47,3 @@ export const remove = mutation({
     await ctx.db.delete(friendId);
   },
 });
-

@@ -891,9 +891,12 @@ const Dashboard: React.FC<DashboardProps> = ({
                             {project.name}
                           </button>
                           {(() => {
-                            const shares = activeShares.filter(s => s.projectId === project.id && s.groupId);
+                            // Only consider project-level shares (exclude per-video propagated entries)
+                            const shares = activeShares.filter(s => s.projectId === project.id && s.groupId && !s.videoId);
                             if (shares.length === 0) return null;
-                            const names = shares.map(s => getGroupById(s.groupId as any)?.name).filter(Boolean) as string[];
+                            const names = Array.from(new Set(
+                              shares.map(s => getGroupById(s.groupId as any)?.name).filter(Boolean) as string[]
+                            ));
                             const shown = names.slice(0,3);
                             const more = Math.max(0, names.length - shown.length);
                             return (
@@ -958,9 +961,12 @@ const Dashboard: React.FC<DashboardProps> = ({
                       <h3 className="text-base font-semibold text-white">{project.name}</h3>
                       <p className="text-xs text-white/50">Created {formatDate(project.createdAt)}</p>
                       {(() => {
-                        const shares = activeShares.filter(s => s.projectId === project.id && s.groupId);
+                        // Only consider project-level shares (exclude per-video propagated entries)
+                        const shares = activeShares.filter(s => s.projectId === project.id && s.groupId && !s.videoId);
                         if (shares.length === 0) return null;
-                        const names = shares.map(s => getGroupById(s.groupId as any)?.name).filter(Boolean) as string[];
+                        const names = Array.from(new Set(
+                          shares.map(s => getGroupById(s.groupId as any)?.name).filter(Boolean) as string[]
+                        ));
                         const shown = names.slice(0,3);
                         const more = Math.max(0, names.length - shown.length);
                         return (
@@ -1379,7 +1385,8 @@ const Dashboard: React.FC<DashboardProps> = ({
         <ShareModal
           project={projectToShare}
           groups={shareGroups}
-          existingShares={activeShares.filter((share) => share.projectId === projectToShare.id)}
+          // Show only project-level shares; ignore per‑video propagated entries
+          existingShares={activeShares.filter((share) => share.projectId === projectToShare.id && !share.videoId)}
           isDark={isDark}
           onGenerateLink={(options) =>
             generateProjectLink(
@@ -1706,6 +1713,19 @@ export const ShareModal: React.FC<ShareModalProps> = ({
     projectId: project?.id,
   };
 
+  // Deduplicate visible shares: one row per group or link
+  const visibleShares = React.useMemo(() => {
+    const seen = new Set<string>();
+    const out: typeof existingShares = [];
+    for (const s of existingShares) {
+      const key = s.groupId ? `g:${s.groupId}` : s.linkToken ? `l:${s.linkToken}` : `id:${s.id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(s);
+    }
+    return out;
+  }, [existingShares]);
+
   const handleGenerateLink = async () => {
     setGenerating(true);
     const token = await onGenerateLink({
@@ -1728,11 +1748,11 @@ export const ShareModal: React.FC<ShareModalProps> = ({
           </button>
         </div>
         <div className="space-y-6">
-          {existingShares.length > 0 && (
+          {visibleShares.length > 0 && (
             <section className="rounded-2xl border border-white/10 bg-white/5 p-4">
               <h4 className="text-sm font-semibold text-white">Currently shared with</h4>
               <div className="mt-3 space-y-2 text-xs text-white/70">
-                {existingShares.map(share => {
+                {visibleShares.map(share => {
                   const group = share.groupId ? groups.find(g => g.id === (share.groupId as any)) : null;
                   return (
                     <div key={share.id} className="flex items-center justify-between rounded-xl bg-black/20 px-3 py-2">

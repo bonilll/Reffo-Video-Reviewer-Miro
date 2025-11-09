@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { SignedIn, SignedOut, useUser, useClerk, useSignIn, useSignUp, useAuth } from '@clerk/clerk-react';
 import { useQuery, useMutation, useAction } from 'convex/react';
 import { api } from './convex/_generated/api';
@@ -50,6 +50,13 @@ type NotificationRecord = {
   frame: number | null;
   mentionText: string | null;
   fromUserId: string | null;
+  contextTitle: string | null;
+  previewUrl: string | null;
+  shareToken: string | null;
+  displayTitle?: string;
+  displaySubtitle?: string | null;
+  displayPreview?: string | null;
+  typeLabel?: string;
   createdAt: number;
   readAt: number | null;
 };
@@ -163,6 +170,100 @@ const App: React.FC = () => {
   const sharedVideosQuery = useQuery(api.shares.videosSharedWithMe, currentUser ? {} : undefined);
   const notifications = useQuery(api.notifications.list, {}) as NotificationRecord[] | undefined;
 
+  // Build projects/videos and quick lookup maps before using in notifications
+  const projects: Project[] = useMemo(() => {
+    const own = projectsQuery
+      ? projectsQuery.map((project) => ({ id: project._id, name: project.name, createdAt: new Date(project.createdAt).toISOString() }))
+      : [];
+    const shared = sharedProjectsQuery
+      ? sharedProjectsQuery.map((project: any) => ({ id: project._id, name: project.name, createdAt: new Date(project.createdAt).toISOString() }))
+      : [];
+    const byId = new Map<string, Project>();
+    [...own, ...shared].forEach((p) => byId.set(p.id, p));
+    return Array.from(byId.values());
+  }, [projectsQuery, sharedProjectsQuery]);
+
+  const videos: Video[] = useMemo(() => {
+    const own = videosQuery
+      ? videosQuery.map((video) => ({
+          id: video.id,
+          title: video.title,
+          src: video.src,
+          storageKey: video.storageKey,
+          thumbnailUrl: (video as any).thumbnailUrl ?? undefined,
+          width: video.width,
+          height: video.height,
+          fps: video.fps,
+          duration: video.duration,
+          projectId: video.projectId ?? undefined,
+          uploadedAt: new Date(video.uploadedAt).toISOString(),
+          lastReviewedAt: video.lastReviewedAt ? new Date(video.lastReviewedAt).toISOString() : undefined,
+        }))
+      : [];
+    const shared = sharedVideosQuery
+      ? sharedVideosQuery.map((video: any) => ({
+          id: video.id,
+          title: video.title,
+          src: video.src,
+          storageKey: video.storageKey,
+          thumbnailUrl: (video as any).thumbnailUrl ?? undefined,
+          width: video.width,
+          height: video.height,
+          fps: video.fps,
+          duration: video.duration,
+          projectId: video.projectId ?? undefined,
+          uploadedAt: new Date(video.uploadedAt).toISOString(),
+          lastReviewedAt: video.lastReviewedAt ? new Date(video.lastReviewedAt).toISOString() : undefined,
+        }))
+      : [];
+    const byId = new Map<string, Video>();
+    [...own, ...shared].forEach((v) => byId.set(v.id, v));
+    return Array.from(byId.values());
+  }, [videosQuery, sharedVideosQuery]);
+
+  const videoMap = useMemo(() => {
+    const map = new Map<string, Video>();
+    videos.forEach((video) => map.set(video.id, video));
+    return map;
+  }, [videos]);
+
+  const projectMap = useMemo(() => {
+    const map = new Map<string, Project>();
+    projects.forEach((project) => map.set(project.id, project));
+    return map;
+  }, [projects]);
+
+  const notificationsForDisplay = useMemo(() => {
+    if (!notifications) return [] as NotificationRecord[];
+    return notifications.map((notification) => {
+      const video = notification.videoId ? videoMap.get(notification.videoId) : undefined;
+      const project = notification.projectId ? projectMap.get(notification.projectId) : undefined;
+      const contextTitle = notification.contextTitle ?? video?.title ?? project?.name ?? null;
+      const preview = notification.previewUrl ?? video?.thumbnailUrl ?? null;
+      const typeLabel = notification.type === 'mention' ? 'Mention' : 'Share';
+      const displayTitle =
+        notification.type === 'mention'
+          ? contextTitle
+            ? `Mention in ${contextTitle}`
+            : 'You were mentioned'
+          : contextTitle
+            ? `Shared: ${contextTitle}`
+            : notification.message;
+      const displaySubtitle =
+        notification.type === 'mention'
+          ? notification.mentionText ?? notification.message
+          : notification.message;
+      return {
+        ...notification,
+        displayTitle,
+        displaySubtitle,
+        displayPreview: preview,
+        contextTitle,
+        typeLabel,
+      } as NotificationRecord;
+    });
+  }, [notifications, videoMap, projectMap]);
+
   // Share-link handling
   const shareToken = useMemo(() => (route.name === 'share' ? route.token : null), [route]);
   const shareResolution = useQuery(api.shares.resolveToken, shareToken ? { token: shareToken } : undefined);
@@ -170,6 +271,7 @@ const App: React.FC = () => {
     api.videos.getByShareToken,
     shareToken && shareResolution && (shareResolution as any)?.videoId ? { token: shareToken } : undefined
   );
+  const shareAccessLoggedRef = useRef<string | null>(null);
 
   const ensureUser = useMutation(api.users.ensure);
   const createProject = useMutation(api.projects.create);
@@ -183,6 +285,7 @@ const App: React.FC = () => {
   const getDownloadUrl = useAction(api.storage.getDownloadUrl);
   const markNotificationRead = useMutation(api.notifications.markRead);
   const markAllNotificationsRead = useMutation(api.notifications.markAllRead);
+  const recordShareAccess = useMutation(api.notifications.recordShareAccess);
   const hasUnreadNotifications = useMemo(() => notifications?.some((n) => !n.readAt) ?? false, [notifications]);
 
   const handleCreateProject = useCallback(
@@ -308,55 +411,7 @@ const App: React.FC = () => {
     }
   }, [attemptEnsureUser, isEnsuringUser]);
 
-  const projects: Project[] = useMemo(() => {
-    const own = projectsQuery
-      ? projectsQuery.map((project) => ({ id: project._id, name: project.name, createdAt: new Date(project.createdAt).toISOString() }))
-      : [];
-    const shared = sharedProjectsQuery
-      ? sharedProjectsQuery.map((project: any) => ({ id: project._id, name: project.name, createdAt: new Date(project.createdAt).toISOString() }))
-      : [];
-    const byId = new Map<string, Project>();
-    [...own, ...shared].forEach((p) => byId.set(p.id, p));
-    return Array.from(byId.values());
-  }, [projectsQuery, sharedProjectsQuery]);
-
-  const videos: Video[] = useMemo(() => {
-    const own = videosQuery
-      ? videosQuery.map((video) => ({
-          id: video.id,
-          title: video.title,
-          src: video.src,
-          storageKey: video.storageKey,
-          thumbnailUrl: (video as any).thumbnailUrl ?? undefined,
-          width: video.width,
-          height: video.height,
-          fps: video.fps,
-          duration: video.duration,
-          projectId: video.projectId ?? undefined,
-          uploadedAt: new Date(video.uploadedAt).toISOString(),
-          lastReviewedAt: video.lastReviewedAt ? new Date(video.lastReviewedAt).toISOString() : undefined,
-        }))
-      : [];
-    const shared = sharedVideosQuery
-      ? sharedVideosQuery.map((video: any) => ({
-          id: video.id,
-          title: video.title,
-          src: video.src,
-          storageKey: video.storageKey,
-          thumbnailUrl: (video as any).thumbnailUrl ?? undefined,
-          width: video.width,
-          height: video.height,
-          fps: video.fps,
-          duration: video.duration,
-          projectId: video.projectId ?? undefined,
-          uploadedAt: new Date(video.uploadedAt).toISOString(),
-          lastReviewedAt: video.lastReviewedAt ? new Date(video.lastReviewedAt).toISOString() : undefined,
-        }))
-      : [];
-    const byId = new Map<string, Video>();
-    [...own, ...shared].forEach((v) => byId.set(v.id, v));
-    return Array.from(byId.values());
-  }, [videosQuery, sharedVideosQuery]);
+  
 
   const dataLoading = Boolean(currentUser) && (projectsQuery === undefined || videosQuery === undefined);
 
@@ -823,6 +878,26 @@ const App: React.FC = () => {
     }
   }, [shareToken, shareResolution, shareVideo]);
 
+  useEffect(() => {
+    if (!shareToken) return;
+    if (!shareResolution) return;
+    if (!currentUser) return;
+    const shareMeta = shareResolution as any;
+    const targetVideoId = shareMeta?.videoId ?? (shareVideo as any)?.id ?? null;
+    const targetProjectId = shareMeta?.projectId ?? null;
+    if (!targetVideoId && !targetProjectId) return;
+    const key = `${shareToken}|${currentUser._id}`;
+    if (shareAccessLoggedRef.current === key) return;
+    shareAccessLoggedRef.current = key;
+    void recordShareAccess({
+      videoId: targetVideoId ? (targetVideoId as Id<'videos'>) : undefined,
+      projectId: targetProjectId ? (targetProjectId as Id<'projects'>) : undefined,
+      shareToken,
+    }).catch((error) => {
+      console.error('Failed to record share access', error);
+    });
+  }, [shareToken, shareResolution, shareVideo, currentUser, recordShareAccess]);
+
   // No special handling required for top-level redirects;
   // Clerk manages the Google OAuth flow entirely after authenticateWithRedirect.
 
@@ -1041,7 +1116,7 @@ const App: React.FC = () => {
                 avatar: currentUser.avatar ?? null,
               }}
               isDark={isDark}
-              notifications={notifications ?? []}
+              notifications={notificationsForDisplay}
               hasUnreadNotifications={hasUnreadNotifications}
               onNotificationClick={handleNotificationClick}
               onMarkAllNotificationsRead={handleMarkAllNotificationsRead}
@@ -1194,38 +1269,55 @@ const AppHeader: React.FC<AppHeaderProps & { isDark: boolean }> = ({
                   </button>
                 </div>
                 <div className="max-h-80 overflow-auto py-1">
-                  {displayNotifications.map((notification) => (
-                    <button
-                      key={notification.id}
-                      onClick={() => {
-                        setNotifOpen(false);
-                        onNotificationClick(notification);
-                      }}
-                      className={`w-full px-3 py-2 text-left transition ${
-                        notification.readAt
-                          ? isDark
-                            ? 'text-white/60 hover:bg-white/10'
-                            : 'text-gray-600 hover:bg-gray-50'
-                          : isDark
-                            ? 'bg-white/10 text-white hover:bg-white/20'
-                            : 'bg-gray-100 text-gray-900 hover:bg-gray-200'
-                      }`}
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium truncate">{notification.message}</p>
-                          {notification.mentionText && (
-                            <p className={`mt-1 text-xs line-clamp-2 ${isDark ? 'text-white/60' : 'text-gray-600'}`}>
-                              “{notification.mentionText}”
-                            </p>
-                          )}
+                  {displayNotifications.map((notification) => {
+                    const preview = notification.displayPreview ?? notification.previewUrl ?? null;
+                    const badgeLabel = notification.typeLabel ?? (notification.type === 'mention' ? 'Mention' : 'Share');
+                    const fallbackInitial = (notification.contextTitle ?? notification.displayTitle ?? notification.message ?? 'R')
+                      .charAt(0)
+                      .toUpperCase();
+                    return (
+                      <button
+                        key={notification.id}
+                        onClick={() => {
+                          setNotifOpen(false);
+                          onNotificationClick(notification);
+                        }}
+                        className={`w-full px-3 py-2 text-left transition ${
+                          notification.readAt
+                            ? isDark
+                              ? 'text-white/60 hover:bg-white/10'
+                              : 'text-gray-600 hover:bg-gray-50'
+                            : isDark
+                              ? 'bg-white/10 text-white hover:bg-white/20'
+                              : 'bg-gray-100 text-gray-900 hover:bg-gray-200'
+                        }`}
+                      >
+                        <div className="flex items-start gap-3">
+                          <div className={`h-10 w-10 flex-shrink-0 overflow-hidden rounded-lg border ${isDark ? 'border-white/20 bg-white/5' : 'border-gray-200 bg-gray-100'}`}>
+                            {preview ? (
+                              <img src={preview} alt={notification.contextTitle ?? notification.message ?? 'Preview'} className="h-full w-full object-cover" />
+                            ) : (
+                              <div className={`flex h-full w-full items-center justify-center text-sm font-semibold ${isDark ? 'text-white/70' : 'text-gray-600'}`}>
+                                {fallbackInitial}
+                              </div>
+                            )}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className={`text-[11px] font-semibold uppercase tracking-wide ${isDark ? 'text-white/50' : 'text-gray-500'}`}>{badgeLabel}</p>
+                            <p className="text-sm font-semibold truncate">{notification.displayTitle ?? notification.message}</p>
+                            {notification.displaySubtitle && (
+                              <p className={`mt-0.5 text-xs line-clamp-2 ${isDark ? 'text-white/60' : 'text-gray-600'}`}>
+                                {notification.type === 'mention' ? `“${notification.displaySubtitle}”` : notification.displaySubtitle}
+                              </p>
+                            )}
+                          </div>
+                          <span className={`shrink-0 text-[11px] ${isDark ? 'text-white/40' : 'text-gray-400'}`}>
+                            {formatTimeAgo(notification.createdAt)}
+                          </span>
                         </div>
-                        <span className={`shrink-0 text-[11px] ${isDark ? 'text-white/40' : 'text-gray-400'}`}>
-                          {formatTimeAgo(notification.createdAt)}
-                        </span>
-                      </div>
-                    </button>
-                  ))}
+                      </button>
+                    );
+                  })}
                   {displayNotifications.length === 0 && (
                     <div className={isDark ? 'px-3 py-6 text-center text-white/50' : 'px-3 py-6 text-center text-gray-500'}>No notifications</div>
                   )}

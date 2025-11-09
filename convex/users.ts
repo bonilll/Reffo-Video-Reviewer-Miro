@@ -46,14 +46,36 @@ export const ensure = mutation({
       throw new ConvexError("EMAIL_REQUIRED");
     }
 
+    // If no user by clerkId, try to attach by email to avoid duplicates
+    const normalizedEmail = identity.email.toLowerCase();
+    const byEmail = await ctx.db
+      .query("users")
+      .withIndex("byEmail", (q) => q.eq("email", normalizedEmail))
+      .collect();
+    if (byEmail.length > 0) {
+      const chosen = byEmail.sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))[0];
+      await ctx.db.patch(chosen._id, {
+        clerkId: identity.subject,
+        email: normalizedEmail,
+        name:
+          identity.name ??
+          identity.nickname ??
+          identity.preferredUsername ??
+          normalizedEmail,
+        avatar: identity.pictureUrl ?? chosen.avatar,
+        updatedAt: now,
+      });
+      return chosen._id;
+    }
+
     const userId = await ctx.db.insert("users", {
       clerkId: identity.subject,
-      email: identity.email,
+      email: normalizedEmail,
       name:
         identity.name ??
         identity.nickname ??
         identity.preferredUsername ??
-        identity.email,
+        normalizedEmail,
       avatar: identity.pictureUrl,
       createdAt: now,
       updatedAt: now,

@@ -72,6 +72,108 @@ async function canCommentOnVideo(ctx: any, userId: Id<'users'>, videoId: Id<'vid
   return false;
 }
 
+type MentionCandidate = {
+  label: string;
+  email: string;
+  userId?: Id<'users'> | null;
+  avatar?: string | null;
+};
+
+const normalizeEmail = (email: string | null | undefined) => email?.trim().toLowerCase() ?? null;
+
+async function getUserByEmail(ctx: any, email: string | null | undefined) {
+  const normalized = normalizeEmail(email);
+  if (!normalized) return null;
+  const users = await ctx.db
+    .query('users')
+    .withIndex('byEmail', (q: any) => q.eq('email', normalized))
+    .collect();
+  if (!users.length) return null;
+  // Prefer a user bound to Clerk (has clerkId), then most recently updated.
+  users.sort((a: any, b: any) => {
+    const aHas = a.clerkId ? 1 : 0;
+    const bHas = b.clerkId ? 1 : 0;
+    if (aHas !== bHas) return bHas - aHas;
+    return (b.updatedAt ?? 0) - (a.updatedAt ?? 0);
+  });
+  return users[0] ?? null;
+}
+
+async function collectMentionCandidates(ctx: any, userId: Id<'users'>, videoId: Id<'videos'>): Promise<{ video: any; candidates: MentionCandidate[] }> {
+  const video = await ctx.db.get(videoId);
+  if (!video) {
+    return { video: null, candidates: [] };
+  }
+
+  const emails = new Map<string, { name?: string | null }>();
+  const enqueue = (email: string | null | undefined, name?: string | null) => {
+    const normalized = normalizeEmail(email);
+    if (!normalized) return;
+    if (emails.has(normalized)) {
+      const existing = emails.get(normalized)!;
+      if (!existing.name && name) existing.name = name;
+      return;
+    }
+    emails.set(normalized, { name: name ?? null });
+  };
+
+  const userDoc = await ctx.db.get(userId);
+  enqueue(userDoc?.email, userDoc?.name);
+
+  const owner = await ctx.db.get(video.ownerId);
+  enqueue(owner?.email, owner?.name);
+
+  const friends = await ctx.db.query('friends').withIndex('byOwner', (q: any) => q.eq('ownerId', userId)).collect();
+  friends.forEach((friend: any) => enqueue(friend.contactEmail, friend.contactName));
+
+  const collectGroupMembers = async (groupId: Id<'shareGroups'>) => {
+    const members = await ctx.db.query('shareGroupMembers').withIndex('byGroup', (q: any) => q.eq('groupId', groupId)).collect();
+    members.forEach((member: any) => enqueue(member.email, null));
+  };
+
+  const includeShareMembers = async (shares: Array<any>) => {
+    for (const share of shares) {
+      if (share.groupId && share.isActive) {
+        await collectGroupMembers(share.groupId);
+      }
+    }
+  };
+
+  const videoShares = await ctx.db.query('contentShares').withIndex('byVideo', (q: any) => q.eq('videoId', videoId)).collect();
+  await includeShareMembers(videoShares);
+
+  if (video.projectId) {
+    const projectShares = await ctx.db
+      .query('contentShares')
+      .withIndex('byProject', (q: any) => q.eq('projectId', video.projectId))
+      .collect();
+    await includeShareMembers(projectShares);
+  }
+
+  const comments = await ctx.db.query('comments').withIndex('byVideo', (q: any) => q.eq('videoId', videoId)).collect();
+  const authorIds = new Set<Id<'users'>>(comments.map((comment: any) => comment.authorId));
+  for (const authorId of authorIds) {
+    const author = await ctx.db.get(authorId);
+    enqueue(author?.email, author?.name);
+  }
+
+  const candidates = await Promise.all(
+    Array.from(emails.entries()).map(async ([email, meta]) => {
+      const userDoc = await getUserByEmail(ctx, email);
+      const label = meta.name ?? userDoc?.name ?? email.split('@')[0];
+      return {
+        label,
+        email,
+        userId: userDoc?._id ?? null,
+        avatar: userDoc?.avatar ?? null,
+      } satisfies MentionCandidate;
+    }),
+  );
+
+  candidates.sort((a, b) => a.label.localeCompare(b.label));
+  return { video, candidates };
+}
+
 export const listByVideo = query({
   args: {
     videoId: v.id("videos"),
@@ -160,36 +262,39 @@ export const create = mutation({
     // Mentions: parse @Name and notify
     const mentionMatches = text.match(/@([A-Za-z0-9_\-\. ]{2,})/g) || [];
     if (mentionMatches.length) {
-      const friends = await ctx.db
-        .query('friends')
-        .withIndex('byOwner', (q: any) => q.eq('ownerId', user._id))
-        .collect();
+      const { video: mentionVideo, candidates } = await collectMentionCandidates(ctx, user._id, videoId);
+      const lookup = new Map<string, MentionCandidate>();
+      candidates.forEach((candidate) => {
+        const labelKey = candidate.label.trim().toLowerCase();
+        if (labelKey) lookup.set(labelKey, candidate);
+        const emailKey = normalizeEmail(candidate.email ?? null);
+        if (emailKey) lookup.set(emailKey, candidate);
+      });
       const notified = new Set<string>();
       for (const raw of mentionMatches) {
         const normalized = raw.slice(1).trim().toLowerCase();
         if (!normalized) continue;
-        const targetFriend = friends.find(
-          (f: any) => (f.contactName ?? '').toLowerCase() === normalized,
-        );
-        if (targetFriend) {
-          const targetUserId = targetFriend.contactUserId as Id<'users'> | undefined;
-          if (targetUserId && targetUserId !== user._id && !notified.has(targetUserId)) {
-            notified.add(targetUserId);
-            await ctx.db.insert('notifications', {
-              userId: targetUserId,
-              type: 'mention',
-              message: `${author?.name ?? author?.email ?? 'Someone'} mentioned you in a comment`,
-              videoId,
-              projectId: undefined,
-              commentId,
-              frame: frame ?? undefined,
-              mentionText: raw.trim(),
-              fromUserId: user._id,
-              createdAt: Date.now(),
-              readAt: undefined,
-            });
-          }
-        }
+        const candidate = lookup.get(normalized);
+        if (!candidate || !candidate.userId || candidate.userId === user._id) continue;
+        if (notified.has(candidate.userId)) continue;
+        notified.add(candidate.userId);
+        await ctx.db.insert('notifications', {
+          userId: candidate.userId,
+          type: 'mention',
+          message: mentionVideo?.title
+            ? `New mention in ${mentionVideo.title}`
+            : 'You were mentioned in a comment',
+          videoId,
+          projectId: mentionVideo?.projectId ?? undefined,
+          commentId,
+          frame: frame ?? undefined,
+          mentionText: raw.trim(),
+          fromUserId: user._id,
+          contextTitle: mentionVideo?.title ?? undefined,
+          previewUrl: (mentionVideo as any)?.thumbnailUrl ?? undefined,
+          createdAt: Date.now(),
+          readAt: undefined,
+        });
       }
     }
 
@@ -318,73 +423,12 @@ export const mentionables = query({
       return [];
     }
 
-    const video = await ctx.db.get(videoId);
-    if (!video) return [];
-
-    const emails = new Map<string, { name?: string | null }>();
-    const enqueue = (email: string | null | undefined, name?: string | null) => {
-      if (!email) return;
-      const normalized = email.trim().toLowerCase();
-      if (!normalized) return;
-      if (emails.has(normalized) && name) {
-        const existing = emails.get(normalized)!;
-        if (!existing.name) existing.name = name;
-        return;
-      }
-      if (!emails.has(normalized)) {
-        emails.set(normalized, { name: name ?? null });
-      }
-    };
-
-    const friends = await ctx.db.query('friends').withIndex('byOwner', (q) => q.eq('ownerId', user._id)).collect();
-    friends.forEach((friend) => enqueue(friend.contactEmail, friend.contactName));
-
-    const collectGroupMembers = async (groupId: Id<'shareGroups'>) => {
-      const members = await ctx.db.query('shareGroupMembers').withIndex('byGroup', (q) => q.eq('groupId', groupId)).collect();
-      members.forEach((member) => enqueue(member.email, null));
-    };
-
-    const includeShareMembers = async (shares: Array<any>) => {
-      for (const share of shares) {
-        if (share.groupId && share.isActive) {
-          await collectGroupMembers(share.groupId);
-        }
-      }
-    };
-
-    const videoShares = await ctx.db.query('contentShares').withIndex('byVideo', (q) => q.eq('videoId', videoId)).collect();
-    await includeShareMembers(videoShares);
-
-    if (video.projectId) {
-      const projectShares = await ctx.db.query('contentShares').withIndex('byProject', (q) => q.eq('projectId', video.projectId)).collect();
-      await includeShareMembers(projectShares);
-    }
-
-    enqueue(user.email, user.name);
-
-    const owner = await ctx.db.get(video.ownerId);
-    if (owner) enqueue(owner.email, owner.name);
-
-    const comments = await ctx.db.query('comments').withIndex('byVideo', (q) => q.eq('videoId', videoId)).collect();
-    const authorIds = new Set<Id<'users'>>(comments.map((comment) => comment.authorId));
-    for (const authorId of authorIds) {
-      const author = await ctx.db.get(authorId);
-      if (author) enqueue(author.email, author.name);
-    }
-
-    const entries = await Promise.all(
-      Array.from(emails.entries()).map(async ([email, meta]) => {
-        const userDocs = await ctx.db.query('users').withIndex('byEmail', (q) => q.eq('email', email)).collect();
-        const userDoc = userDocs[0];
-        return {
-          id: userDoc?._id ?? `email:${email}`,
-          email,
-          label: meta.name ?? userDoc?.name ?? email.split('@')[0],
-          avatar: userDoc?.avatar ?? null,
-        };
-      }),
-    );
-
-    return entries.sort((a, b) => a.label.localeCompare(b.label));
+    const { candidates } = await collectMentionCandidates(ctx, user._id, videoId);
+    return candidates.map((candidate) => ({
+      id: candidate.userId ?? `email:${candidate.email}`,
+      email: candidate.email,
+      label: candidate.label,
+      avatar: candidate.avatar ?? null,
+    }));
   },
 });

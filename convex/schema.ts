@@ -131,6 +131,9 @@ export default defineSchema({
     frame: v.optional(v.number()),
     mentionText: v.optional(v.string()),
     fromUserId: v.optional(v.id("users")),
+    contextTitle: v.optional(v.string()),
+    previewUrl: v.optional(v.string()),
+    shareToken: v.optional(v.string()),
     createdAt: v.number(),
     readAt: v.optional(v.number()),
   })

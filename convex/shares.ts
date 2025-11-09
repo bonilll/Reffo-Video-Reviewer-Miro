@@ -63,6 +63,11 @@ export const shareToGroup = mutation({
 
     const existing = await queryBuilder.first();
 
+    const videoDoc = args.videoId ? await ctx.db.get(args.videoId) : null;
+    const projectDoc = args.projectId ? await ctx.db.get(args.projectId) : null;
+    const notificationContextTitle = videoDoc?.title ?? projectDoc?.name ?? null;
+    const notificationPreviewUrl = (videoDoc as any)?.thumbnailUrl ?? null;
+
     const payload = {
       ownerId: user._id,
       videoId: args.videoId,
@@ -115,15 +120,31 @@ export const shareToGroup = mutation({
       // Notify members
       const members = await ctx.db.query('shareGroupMembers').withIndex('byGroup', (q) => q.eq('groupId', args.groupId)).collect();
       await Promise.all(members.map(async (m) => {
-        const u = await ctx.db.query('users').withIndex('byEmail', (q) => q.eq('email', m.email)).unique();
+        const normalizedEmail = m.email?.toLowerCase();
+        if (!normalizedEmail) return;
+        const userDocs = await ctx.db.query('users').withIndex('byEmail', (q) => q.eq('email', normalizedEmail)).collect();
+        const u = userDocs.sort((a: any, b: any) => {
+          const aHas = a.clerkId ? 1 : 0;
+          const bHas = b.clerkId ? 1 : 0;
+          if (aHas !== bHas) return bHas - aHas;
+          return (b.updatedAt ?? 0) - (a.updatedAt ?? 0);
+        })[0];
         if (u) {
           await ctx.db.insert('notifications', {
             userId: u._id,
             type: 'share',
-            message: args.videoId ? 'A review was shared with your group' : 'A project was shared with your group',
+            message: notificationContextTitle
+              ? args.videoId
+                ? `Review shared: ${notificationContextTitle}`
+                : `Project shared: ${notificationContextTitle}`
+              : args.videoId
+                ? 'A review was shared with your group'
+                : 'A project was shared with your group',
             videoId: args.videoId,
             projectId: args.projectId,
             fromUserId: user._id,
+            contextTitle: notificationContextTitle ?? undefined,
+            previewUrl: notificationPreviewUrl ?? undefined,
             createdAt: Date.now(),
             readAt: undefined,
           });
@@ -171,15 +192,31 @@ export const shareToGroup = mutation({
     }
     const members = await ctx.db.query('shareGroupMembers').withIndex('byGroup', (q) => q.eq('groupId', args.groupId)).collect();
     await Promise.all(members.map(async (m) => {
-      const u = await ctx.db.query('users').withIndex('byEmail', (q) => q.eq('email', m.email)).unique();
+      const normalizedEmail = m.email?.toLowerCase();
+      if (!normalizedEmail) return;
+      const userDocs = await ctx.db.query('users').withIndex('byEmail', (q) => q.eq('email', normalizedEmail)).collect();
+      const u = userDocs.sort((a: any, b: any) => {
+        const aHas = a.clerkId ? 1 : 0;
+        const bHas = b.clerkId ? 1 : 0;
+        if (aHas !== bHas) return bHas - aHas;
+        return (b.updatedAt ?? 0) - (a.updatedAt ?? 0);
+      })[0];
       if (u) {
         await ctx.db.insert('notifications', {
           userId: u._id,
           type: 'share',
-          message: args.videoId ? 'A review was shared with your group' : 'A project was shared with your group',
+          message: notificationContextTitle
+            ? args.videoId
+              ? `Review shared: ${notificationContextTitle}`
+              : `Project shared: ${notificationContextTitle}`
+            : args.videoId
+              ? 'A review was shared with your group'
+              : 'A project was shared with your group',
           videoId: args.videoId,
           projectId: args.projectId,
           fromUserId: user._id,
+          contextTitle: notificationContextTitle ?? undefined,
+          previewUrl: notificationPreviewUrl ?? undefined,
           createdAt: Date.now(),
           readAt: undefined,
         });

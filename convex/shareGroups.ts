@@ -140,10 +140,14 @@ export const addMember = mutation({
       throw new ConvexError("MEMBER_ALREADY_EXISTS");
     }
 
-    const directUser = await ctx.db
+    // There may be multiple user docs with the same email in dev.
+    // Avoid unique() throwing; pick the most recently updated user.
+    const directUsers = await ctx.db
       .query("users")
       .withIndex("byEmail", (q) => q.eq("email", normalizedEmail))
-      .unique();
+      .collect();
+    const directUser = directUsers
+      .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))[0] ?? null;
 
     const now = Date.now();
 
