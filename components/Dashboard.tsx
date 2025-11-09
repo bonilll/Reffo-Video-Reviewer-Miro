@@ -53,6 +53,7 @@ interface DashboardProps {
   };
   videos: Video[];
   projects: Project[];
+  ownedProjectIds?: string[];
   onStartReview: (video: Video) => void | Promise<void>;
   onCreateProject: (name: string) => Promise<string | void>;
   onUpdateProject: (project: { id: string; name: string }) => Promise<void>;
@@ -243,6 +244,7 @@ const Dashboard: React.FC<DashboardProps> = ({
   user,
   videos,
   projects,
+  ownedProjectIds,
   onStartReview,
   onCreateProject,
   onUpdateProject,
@@ -536,14 +538,12 @@ const Dashboard: React.FC<DashboardProps> = ({
       });
 
       setUploadLogs((current) => [...current, 'Review created successfully.']);
-      const projectShares = activeShares.filter(
-        (share) => share.projectId === selectedProjectId && !share.videoId,
-      );
-      if (projectShares.length) {
+      // Ensure project-level group shares are propagated to the new video
+      if (selectedProjectId) {
         await autoShareVideo({
           videoId: created.id as any,
           projectId: selectedProjectId as any,
-        });
+        }).catch(() => undefined);
       }
       const autoShareGroups = workspaceSettings?.workspace.autoShareGroupIds ?? [];
       if (autoShareGroups.length) {
@@ -877,6 +877,7 @@ const Dashboard: React.FC<DashboardProps> = ({
               </thead>
               <tbody>
                 {filteredProjects.map((project) => {
+                  const isOwned = ownedProjectIds?.includes(project.id) ?? true;
                   const projectVideos = videos.filter((video) => video.projectId === project.id);
                   const recent = projectVideos[0];
                   return (
@@ -921,7 +922,8 @@ const Dashboard: React.FC<DashboardProps> = ({
                               setProjectToEdit(project);
                               setProjectModalOpen(true);
                             }}
-                            className="rounded-full bg-white/10 p-1 text-white/60 hover:text-white"
+                            disabled={!isOwned}
+                            className={`rounded-full p-1 ${!isOwned ? 'cursor-not-allowed bg-white/5 text-white/30' : 'bg-white/10 text-white/60 hover:text-white'}`}
                           >
                             <Pencil size={14} />
                           </button>
@@ -933,7 +935,8 @@ const Dashboard: React.FC<DashboardProps> = ({
                           </button>
                           <button
                             onClick={() => setProjectDeleteTarget(project)}
-                            className="rounded-full bg-white/10 p-1 text-white/60 hover:text-white"
+                            disabled={!isOwned}
+                            className={`rounded-full p-1 ${!isOwned ? 'cursor-not-allowed bg-white/5 text-white/30' : 'bg-white/10 text-white/60 hover:text-white'}`}
                           >
                             <Trash2 size={14} />
                           </button>
@@ -948,6 +951,7 @@ const Dashboard: React.FC<DashboardProps> = ({
         ) : (
           <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {filteredProjects.map((project) => {
+            const isOwned = ownedProjectIds?.includes(project.id) ?? true;
             const projectVideos = videos.filter((video) => video.projectId === project.id);
             const recentReview = projectVideos[0];
             return (
@@ -984,6 +988,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                   </div>
                   <VideoActionsMenu
                     onRename={() => {
+                      if (!isOwned) { pushToast('info', 'Only the owner can rename this project.'); return; }
                       setProjectToEdit(project);
                       setProjectModalOpen(true);
                     }}
@@ -994,7 +999,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                       }
                     }}
                     onShare={() => setProjectToShare(project)}
-                    onDelete={() => setProjectDeleteTarget(project)}
+                    onDelete={() => { if (!isOwned) { pushToast('info', 'Only the owner can delete this project.'); return; } setProjectDeleteTarget(project); }}
                     isDark={isDark}
                   />
                 </div>

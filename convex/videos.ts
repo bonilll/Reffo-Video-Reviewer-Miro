@@ -131,8 +131,31 @@ export const completeUpload = mutation({
 
     if (args.projectId) {
       const project = await ctx.db.get(args.projectId);
-      if (!project || project.ownerId !== user._id) {
+      if (!project) {
         throw new ConvexError("FORBIDDEN");
+      }
+      if (project.ownerId !== user._id) {
+        // Allow upload into a shared project if the user is a member of any active group share for the project.
+        const shares = await ctx.db
+          .query('contentShares')
+          .withIndex('byProject', (q) => q.eq('projectId', args.projectId!))
+          .collect();
+        let canAttach = false;
+        const me = await ctx.db.get(user._id);
+        if (me) {
+          for (const s of shares) {
+            if (!s.isActive || !s.groupId) continue;
+            const member = await ctx.db
+              .query('shareGroupMembers')
+              .withIndex('byGroup', (q) => q.eq('groupId', s.groupId as Id<'shareGroups'>))
+              .filter((q) => q.eq(q.field('email'), me.email))
+              .first();
+            if (member) { canAttach = true; break; }
+          }
+        }
+        if (!canAttach) {
+          throw new ConvexError("FORBIDDEN");
+        }
       }
     }
 

@@ -1156,6 +1156,7 @@ const App: React.FC = () => {
                   }}
                   videos={videos}
                   projects={projects}
+                  ownedProjectIds={(projectsQuery ?? []).map(p => p._id as unknown as string)}
                   onStartReview={handleStartReview}
                   onCreateProject={handleCreateProject}
                   onUpdateProject={handleUpdateProject}
