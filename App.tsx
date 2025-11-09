@@ -198,6 +198,7 @@ const App: React.FC = () => {
           projectId: video.projectId ?? undefined,
           uploadedAt: new Date(video.uploadedAt).toISOString(),
           lastReviewedAt: video.lastReviewedAt ? new Date(video.lastReviewedAt).toISOString() : undefined,
+          isOwnedByCurrentUser: true,
         }))
       : [];
     const shared = sharedVideosQuery
@@ -214,10 +215,15 @@ const App: React.FC = () => {
           projectId: video.projectId ?? undefined,
           uploadedAt: new Date(video.uploadedAt).toISOString(),
           lastReviewedAt: video.lastReviewedAt ? new Date(video.lastReviewedAt).toISOString() : undefined,
+          isOwnedByCurrentUser: false,
         }))
       : [];
     const byId = new Map<string, Video>();
-    [...own, ...shared].forEach((v) => byId.set(v.id, v));
+    [...own, ...shared].forEach((v) => {
+      if (!byId.has(v.id)) {
+        byId.set(v.id, v);
+      }
+    });
     return Array.from(byId.values());
   }, [videosQuery, sharedVideosQuery]);
 
@@ -1135,10 +1141,14 @@ const App: React.FC = () => {
               ) : view === 'project' && activeProjectId ? (
                 <ProjectWorkspace
                   project={projects.find((p) => p.id === activeProjectId)!}
+                  projects={projects}
                   videos={videos}
                   theme={preference}
                   onBack={() => navigate('/dashboard')}
                   onStartReview={handleStartReview}
+                  onRenameVideo={handleRenameVideo}
+                  onSetVideoProject={handleSetVideoProject}
+                  onRemoveVideo={handleRemoveVideo}
                   highlightMessage={activeProjectHighlight ? activeProjectHighlight.message ?? 'This project was shared with you.' : null}
                   onDismissHighlight={() => {
                     setPendingProjectFocus((focus) => {

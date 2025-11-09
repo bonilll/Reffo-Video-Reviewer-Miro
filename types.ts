@@ -136,6 +136,7 @@ export interface Video {
   projectId?: string;
   uploadedAt: string;
   lastReviewedAt?: string;
+  isOwnedByCurrentUser?: boolean;
 }
 
 export interface ShareGroupMember {

@@ -5,6 +5,7 @@ import React, {
   useEffect,
   useCallback,
 } from 'react';
+import { createPortal } from 'react-dom';
 import {
   UploadCloud,
   Film,
@@ -119,7 +120,7 @@ const ProjectBadge: React.FC<{ count: number }> = ({ count }) => (
   </span>
 );
 
-const VideoActionsMenu: React.FC<{
+export const VideoActionsMenu: React.FC<{
   onRename: () => void;
   onMove: () => void;
   onShare: () => void;
@@ -127,11 +128,15 @@ const VideoActionsMenu: React.FC<{
   isDark?: boolean;
 }> = ({ onRename, onMove, onShare, onDelete, isDark }) => {
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [coords, setCoords] = useState<{ top: number; left: number } | null>(null);
+  const MENU_WIDTH = 192; // w-48 in Tailwind (12rem)
 
   useEffect(() => {
     const handleClick = (event: MouseEvent) => {
-      if (ref.current && !ref.current.contains(event.target as Node)) {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
         setOpen(false);
       }
     };
@@ -139,68 +144,111 @@ const VideoActionsMenu: React.FC<{
     return () => document.removeEventListener('mousedown', handleClick);
   }, []);
 
+  const updateCoords = useCallback(() => {
+    const btn = buttonRef.current;
+    if (!btn) return;
+    const rect = btn.getBoundingClientRect();
+    const gap = 8;
+    const left = Math.min(
+      Math.max(gap, rect.right - MENU_WIDTH),
+      window.innerWidth - MENU_WIDTH - gap
+    );
+    const top = Math.min(
+      rect.bottom + gap,
+      window.innerHeight - gap
+    );
+    setCoords({ top, left });
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    updateCoords();
+    const onScroll = () => updateCoords();
+    const onResize = () => updateCoords();
+    window.addEventListener('scroll', onScroll, true);
+    window.addEventListener('resize', onResize);
+    return () => {
+      window.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('resize', onResize);
+    };
+  }, [open, updateCoords]);
+
   return (
     <div
       className="relative"
-      ref={ref}
+      ref={containerRef}
       onMouseDown={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
     >
       <button
+        ref={buttonRef}
         onClick={(e) => {
           e.stopPropagation();
           setOpen((value) => !value);
+          if (!open) {
+            // position on next frame to ensure refs are ready
+            requestAnimationFrame(() => updateCoords());
+          }
         }}
         onMouseDown={(e) => e.stopPropagation()}
         className="p-1 rounded-md text-white/60 hover:text-white hover:bg-white/10"
       >
         <MoreHorizontal size={18} />
       </button>
-      {open && (
-        <div className={`absolute right-0 mt-2 w-48 rounded-xl border shadow-2xl backdrop-blur ${isDark ? 'border-white/10 bg-black/90' : 'border-gray-200 bg-white'}`}>
-          <button
-            className={`flex w-full items-center gap-2 px-4 py-2 text-left text-sm ${isDark ? 'text-white/80 hover:bg-white/10' : 'text-gray-800 hover:bg-black/5'}`}
-            onClick={(e) => {
-              e.stopPropagation();
-              onRename();
-              setOpen(false);
-            }}
+      {open && coords &&
+        createPortal(
+          <div
+            ref={menuRef}
+            className={`fixed z-50 w-48 rounded-xl border shadow-2xl backdrop-blur ${isDark ? 'border-white/10 bg-black/90' : 'border-gray-200 bg-white'}`}
+            style={{ top: `${coords.top}px`, left: `${coords.left}px` }}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
           >
-            <Pencil size={14} /> Rename
-          </button>
-          <button
-            className={`flex w-full items-center gap-2 px-4 py-2 text-left text-sm ${isDark ? 'text-white/80 hover:bg-white/10' : 'text-gray-800 hover:bg-black/5'}`}
-            onClick={(e) => {
-              e.stopPropagation();
-              onMove();
-              setOpen(false);
-            }}
-          >
-            <Folder size={14} /> Move to project
-          </button>
-          <button
-            className={`flex w-full items-center gap-2 px-4 py-2 text-left text-sm ${isDark ? 'text-white/80 hover:bg-white/10' : 'text-gray-800 hover:bg-black/5'}`}
-            onClick={(e) => {
-              e.stopPropagation();
-              onShare();
-              setOpen(false);
-            }}
-          >
-            <Share2 size={14} /> Share
-          </button>
-          <div className={`my-1 h-px ${isDark ? 'bg-white/10' : 'bg-gray-200'}`} />
-          <button
-            className={`flex w-full items-center gap-2 px-4 py-2 text-left text-sm ${isDark ? 'text-red-300 hover:bg-white/10' : 'text-red-600 hover:bg-black/5'}`}
-            onClick={(e) => {
-              e.stopPropagation();
-              onDelete();
-              setOpen(false);
-            }}
-          >
-            <Trash2 size={14} /> Delete
-          </button>
-        </div>
-      )}
+            <button
+              className={`flex w-full items-center gap-2 px-4 py-2 text-left text-sm ${isDark ? 'text-white/80 hover:bg-white/10' : 'text-gray-800 hover:bg-black/5'}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                onRename();
+                setOpen(false);
+              }}
+            >
+              <Pencil size={14} /> Rename
+            </button>
+            <button
+              className={`flex w-full items-center gap-2 px-4 py-2 text-left text-sm ${isDark ? 'text-white/80 hover:bg-white/10' : 'text-gray-800 hover:bg-black/5'}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                onMove();
+                setOpen(false);
+              }}
+            >
+              <Folder size={14} /> Move to project
+            </button>
+            <button
+              className={`flex w-full items-center gap-2 px-4 py-2 text-left text-sm ${isDark ? 'text-white/80 hover:bg-white/10' : 'text-gray-800 hover:bg-black/5'}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                onShare();
+                setOpen(false);
+              }}
+            >
+              <Share2 size={14} /> Share
+            </button>
+            <div className={`my-1 h-px ${isDark ? 'bg-white/10' : 'bg-gray-200'}`} />
+            <button
+              className={`flex w-full items-center gap-2 px-4 py-2 text-left text-sm ${isDark ? 'text-red-300 hover:bg-white/10' : 'text-red-600 hover:bg-black/5'}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete();
+                setOpen(false);
+              }}
+            >
+              <Trash2 size={14} /> Delete
+            </button>
+          </div>,
+          document.body
+        )
+      }
     </div>
   );
 };
@@ -240,6 +288,8 @@ const ThumbnailPreview: React.FC<{ video: Video }> = ({ video }) => {
   );
 };
 
+const PROJECTS_VIEW_MODE_STORAGE_KEY = 'dashboard:projects:view-mode';
+
 const Dashboard: React.FC<DashboardProps> = ({
   user,
   videos,
@@ -272,7 +322,15 @@ const Dashboard: React.FC<DashboardProps> = ({
   const [projectToShare, setProjectToShare] = useState<Project | null>(null);
   const [projectModalOpen, setProjectModalOpen] = useState(false);
   const [isDragActive, setIsDragActive] = useState(false);
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('list');
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>(() => {
+    if (typeof window === 'undefined') return 'grid';
+    try {
+      const stored = window.localStorage.getItem(PROJECTS_VIEW_MODE_STORAGE_KEY);
+      return stored === 'list' || stored === 'grid' ? (stored as 'grid' | 'list') : 'grid';
+    } catch {
+      return 'grid';
+    }
+  });
   const [searchTerm, setSearchTerm] = useState('');
   const [inviteTarget, setInviteTarget] = useState<ShareGroup | null>(null);
   const [renameTarget, setRenameTarget] = useState<ShareGroup | null>(null);
@@ -333,6 +391,15 @@ const Dashboard: React.FC<DashboardProps> = ({
       setSelectedProjectId(projects[0].id);
     }
   }, [projects, selectedProjectId]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.setItem(PROJECTS_VIEW_MODE_STORAGE_KEY, viewMode);
+    } catch {
+      // Ignore storage errors
+    }
+  }, [viewMode]);
 
   const pushToast = useCallback((tone: ActionToast['tone'], message: string) => {
     setToasts((current) => [{ id: toastId.current++, tone, message }, ...current]);
@@ -573,6 +640,11 @@ const Dashboard: React.FC<DashboardProps> = ({
   };
 
   const handleRename = async (video: Video, title: string) => {
+    if (video.isOwnedByCurrentUser === false) {
+      pushToast('info', 'Only the owner can rename this review.');
+      setVideoToRename(null);
+      return;
+    }
     if (!title.trim()) return;
     await onRenameVideo(video.id, title.trim());
     setVideoToRename(null);
@@ -580,12 +652,22 @@ const Dashboard: React.FC<DashboardProps> = ({
   };
 
   const handleMove = async (video: Video, projectId: string) => {
+    if (video.isOwnedByCurrentUser === false) {
+      pushToast('info', 'Only the owner can move this review.');
+      setVideoToMove(null);
+      return;
+    }
     await onSetVideoProject(video.id, projectId);
     setVideoToMove(null);
     pushToast('success', 'Review moved to project.');
   };
 
   const handleDelete = async (video: Video) => {
+    if (video.isOwnedByCurrentUser === false) {
+      pushToast('info', 'Only the owner can delete this review.');
+      setVideoToDelete(null);
+      return;
+    }
     await onRemoveVideo(video.id);
     setVideoToDelete(null);
     pushToast('success', 'Review deleted.');
@@ -669,14 +751,26 @@ const Dashboard: React.FC<DashboardProps> = ({
     shareGroups?.find((group) => group.id === groupId) ?? null;
 
   const openRenameModal = (video: Video) => {
+    if (video.isOwnedByCurrentUser === false) {
+      pushToast('info', 'Only the owner can rename this review.');
+      return;
+    }
     setVideoToRename(video);
   };
 
   const openMoveModal = (video: Video) => {
+    if (video.isOwnedByCurrentUser === false) {
+      pushToast('info', 'Only the owner can move this review.');
+      return;
+    }
     setVideoToMove(video);
   };
 
   const openDeleteModal = (video: Video) => {
+    if (video.isOwnedByCurrentUser === false) {
+      pushToast('info', 'Only the owner can delete this review.');
+      return;
+    }
     setVideoToDelete(video);
   };
 
@@ -1490,7 +1584,7 @@ interface RenameVideoModalProps {
   isDark: boolean;
 }
 
-const RenameVideoModal: React.FC<RenameVideoModalProps> = ({ video, onClose, onSubmit, isDark }) => {
+export const RenameVideoModal: React.FC<RenameVideoModalProps> = ({ video, onClose, onSubmit, isDark }) => {
   const [title, setTitle] = useState(video.title);
   const [saving, setSaving] = useState(false);
 
@@ -1546,7 +1640,7 @@ interface MoveVideoModalProps {
   isDark: boolean;
 }
 
-const MoveVideoModal: React.FC<MoveVideoModalProps> = ({ video, projects, onClose, onSubmit, isDark }) => {
+export const MoveVideoModal: React.FC<MoveVideoModalProps> = ({ video, projects, onClose, onSubmit, isDark }) => {
   const [target, setTarget] = useState<string>(video.projectId ?? projects[0]?.id ?? '');
   const [saving, setSaving] = useState(false);
   const [open, setOpen] = useState(false);
@@ -1631,7 +1725,7 @@ interface ConfirmDeleteModalProps {
   isDark: boolean;
 }
 
-const ConfirmDeleteModal: React.FC<ConfirmDeleteModalProps> = ({ video, onClose, onConfirm, isDark }) => {
+export const ConfirmDeleteModal: React.FC<ConfirmDeleteModalProps> = ({ video, onClose, onConfirm, isDark }) => {
   const [deleting, setDeleting] = useState(false);
 
   const handleConfirm = async () => {
