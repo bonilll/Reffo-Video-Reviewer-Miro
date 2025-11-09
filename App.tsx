@@ -497,6 +497,25 @@ const App: React.FC = () => {
     if (pendingProjectFocus.projectId !== activeProjectId) return null;
     return pendingProjectFocus;
   }, [pendingProjectFocus, view, activeProjectId]);
+
+  // Pick up deep links like /review/:id?comment=<commentId>&frame=<n>
+  useEffect(() => {
+    if (route.name !== 'review') return;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const commentId = params.get('comment') || params.get('c');
+      const frameStr = params.get('frame') || params.get('f');
+      const frame = frameStr ? Number(frameStr) : null;
+      if (commentId || (typeof frame === 'number' && !Number.isNaN(frame))) {
+        setPendingReviewFocus({
+          videoId: route.id,
+          commentId: commentId ?? null,
+          frame: typeof frame === 'number' && !Number.isNaN(frame) ? frame : null,
+          mentionText: null,
+        });
+      }
+    } catch {}
+  }, [route]);
   const startOAuthPopup = useCallback((provider: 'google') => {
     const w = 500;
     const h = 700;

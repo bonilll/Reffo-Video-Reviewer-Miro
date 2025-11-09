@@ -2,6 +2,7 @@ import { mutation, query } from "./_generated/server";
 import { ConvexError, v } from "convex/values";
 import { getCurrentUserDoc, getCurrentUserOrThrow } from "./utils/auth";
 import type { Id } from "./_generated/dataModel";
+import { internal } from "./_generated/api";
 
 const pointValidator = v.object({
   x: v.number(),
@@ -295,6 +296,16 @@ export const create = mutation({
           createdAt: Date.now(),
           readAt: undefined,
         });
+        // Fire Slack DM if the mentioned user connected Slack
+        try {
+          await ctx.scheduler.runAfter(0, internal.slack.notifyMention, {
+            toUserId: candidate.userId as Id<'users'>,
+            videoId,
+            commentId,
+          });
+        } catch (_err) {
+          // ignore slack failures so they don't block comment creation
+        }
       }
     }
 

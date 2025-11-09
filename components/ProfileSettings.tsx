@@ -37,11 +37,16 @@ const themeOptions = [
 const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBack }) => {
   const settingsDoc = useQuery(api.settings.getOrNull, {});
   const shareGroups = useQuery(api.shareGroups.list, {});
+  const getSlackStatus = useAction(api.slack.status);
 
   const updateSettings = useMutation(api.settings.update);
   const ensureSettings = useMutation(api.settings.ensure);
   const updateProfile = useMutation(api.users.updateProfile);
   const generateAvatarUpload = useAction(api.storage.generateProfileImageUploadUrl);
+  const getSlackAuthUrl = useAction(api.slack.getAuthUrl);
+  const exchangeSlackCode = useAction(api.slack.exchangeCode);
+  const disconnectSlack = useAction(api.slack.disconnect);
+  const testSlackDm = useAction(api.slack.testDm);
   const friends = useQuery(api.friends.list, {});
   const addFriend = useMutation(api.friends.add);
   const removeFriend = useMutation(api.friends.remove);
@@ -76,6 +81,47 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
       updatedAt: new Date(settingsDoc.updatedAt).toISOString(),
     });
   }, [settingsDoc, ensureSettings, user?.email]);
+
+  const [slackStatus, setSlackStatus] = useState<{ teamId: string; teamName: string } | null>(null);
+  useEffect(() => {
+    (async () => {
+      try {
+        const s = await getSlackStatus({});
+        setSlackStatus(s);
+      } catch {}
+    })();
+  }, [getSlackStatus]);
+
+  // Handle Slack OAuth code if Slack redirected back to /profile
+  useEffect(() => {
+    const search = typeof window !== 'undefined' ? window.location.search : '';
+    if (!search) return;
+    const params = new URLSearchParams(search);
+    const code = params.get('code');
+    const state = params.get('state'); // currently unused
+    const source = params.get('source');
+    if (code && source === 'slack') {
+      (async () => {
+        try {
+          await exchangeSlackCode({ code, redirectUri: window.location.origin + '/profile?source=slack' });
+          try {
+            const s = await getSlackStatus({});
+            setSlackStatus(s);
+          } catch {}
+        } catch (err) {
+          console.error('Slack OAuth exchange failed', err);
+        } finally {
+          try {
+            const url = new URL(window.location.href);
+            url.searchParams.delete('code');
+            url.searchParams.delete('state');
+            url.searchParams.delete('source');
+            window.history.replaceState({}, '', url.toString());
+          } catch {}
+        }
+      })();
+    }
+  }, [exchangeSlackCode, getSlackStatus]);
 
   const persistSettings = async (next: UserSettings) => {
     setIsSaving(true);
@@ -305,6 +351,77 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
                 </button>
               </div>
             </div>
+      </article>
+
+      <article className="rounded-3xl border border-white/10 bg-white/5 p-6">
+        <div className="flex items-center gap-3 text-white">
+          <ExternalLink size={18} />
+          <h2 className="text-lg font-semibold">Connections</h2>
+        </div>
+        <p className="mt-2 text-sm text-white/60">
+          Connect external apps to receive notifications and streamline your workflow.
+        </p>
+        <div className="mt-4 space-y-4">
+          <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold text-white">Slack</div>
+                <div className="text-xs text-white/60">
+                  {slackStatus
+                    ? <>Connected to <span className="font-semibold">{slackStatus.teamName}</span></>
+                    : <>Not connected</>}
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                {!slackStatus ? (
+                  <button
+                    onClick={async () => {
+                      try {
+                        const redirectUri = window.location.origin + '/profile?source=slack';
+                        const url = await getSlackAuthUrl({ redirectUri });
+                        window.location.assign(url);
+                      } catch (err) {
+                        console.error('Failed to start Slack OAuth', err);
+                      }
+                    }}
+                    className="rounded-full bg-white px-4 py-2 text-sm font-semibold text-black hover:bg-white/90"
+                  >
+                    Connect Slack
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      onClick={async () => {
+                        try {
+                          await testSlackDm({});
+                          // optional: no-op
+                        } catch (err) {
+                          console.error('Failed to send test DM', err);
+                        }
+                      }}
+                      className="rounded-full bg-white/10 px-4 py-2 text-sm font-semibold text-white/80 hover:bg-white/20"
+                    >
+                      Send test DM
+                    </button>
+                    <button
+                      onClick={async () => {
+                        try {
+                          await disconnectSlack({});
+                          setSlackStatus(null);
+                        } catch (err) {
+                          console.error('Failed to disconnect Slack', err);
+                        }
+                      }}
+                      className="rounded-full bg-white/10 px-4 py-2 text-sm font-semibold text-white/80 hover:bg-white/20"
+                    >
+                      Disconnect
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
       </article>
 
       <article className="rounded-3xl border border-white/10 bg-white/5 p-6">

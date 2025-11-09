@@ -17,6 +17,8 @@ import type * as projects from "../projects.js";
 import type * as settings from "../settings.js";
 import type * as shareGroups from "../shareGroups.js";
 import type * as shares from "../shares.js";
+import type * as slack from "../slack.js";
+import type * as slackData from "../slackData.js";
 import type * as storage from "../storage.js";
 import type * as users from "../users.js";
 import type * as utils_auth from "../utils/auth.js";
@@ -48,6 +50,8 @@ declare const fullApi: ApiFromModules<{
   settings: typeof settings;
   shareGroups: typeof shareGroups;
   shares: typeof shares;
+  slack: typeof slack;
+  slackData: typeof slackData;
   storage: typeof storage;
   users: typeof users;
   "utils/auth": typeof utils_auth;
