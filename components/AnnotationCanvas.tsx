@@ -31,6 +31,7 @@ interface AnnotationCanvasProps {
   onAddComment: (text: string, parentId?: string) => void;
   onToggleCommentResolved: (commentId: string) => void;
   onEditComment: (commentId: string, text: string) => void;
+  onJumpToFrame: (frame: number) => void;
   pendingComment: { position: Point } | null;
   setPendingComment: (p: { position: Point } | null) => void;
   isDark?: boolean;
@@ -109,7 +110,7 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
   video, videoElement, currentFrame, annotations, onAddAnnotation, onUpdateAnnotations, onDeleteAnnotations,
   activeTool, brushColor, brushSize, fontSize, selectedAnnotationIds, setSelectedAnnotationIds,
   comments, activeCommentId, onCommentPlacement, activeCommentPopoverId, setActiveCommentPopoverId,
-  onUpdateCommentPosition, onAddComment, onToggleCommentResolved, onEditComment, pendingComment, setPendingComment, isDark = true, onUploadAsset,
+  onUpdateCommentPosition, onAddComment, onToggleCommentResolved, onEditComment, onJumpToFrame, pendingComment, setPendingComment, isDark = true, onUploadAsset,
   threadMeta = {}, mentionOptions = [],
   shapeFillEnabled,
   shapeFillOpacity,
@@ -1507,6 +1508,7 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
             mentionOptions={mentionOptions}
           onToggleResolve={onToggleCommentResolved}
           onEditComment={onEditComment}
+            onJumpToFrame={onJumpToFrame}
           />
       )}
       {renderedRect && pendingComment && (

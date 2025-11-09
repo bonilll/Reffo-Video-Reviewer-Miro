@@ -94,10 +94,7 @@ const CommentItem: React.FC<CommentProps & { mentionOptions?: MentionOption[] }>
   const highlightRingClass = shouldHighlight && !isActive
     ? (isDark ? 'ring-2 ring-white/40 ring-offset-2 ring-offset-black/40' : 'ring-2 ring-gray-600/40 ring-offset-2 ring-offset-white')
     : '';
-  const mentionSegments = useMemo(
-    () => splitMentionSegments(editText, mentionOptions),
-    [editText, mentionOptions],
-  );
+  const mentionSegments = useMemo(() => splitMentionSegments(editText, mentionOptions), [editText, mentionOptions]);
 
   const renderTextSegment = (text: string, key: string) => {
     if (!highlightLower || !text) {
@@ -240,21 +237,42 @@ const CommentItem: React.FC<CommentProps & { mentionOptions?: MentionOption[] }>
               className={`${isDark ? 'text-sm text-white/80' : 'text-sm text-gray-800'} mt-1 whitespace-pre-wrap break-words`}
               style={{ hyphens: 'auto', wordBreak: 'break-word', overflowWrap: 'anywhere' }}
             >
-              {mentionSegments.map((segment, idx) =>
-                segment.kind === 'mention' ? (
-                  <span
-                    key={`mention-${idx}`}
-                    className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-xs font-semibold ${
-                      isDark ? 'bg-white/10 text-white' : 'bg-black/10 text-gray-900'
-                    }`}
-                    style={{ marginRight: '0.25rem' }}
-                  >
-                    @{segment.value}
-                  </span>
-                ) : (
-                  renderTextSegment(segment.value, `text-${idx}`)
-                )
-              )}
+              {mentionSegments.map((segment, idx) => {
+                if (segment.kind === 'mention') {
+                  return (
+                    <span
+                      key={`mention-${idx}`}
+                      className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-xs font-semibold ${
+                        isDark ? 'bg-white/10 text-white' : 'bg-black/10 text-gray-900'
+                      }`}
+                      style={{ marginRight: '0.25rem' }}
+                    >
+                      @{segment.value}
+                    </span>
+                  );
+                }
+                if (segment.kind === 'frame') {
+                  const label = segment.raw;
+                  const highlightFrame = highlightLower && label.toLowerCase().includes(highlightLower);
+                  return (
+                    <button
+                      key={`frame-${idx}`}
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onJumpToFrame(segment.frame);
+                      }}
+                      className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-xs font-semibold ${
+                        highlightFrame ? highlightSpanClass : isDark ? 'bg-sky-500/20 text-sky-100 hover:bg-sky-500/30' : 'bg-sky-100 text-sky-700 hover:bg-sky-200'
+                      }`}
+                      style={{ marginRight: '0.25rem' }}
+                    >
+                      {label}
+                    </button>
+                  );
+                }
+                return renderTextSegment(segment.value, `text-${idx}`);
+              })}
             </p>
           )}
           <div className="flex flex-wrap items-center gap-2 text-[11px] text-white/60 mt-2">

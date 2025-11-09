@@ -15,6 +15,7 @@ interface CommentPopoverProps {
   mentionOptions?: MentionOption[];
   onToggleResolve: (commentId: string) => void;
   onEditComment: (commentId: string, text: string) => void;
+  onJumpToFrame: (frame: number) => void;
 }
 
 const timeAgo = (dateString: string) => {
@@ -44,6 +45,7 @@ interface CommentThreadItemProps {
   onChangeEditing?: (value: string) => void;
   onSaveEditing?: () => void;
   onCancelEditing?: () => void;
+  onJumpToFrame?: (frame: number) => void;
 }
 
 const CommentThreadItem: React.FC<CommentThreadItemProps> = ({
@@ -56,6 +58,7 @@ const CommentThreadItem: React.FC<CommentThreadItemProps> = ({
   onChangeEditing,
   onSaveEditing,
   onCancelEditing,
+  onJumpToFrame,
 }) => {
   const segments = useMemo(() => splitMentionSegments(comment.text, mentionOptions), [comment.text, mentionOptions]);
   const chipClass = isDark
@@ -110,15 +113,34 @@ const CommentThreadItem: React.FC<CommentThreadItemProps> = ({
           </div>
         ) : (
           <p className="text-sm text-white/70 break-words whitespace-pre-wrap" style={{ hyphens: 'auto', wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
-            {segments.map((segment, idx) =>
-              segment.kind === 'mention' ? (
-                <span key={`mention-${idx}`} className={chipClass}>
-                  @{segment.value}
-                </span>
-              ) : (
-                <React.Fragment key={`text-${idx}`}>{segment.value}</React.Fragment>
-              )
-            )}
+            {segments.map((segment, idx) => {
+              if (segment.kind === 'mention') {
+                return (
+                  <span key={`mention-${idx}`} className={chipClass}>
+                    @{segment.value}
+                  </span>
+                );
+              }
+              if (segment.kind === 'frame') {
+                return (
+                  <button
+                    key={`frame-${idx}`}
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onJumpToFrame?.(segment.frame);
+                    }}
+                    className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-xs font-semibold ${
+                      isDark ? 'bg-sky-500/20 text-sky-100 hover:bg-sky-500/30' : 'bg-sky-100 text-sky-700 hover:bg-sky-200'
+                    }`}
+                    style={{ marginRight: '0.25rem' }}
+                  >
+                    {segment.raw}
+                  </button>
+                );
+              }
+              return <React.Fragment key={`text-${idx}`}>{segment.value}</React.Fragment>;
+            })}
           </p>
         )}
       </div>
@@ -136,6 +158,7 @@ const CommentPopover: React.FC<CommentPopoverProps> = ({
   mentionOptions = [],
   onToggleResolve,
   onEditComment,
+  onJumpToFrame,
 }) => {
   const [replyText, setReplyText] = useState('');
   const [suggestOpen, setSuggestOpen] = useState(false);
@@ -334,6 +357,7 @@ const CommentPopover: React.FC<CommentPopoverProps> = ({
               onChangeEditing={(value) => setEditingDraft(value)}
               onSaveEditing={() => handleSaveEditing(rootComment.id)}
               onCancelEditing={handleCancelEditing}
+              onJumpToFrame={onJumpToFrame}
             />
             {replies.map((reply) => {
               const isEditing = editingCommentId === reply.id;
@@ -359,6 +383,7 @@ const CommentPopover: React.FC<CommentPopoverProps> = ({
                   onChangeEditing={(value) => setEditingDraft(value)}
                   onSaveEditing={() => handleSaveEditing(reply.id)}
                   onCancelEditing={handleCancelEditing}
+                  onJumpToFrame={onJumpToFrame}
                 />
               );
             })}
