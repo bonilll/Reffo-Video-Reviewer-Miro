@@ -706,7 +706,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
       setComments(commentsQuery.map(convertCommentFromServer));
     }
   }, [commentsQuery, convertCommentFromServer]);
-
+  
   // State changes are persisted directly to Convex within handlers; no parent callbacks required.
 
   useEffect(() => {
