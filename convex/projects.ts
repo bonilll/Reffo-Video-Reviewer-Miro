@@ -83,7 +83,13 @@ export const remove = mutation({
       throw new ConvexError("NOT_FOUND");
     }
     if (project.ownerId !== user._id) {
-      throw new ConvexError("FORBIDDEN");
+      const ownerDoc = await ctx.db.get(project.ownerId);
+      const canClaim = ownerDoc && ownerDoc.email && ownerDoc.email.toLowerCase() === (user as any).email?.toLowerCase();
+      if (canClaim) {
+        await ctx.db.patch(projectId, { ownerId: user._id, updatedAt: Date.now() });
+      } else {
+        throw new ConvexError("FORBIDDEN");
+      }
     }
 
     // Remove project-level shares

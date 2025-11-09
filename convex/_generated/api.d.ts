@@ -11,6 +11,7 @@
 import type * as annotations from "../annotations.js";
 import type * as comments from "../comments.js";
 import type * as friends from "../friends.js";
+import type * as maintenance from "../maintenance.js";
 import type * as notifications from "../notifications.js";
 import type * as projects from "../projects.js";
 import type * as settings from "../settings.js";
@@ -41,6 +42,7 @@ declare const fullApi: ApiFromModules<{
   annotations: typeof annotations;
   comments: typeof comments;
   friends: typeof friends;
+  maintenance: typeof maintenance;
   notifications: typeof notifications;
   projects: typeof projects;
   settings: typeof settings;
