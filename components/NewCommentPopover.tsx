@@ -1,8 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useUser } from '@clerk/clerk-react';
-import { useQuery } from 'convex/react';
-import { api } from '../convex/_generated/api';
-import { Point } from '../types';
+import { Point, MentionOption } from '../types';
 import { RenderedRect, normalizedToCanvas } from '../utils/geometry';
 
 interface NewCommentPopoverProps {
@@ -11,9 +9,10 @@ interface NewCommentPopoverProps {
   onSubmit: (text: string) => void;
   onCancel: () => void;
   isDark?: boolean;
+  mentionOptions?: MentionOption[];
 }
 
-const NewCommentPopover: React.FC<NewCommentPopoverProps> = ({ position, renderedRect, onSubmit, onCancel, isDark = true }) => {
+const NewCommentPopover: React.FC<NewCommentPopoverProps> = ({ position, renderedRect, onSubmit, onCancel, isDark = true, mentionOptions = [] }) => {
   const popoverRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [text, setText] = useState('');
@@ -22,8 +21,6 @@ const NewCommentPopover: React.FC<NewCommentPopoverProps> = ({ position, rendere
   const { user } = useUser();
   const avatar = user?.imageUrl || '';
   const displayName = user?.fullName || user?.primaryEmailAddress?.emailAddress || 'You';
-  const friends = useQuery(api.friends.list, {});
-  const groups = useQuery(api.shareGroups.list, {});
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -118,16 +115,13 @@ const NewCommentPopover: React.FC<NewCommentPopoverProps> = ({ position, rendere
 
   // Compute mention suggestions (friends + group members, unique by email)
   const suggestions = useMemo(() => {
-    if (!mentionOpen) return [] as Array<{ id: string; label: string; email: string }>;
-    const friendList = (friends ?? []).map((f: any) => ({ id: f.id, label: (f.contactName ?? f.contactEmail) as string, email: f.contactEmail }));
-    const groupMembers = (groups ?? []).flatMap((g: any) => g.members.map((m: any) => ({ id: `${g.id}:${m.email}`, label: m.email.split('@')[0], email: m.email })));
-    const merged = new Map<string, { id: string; label: string; email: string }>();
-    [...friendList, ...groupMembers].forEach((p) => { if (!merged.has(p.email)) merged.set(p.email, p); });
-    const list = Array.from(merged.values());
-    if (!mentionQuery) return list.slice(0, 5);
+    if (!mentionOpen) return [];
+    if (!mentionQuery) return mentionOptions.slice(0, 5);
     const q = mentionQuery.toLowerCase();
-    return list.filter((s) => s.label.toLowerCase().includes(q) || s.email.toLowerCase().includes(q)).slice(0, 5);
-  }, [mentionOpen, mentionQuery, friends, groups]);
+    return mentionOptions.filter((option) =>
+      option.label.toLowerCase().includes(q) || option.email.toLowerCase().includes(q)
+    ).slice(0, 5);
+  }, [mentionOpen, mentionQuery, mentionOptions]);
 
   const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const value = e.target.value;

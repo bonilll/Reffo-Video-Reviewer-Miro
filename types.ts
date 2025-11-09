@@ -106,7 +106,15 @@ export interface Comment {
   frame?: number;
   resolved: boolean;
   createdAt: string;
+  updatedAt?: number;
   position?: Point;
+}
+
+export interface MentionOption {
+  id: string;
+  label: string;
+  email: string;
+  avatar?: string | null;
 }
 
 export interface Project {

@@ -1,10 +1,9 @@
 import React, { useMemo, useState, useEffect, useRef, useCallback } from 'react';
-import { useQuery } from 'convex/react';
-import { api } from '../convex/_generated/api';
 import { useUser } from '@clerk/clerk-react';
-import { Comment } from '../types';
+import { Comment, MentionOption } from '../types';
 import { RenderedRect, normalizedToCanvas } from '../utils/geometry';
 import { X, CornerDownRight } from 'lucide-react';
+import { splitMentionSegments } from '../utils/mentions';
 
 interface CommentPopoverProps {
   comment: Comment;
@@ -13,6 +12,7 @@ interface CommentPopoverProps {
   onClose: () => void;
   renderedRect: RenderedRect;
   isDark?: boolean;
+  mentionOptions?: MentionOption[];
 }
 
 const timeAgo = (dateString: string) => {
@@ -32,29 +32,40 @@ const timeAgo = (dateString: string) => {
 }
 
 
-const CommentThreadItem: React.FC<{ comment: Comment }> = ({ comment }) => (
+const CommentThreadItem: React.FC<{ comment: Comment; isDark: boolean; mentionOptions?: MentionOption[] }> = ({ comment, isDark, mentionOptions }) => {
+  const segments = useMemo(() => splitMentionSegments(comment.text, mentionOptions), [comment.text, mentionOptions]);
+  const chipClass = isDark ? 'inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-xs font-semibold bg-white/10 text-white' : 'inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-xs font-semibold bg-black/10 text-gray-900';
+
+  return (
     <div className="flex items-start space-x-2.5">
-        <img src={comment.authorAvatar} alt={comment.authorName} className="w-7 h-7 rounded-full mt-0.5 border border-white/10" />
-        <div className="flex-1">
-            <div className="flex items-baseline space-x-2">
-                <span className="font-semibold text-white text-sm">{comment.authorName}</span>
-                <span className="text-xs text-white/40">{timeAgo(comment.createdAt)}</span>
-            </div>
-            <p
-              className="text-sm text-white/70 break-words whitespace-pre-wrap"
-              style={{ hyphens: 'auto', wordBreak: 'break-word', overflowWrap: 'anywhere' }}
-            >
-              {comment.text}
-            </p>
+      <img src={comment.authorAvatar} alt={comment.authorName} className="w-7 h-7 rounded-full mt-0.5 border border-white/10" />
+      <div className="flex-1">
+        <div className="flex items-baseline space-x-2">
+          <span className="font-semibold text-white text-sm">{comment.authorName}</span>
+          <span className="text-xs text-white/40">{timeAgo(comment.createdAt)}</span>
         </div>
+        <p
+          className="text-sm text-white/70 break-words whitespace-pre-wrap"
+          style={{ hyphens: 'auto', wordBreak: 'break-word', overflowWrap: 'anywhere' }}
+        >
+          {segments.map((segment, idx) =>
+            segment.kind === 'mention' ? (
+              <span key={`mention-${idx}`} className={chipClass}>
+                @{segment.value}
+              </span>
+            ) : (
+              <React.Fragment key={`text-${idx}`}>{segment.value}</React.Fragment>
+            )
+          )}
+        </p>
+      </div>
     </div>
-);
+  );
+};
 
 
-const CommentPopover: React.FC<CommentPopoverProps> = ({ comment, comments, onAddComment, onClose, renderedRect, isDark = true }) => {
+const CommentPopover: React.FC<CommentPopoverProps> = ({ comment, comments, onAddComment, onClose, renderedRect, isDark = true, mentionOptions = [] }) => {
   const [replyText, setReplyText] = useState('');
-  const friends = useQuery(api.friends.list, {});
-  const groups = useQuery(api.shareGroups.list, {});
   const [suggestOpen, setSuggestOpen] = useState(false);
   const [suggestQuery, setSuggestQuery] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -94,18 +105,11 @@ const CommentPopover: React.FC<CommentPopoverProps> = ({ comment, comments, onAd
   };
 
   const suggestions = useMemo(() => {
-    if (!suggestOpen) return [] as Array<{ id: string; label: string; email: string }>;
-    const friendList = (friends ?? []).map((f) => ({ id: (f as any).id, label: ((f as any).contactName ?? (f as any).contactEmail) as string, email: (f as any).contactEmail }));
-    const groupMembers = (groups ?? []).flatMap((g: any) => g.members.map((m: any) => ({ id: `${g.id}:${m.email}`, label: m.email.split('@')[0], email: m.email })));
-    const mergedMap = new Map<string, { id: string; label: string; email: string }>();
-    [...friendList, ...groupMembers].forEach((p) => {
-      if (!mergedMap.has(p.email)) mergedMap.set(p.email, p);
-    });
-    const list = Array.from(mergedMap.values());
-    if (!suggestQuery) return list.slice(0, 5);
+    if (!suggestOpen) return [];
+    if (!suggestQuery) return mentionOptions.slice(0, 5);
     const q = suggestQuery.toLowerCase();
-    return list.filter((s) => s.label.toLowerCase().includes(q) || s.email.toLowerCase().includes(q)).slice(0, 5);
-  }, [suggestOpen, suggestQuery, friends, groups]);
+    return mentionOptions.filter((option) => option.label.toLowerCase().includes(q) || option.email.toLowerCase().includes(q)).slice(0, 5);
+  }, [mentionOptions, suggestOpen, suggestQuery]);
 
   const applySuggestion = (label: string) => {
     const el = inputRef.current;
@@ -198,7 +202,9 @@ const CommentPopover: React.FC<CommentPopoverProps> = ({ comment, comments, onAd
         </div>
 
         <div className="px-3 py-3 space-y-3 max-h-[60vh] overflow-y-auto">
-            {thread.map(c => <CommentThreadItem key={c.id} comment={c} />)}
+            {thread.map(c => (
+              <CommentThreadItem key={c.id} comment={c} isDark={isDark} mentionOptions={mentionOptions} />
+            ))}
         </div>
 
         <div className={`px-3 py-2 border-t ${isDark ? 'border-white/10 bg-black/70' : 'border-gray-200 bg-white'}`}>

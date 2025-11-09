@@ -20,6 +20,9 @@ export const list = query({
         message: n.message,
         videoId: n.videoId ?? null,
         projectId: n.projectId ?? null,
+        commentId: n.commentId ?? null,
+        frame: n.frame ?? null,
+        mentionText: n.mentionText ?? null,
         fromUserId: n.fromUserId ?? null,
         createdAt: n.createdAt,
         readAt: n.readAt ?? null,
@@ -45,4 +48,3 @@ export const markAllRead = mutation({
     await Promise.all(rows.filter((r) => !r.readAt).map((r) => ctx.db.patch(r._id, { readAt: Date.now() })));
   },
 });
-

@@ -31,6 +31,26 @@ interface VideoReviewerProps {
   onConsumeInitialFocus?: () => void;
 }
 
+const DEFAULT_COMMENT_POSITION: Point = { x: 0.5, y: 0.5 };
+const getCommentSeenStorageKey = (videoId: string) => `videoreviewer:comment-seen:${videoId}`;
+const loadCommentSeenMap = (videoId: string): Record<string, number> => {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = window.localStorage.getItem(getCommentSeenStorageKey(videoId));
+    return raw ? (JSON.parse(raw) as Record<string, number>) : {};
+  } catch {
+    return {};
+  }
+};
+
+type NotificationRecord = {
+  id: string;
+  type: string;
+  commentId: string | null;
+  readAt: number | null;
+  mentionText?: string | null;
+};
+
 const uploadBlobWithProgress = (url: string, blob: Blob, onProgress?: (percent: number) => void) =>
   new Promise<void>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
@@ -102,10 +122,15 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
   // Sharing data (reuse Dashboard flows)
   const shareGroups = useQuery(api.shareGroups.list, clerkUser ? {} : undefined);
   const shareRecords = useQuery(api.shares.list, clerkUser ? {} : undefined);
+  const mentionableOptions = useQuery(api.comments.mentionables, { videoId });
   const generateShareLink = useMutation(api.shares.generateLink);
   const shareToGroup = useMutation(api.shares.shareToGroup);
   const revokeShare = useMutation(api.shares.revoke);
   const [shareOpen, setShareOpen] = useState(false);
+  const notifications = useQuery(api.notifications.list, {}) as NotificationRecord[] | undefined;
+  const markNotificationRead = useMutation(api.notifications.markRead);
+  const [commentSeenAt, setCommentSeenAt] = useState<Record<string, number>>(() => loadCommentSeenMap(video.id));
+  const pendingMentionReads = useRef<Set<string>>(new Set());
 
   const [playbackUrl, setPlaybackUrl] = useState<string | null>(null);
   const [duration, setDuration] = useState(0);
@@ -129,6 +154,149 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
     // Ensure 'Friends' are synced from groups even when landing directly in reviewer.
     void syncFriends({}).catch(() => undefined);
   }, [syncFriends]);
+
+  const rootIdLookup = useMemo(() => {
+    const parentById = new Map<string, string | null>();
+    comments.forEach((comment) => parentById.set(comment.id, comment.parentId ?? null));
+    const cache = new Map<string, string>();
+
+    const resolve = (id: string): string => {
+      const cached = cache.get(id);
+      if (cached) return cached;
+      const parent = parentById.get(id);
+      if (!parent) {
+        cache.set(id, id);
+        return id;
+      }
+      const root = resolve(parent);
+      cache.set(id, root);
+      return root;
+    };
+
+    comments.forEach((comment) => {
+      cache.set(comment.id, resolve(comment.id));
+    });
+
+    return cache;
+  }, [comments]);
+
+  const resolveRootCommentId = useCallback(
+    (id?: string | null) => {
+      if (!id) return null;
+      return rootIdLookup.get(id) ?? id;
+    },
+    [rootIdLookup],
+  );
+
+  const threadCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    comments.forEach((comment) => {
+      const rootId = resolveRootCommentId(comment.id);
+      if (!rootId) return;
+      counts[rootId] = (counts[rootId] ?? 0) + 1;
+    });
+    return counts;
+  }, [comments, resolveRootCommentId]);
+
+  const threadLatestActivity = useMemo(() => {
+    const latest: Record<string, number> = {};
+    comments.forEach((comment) => {
+      const rootId = resolveRootCommentId(comment.id);
+      if (!rootId) return;
+      const created = Date.parse(comment.createdAt);
+      if (Number.isNaN(created)) return;
+      latest[rootId] = Math.max(latest[rootId] ?? 0, created);
+    });
+    return latest;
+  }, [comments, resolveRootCommentId]);
+
+  const threadUnread = useMemo(() => {
+    const unread: Record<string, boolean> = {};
+    Object.entries(threadLatestActivity).forEach(([rootId, updated]) => {
+      const seenAt = commentSeenAt[rootId] ?? 0;
+      unread[rootId] = seenAt < updated;
+    });
+    return unread;
+  }, [commentSeenAt, threadLatestActivity]);
+
+  const mentionAlerts = useMemo(() => {
+    const alerts: Record<string, { unread: boolean; notificationIds: string[] }> = {};
+    (notifications ?? []).forEach((notification) => {
+      if (notification.type !== 'mention' || !notification.commentId) return;
+      const rootId = resolveRootCommentId(notification.commentId);
+      if (!rootId) return;
+      const entry = alerts[rootId] ?? { unread: false, notificationIds: [] };
+      entry.unread = entry.unread || !notification.readAt;
+      entry.notificationIds.push(notification.id);
+      alerts[rootId] = entry;
+    });
+    return alerts;
+  }, [notifications, resolveRootCommentId]);
+
+  const commentThreadMeta = useMemo(() => {
+    const meta: Record<string, { count: number; unread: boolean; mentionAlert: { unread: boolean; notificationIds: string[] } | null }> = {};
+    comments.forEach((comment) => {
+      const rootId = resolveRootCommentId(comment.id) ?? comment.id;
+      meta[comment.id] = {
+        count: threadCounts[rootId] ?? 1,
+        unread: threadUnread[rootId] ?? false,
+        mentionAlert: mentionAlerts[rootId] ?? null,
+      };
+    });
+    return meta;
+  }, [comments, mentionAlerts, resolveRootCommentId, threadCounts, threadUnread]);
+
+  const markCommentSeen = useCallback((rootId: string) => {
+    setCommentSeenAt((prev) => {
+      const now = Date.now();
+      if (prev[rootId] && prev[rootId] >= now - 250) {
+        return prev;
+      }
+      return { ...prev, [rootId]: now };
+    });
+  }, []);
+
+  const markMentionsAsRead = useCallback(
+    (rootId: string) => {
+      const entry = mentionAlerts[rootId];
+      if (!entry || !entry.unread) return;
+      entry.notificationIds.forEach((notificationId) => {
+        if (pendingMentionReads.current.has(notificationId)) return;
+        pendingMentionReads.current.add(notificationId);
+        void markNotificationRead({ notificationId: notificationId as Id<'notifications'> }).finally(() => {
+          pendingMentionReads.current.delete(notificationId);
+        });
+      });
+    },
+    [markNotificationRead, mentionAlerts],
+  );
+
+  useEffect(() => {
+    const rootId = resolveRootCommentId(activeCommentId);
+    if (!rootId) return;
+    markCommentSeen(rootId);
+    markMentionsAsRead(rootId);
+  }, [activeCommentId, markCommentSeen, markMentionsAsRead, resolveRootCommentId]);
+
+  useEffect(() => {
+    const rootId = resolveRootCommentId(activeCommentPopoverId);
+    if (!rootId) return;
+    markCommentSeen(rootId);
+    markMentionsAsRead(rootId);
+  }, [activeCommentPopoverId, markCommentSeen, markMentionsAsRead, resolveRootCommentId]);
+
+  useEffect(() => {
+    setCommentSeenAt(loadCommentSeenMap(video.id));
+  }, [video.id]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.setItem(getCommentSeenStorageKey(video.id), JSON.stringify(commentSeenAt));
+    } catch {
+      // no-op
+    }
+  }, [commentSeenAt, video.id]);
 
   const loadVideoMetadata = useCallback((file: File) => {
     return new Promise<{ width: number; height: number; duration: number }>((resolve, reject) => {
@@ -451,6 +619,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
     frame: doc.frame ?? undefined,
     resolved: doc.resolved,
     createdAt: new Date(doc.createdAt ?? Date.now()).toISOString(),
+    updatedAt: doc.updatedAt ?? doc.createdAt ?? Date.now(),
     position: doc.position ?? undefined,
   }), []);
 
@@ -627,6 +796,9 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
   }, [deleteAnnotationsMutation]);
 
   const handleAddComment = useCallback((text: string, parentId?: string) => {
+    const pendingPosition = pendingComment?.position;
+    const fallbackPosition = !parentId && !pendingPosition ? DEFAULT_COMMENT_POSITION : undefined;
+    const positionToSend = pendingPosition ?? fallbackPosition;
     void (async () => {
       try {
         const created = await createCommentMutation({
@@ -634,19 +806,22 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
           text,
           parentId: parentId ? (parentId as Id<'comments'>) : undefined,
           frame: isNaN(currentFrame) ? undefined : currentFrame,
-          position: pendingComment?.position,
+          position: positionToSend,
         });
         setPendingComment(null);
         const mapped = convertCommentFromServer(created);
         setComments(prev => [...prev, mapped]);
-        if (mapped.position) {
+        if (pendingPosition) {
           setActiveCommentPopoverId(mapped.id);
         }
+        const parentRoot = mapped.parentId ? resolveRootCommentId(mapped.parentId) ?? mapped.parentId : mapped.id;
+        const rootId = resolveRootCommentId(mapped.id) ?? parentRoot ?? mapped.id;
+        markCommentSeen(rootId);
       } catch (error) {
         console.error('Failed to add comment', error);
       }
     })();
-  }, [createCommentMutation, videoId, currentFrame, pendingComment, convertCommentFromServer]);
+  }, [convertCommentFromServer, createCommentMutation, currentFrame, markCommentSeen, pendingComment, resolveRootCommentId, videoId]);
   
   const handleToggleCommentResolved = useCallback((id: string) => {
     void (async () => {
@@ -1044,6 +1219,8 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
                     setPendingComment={setPendingComment}
                     isDark={isDark}
                     onUploadAsset={uploadAnnotationAsset}
+                    threadMeta={commentThreadMeta}
+                    mentionOptions={mentionableOptions ?? []}
                   />
                 </div>
                 <div className="relative flex-1 flex items-center justify-center overflow-hidden bg-black/80">
@@ -1111,6 +1288,8 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
                   setPendingComment={setPendingComment}
                   isDark={isDark}
                   onUploadAsset={uploadAnnotationAsset}
+                  threadMeta={commentThreadMeta}
+                  mentionOptions={mentionableOptions ?? []}
                 />
                 {compareSource && compareMode === 'overlay' && (
                   <video
@@ -1268,11 +1447,12 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
             onJumpToFrame={jumpToFrame}
             activeCommentId={activeCommentId}
             setActiveCommentId={setActiveCommentId}
-            onDeleteComment={handleDeleteComment}
-            isDark={isDark}
-            highlightCommentId={highlightedCommentId}
-            highlightTerm={mentionHighlight}
-          />
+          onDeleteComment={handleDeleteComment}
+          isDark={isDark}
+          highlightCommentId={highlightedCommentId}
+          highlightTerm={mentionHighlight}
+          mentionOptions={mentionableOptions ?? []}
+        />
         </div>
       </div>
       {shareOpen && shareGroups && (

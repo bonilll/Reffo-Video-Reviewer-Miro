@@ -1,9 +1,9 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { useQuery } from 'convex/react';
-import { api } from '../convex/_generated/api';
-import { Comment } from '../types';
+import { Comment, MentionOption } from '../types';
 import { MessageSquare, CheckCircle2, Circle, Trash2, Pencil, ChevronDown, ChevronUp } from 'lucide-react';
 import { useMutation } from 'convex/react';
+import { api } from '../convex/_generated/api';
+import { splitMentionSegments } from '../utils/mentions';
 
 const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -23,8 +23,8 @@ interface CommentProps {
   onSelectComment?: (id: string) => void;
 }
 
-const CommentItem: React.FC<CommentProps & { friends?: Array<{ id: string; contactEmail: string; contactName: string | null }> }>
- = ({ comment, replies, onAddComment, onToggleResolve, onJumpToFrame, onDeleteComment, isActive, setActive, friends, isReply = false, isDark = true, highlightCommentId, highlightTerm, onSelectComment }) => {
+const CommentItem: React.FC<CommentProps & { mentionOptions?: MentionOption[] }>
+ = ({ comment, replies, onAddComment, onToggleResolve, onJumpToFrame, onDeleteComment, isActive, setActive, mentionOptions = [], isReply = false, isDark = true, highlightCommentId, highlightTerm, onSelectComment }) => {
   const [showReply, setShowReply] = useState(false);
   const [replyText, setReplyText] = useState('');
   const [open, setOpen] = useState(false);
@@ -36,15 +36,16 @@ const CommentItem: React.FC<CommentProps & { friends?: Array<{ id: string; conta
   const [showReplies, setShowReplies] = useState(false);
   const updateText = useMutation(api.comments.updateText);
   const inputRef = useRef<HTMLInputElement>(null);
+  const quickReplyInputRef = useRef<HTMLInputElement>(null);
   const [quickOpen, setQuickOpen] = useState(false);
   const [quickQuery, setQuickQuery] = useState('');
   const sugg = useMemo(() => {
-    if (!open) return [] as Array<{ id: string; label: string; email: string }>;
-    const list = (friends ?? []).map((f) => ({ id: f.id, label: (f.contactName ?? f.contactEmail) as string, email: f.contactEmail }));
+    if (!open) return [];
+    const list = mentionOptions ?? [];
     if (!q) return list.slice(0, 5);
     const lq = q.toLowerCase();
     return list.filter((s) => s.label.toLowerCase().includes(lq) || s.email.toLowerCase().includes(lq)).slice(0, 5);
-  }, [open, q, friends]);
+  }, [mentionOptions, open, q]);
   
   const handleReplySubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -74,31 +75,52 @@ const CommentItem: React.FC<CommentProps & { friends?: Array<{ id: string; conta
   };
 
   const quickSuggestions = useMemo(() => {
-    if (!quickOpen) return [] as Array<{ id: string; label: string; email: string }>;
-    const base = (friends ?? []).map((f) => ({ id: f.id, label: (f.contactName ?? f.contactEmail) as string, email: f.contactEmail }));
-    if (!quickQuery) return base.slice(0, 5);
-    const q = quickQuery.toLowerCase();
-    return base.filter((s) => s.label.toLowerCase().includes(q) || s.email.toLowerCase().includes(q)).slice(0, 5);
-  }, [friends, quickOpen, quickQuery]);
+    if (!quickOpen) return [];
+    const list = mentionOptions ?? [];
+    if (!quickQuery) return list.slice(0, 5);
+    const lq = quickQuery.toLowerCase();
+    return list.filter((s) => s.label.toLowerCase().includes(lq) || s.email.toLowerCase().includes(lq)).slice(0, 5);
+  }, [mentionOptions, quickOpen, quickQuery]);
+
+  useEffect(() => {
+    setEditText(comment.text);
+  }, [comment.text]);
 
   const shouldHighlight = highlightCommentId ? comment.id === highlightCommentId : false;
   const effectiveHighlight = shouldHighlight && highlightTerm ? highlightTerm.trim() : null;
   const highlightLower = effectiveHighlight?.toLowerCase() ?? null;
 
-  const highlightedSegments = useMemo(() => {
-    if (!effectiveHighlight) return null;
-    try {
-      const regex = new RegExp(`(${escapeRegExp(effectiveHighlight)})`, 'ig');
-      return editText.split(regex);
-    } catch {
-      return null;
-    }
-  }, [editText, effectiveHighlight]);
-
   const highlightSpanClass = isDark ? 'bg-white/20 text-white px-1 rounded font-semibold' : 'bg-gray-200 text-gray-900 px-1 rounded font-semibold';
   const highlightRingClass = shouldHighlight && !isActive
     ? (isDark ? 'ring-2 ring-white/40 ring-offset-2 ring-offset-black/40' : 'ring-2 ring-gray-600/40 ring-offset-2 ring-offset-white')
     : '';
+  const mentionSegments = useMemo(
+    () => splitMentionSegments(editText, mentionOptions),
+    [editText, mentionOptions],
+  );
+
+  const renderTextSegment = (text: string, key: string) => {
+    if (!highlightLower || !text) {
+      return <React.Fragment key={key}>{text}</React.Fragment>;
+    }
+    try {
+      const regex = new RegExp(`(${escapeRegExp(highlightTerm ?? '')})`, 'ig');
+      const parts = text.split(regex);
+      return parts.map((part, idx) => {
+        if (!part) return null;
+        if (part.toLowerCase() === highlightLower) {
+          return (
+            <span key={`${key}-${idx}`} className={highlightSpanClass}>
+              {part}
+            </span>
+          );
+        }
+        return <React.Fragment key={`${key}-${idx}`}>{part}</React.Fragment>;
+      });
+    } catch {
+      return <React.Fragment key={key}>{text}</React.Fragment>;
+    }
+  };
 
   const onQuickChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
@@ -218,21 +240,21 @@ const CommentItem: React.FC<CommentProps & { friends?: Array<{ id: string; conta
               className={`${isDark ? 'text-sm text-white/80' : 'text-sm text-gray-800'} mt-1 whitespace-pre-wrap break-words`}
               style={{ hyphens: 'auto', wordBreak: 'break-word', overflowWrap: 'anywhere' }}
             >
-              {highlightedSegments
-                ? highlightedSegments.map((segment, idx) => {
-                    if (!segment) {
-                      return <React.Fragment key={idx} />;
-                    }
-                    if (highlightLower && segment.toLowerCase() === highlightLower) {
-                      return (
-                        <span key={idx} className={highlightSpanClass}>
-                          {segment}
-                        </span>
-                      );
-                    }
-                    return <React.Fragment key={idx}>{segment}</React.Fragment>;
-                  })
-                : editText}
+              {mentionSegments.map((segment, idx) =>
+                segment.kind === 'mention' ? (
+                  <span
+                    key={`mention-${idx}`}
+                    className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-xs font-semibold ${
+                      isDark ? 'bg-white/10 text-white' : 'bg-black/10 text-gray-900'
+                    }`}
+                    style={{ marginRight: '0.25rem' }}
+                  >
+                    @{segment.value}
+                  </span>
+                ) : (
+                  renderTextSegment(segment.value, `text-${idx}`)
+                )
+              )}
             </p>
           )}
           <div className="flex flex-wrap items-center gap-2 text-[11px] text-white/60 mt-2">
@@ -307,7 +329,7 @@ const CommentItem: React.FC<CommentProps & { friends?: Array<{ id: string; conta
               isActive={highlightCommentId ? reply.id === highlightCommentId : false}
               setActive={() => onSelectComment?.(reply.id)}
               isReply
-              friends={friends}
+              mentionOptions={mentionOptions}
               isDark={isDark}
               highlightCommentId={highlightCommentId}
               highlightTerm={highlightTerm}
@@ -326,6 +348,7 @@ const CommentItem: React.FC<CommentProps & { friends?: Array<{ id: string; conta
                 onChange={onQuickChange}
                 placeholder="Write a reply..."
                 className="w-full bg-white/5 border border-white/10 rounded-full px-3 py-1.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-white"
+                ref={quickReplyInputRef}
               />
               {quickOpen && quickSuggestions.length > 0 && (
                 <div className={`absolute left-0 bottom-full mb-2 max-h-48 w-full overflow-auto rounded-xl border shadow-2xl z-40 ${isDark ? 'border-white/10 bg-black/90 text-white' : 'border-gray-200 bg-white text-gray-900'}`}>
@@ -334,7 +357,7 @@ const CommentItem: React.FC<CommentProps & { friends?: Array<{ id: string; conta
                       key={s.id}
                       type="button"
                       onMouseDown={(ev) => ev.preventDefault()}
-                      onClick={(ev) => applyQuickSuggestion(s.label, ev.currentTarget.parentElement?.previousElementSibling as HTMLInputElement)}
+                      onClick={() => applyQuickSuggestion(s.label, quickReplyInputRef.current)}
                       className={`flex w-full items-center justify-between gap-2 px-2.5 py-1.5 text-left text-xs ${isDark ? 'hover:bg-white/10' : 'hover:bg-gray-50'}`}
                     >
                       <span className="min-w-0 truncate">{s.label}</span>
@@ -364,26 +387,13 @@ interface CommentsPaneProps {
   isDark?: boolean;
   highlightCommentId?: string | null;
   highlightTerm?: string | null;
+  mentionOptions?: MentionOption[];
 }
 
-const CommentsPane: React.FC<CommentsPaneProps> = ({ comments, currentFrame, onAddComment, onToggleResolve, onJumpToFrame, activeCommentId, setActiveCommentId, onDeleteComment, isDark = true, highlightCommentId = null, highlightTerm = null }) => {
+const CommentsPane: React.FC<CommentsPaneProps> = ({ comments, currentFrame, onAddComment, onToggleResolve, onJumpToFrame, activeCommentId, setActiveCommentId, onDeleteComment, isDark = true, highlightCommentId = null, highlightTerm = null, mentionOptions = [] }) => {
   const [newCommentText, setNewCommentText] = useState('');
   const [filter, setFilter] = useState<'all' | 'open' | 'resolved'>('all');
   const activeCommentRef = useRef<HTMLDivElement>(null);
-  const friends = useQuery(api.friends.list, {});
-  const groups = useQuery(api.shareGroups.list, {});
-  const contacts = useMemo(() => {
-    const map = new Map<string, { id: string; contactEmail: string; contactName: string | null }>();
-    (friends ?? []).forEach((f: any) => {
-      map.set(f.contactEmail, { id: f.id, contactEmail: f.contactEmail, contactName: f.contactName ?? null });
-    });
-    (groups ?? []).forEach((g: any) => {
-      (g.members ?? []).forEach((m: any) => {
-        if (!map.has(m.email)) map.set(m.email, { id: `${g.id}:${m.email}`, contactEmail: m.email, contactName: (m.email || '').split('@')[0] });
-      });
-    });
-    return Array.from(map.values());
-  }, [friends, groups]);
   const [mentionOpen, setMentionOpen] = useState(false);
   const [mentionQuery, setMentionQuery] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -440,16 +450,13 @@ const CommentsPane: React.FC<CommentsPaneProps> = ({ comments, currentFrame, onA
   };
 
   const suggestions = useMemo(() => {
-    if (!mentionOpen) return [] as Array<{ id: string; label: string; email: string }>;
-    const friendList = (friends ?? []).map((f: any) => ({ id: f.id, label: (f.contactName ?? f.contactEmail) as string, email: f.contactEmail }));
-    const groupMembers = (groups ?? []).flatMap((g: any) => g.members.map((m: any) => ({ id: `${g.id}:${m.email}`, label: m.email.split('@')[0], email: m.email })));
-    const merged = new Map<string, { id: string; label: string; email: string }>();
-    [...friendList, ...groupMembers].forEach((p) => { if (!merged.has(p.email)) merged.set(p.email, p); });
-    const list = Array.from(merged.values());
-    if (!mentionQuery) return list.slice(0, 5);
+    if (!mentionOpen) return [];
+    if (!mentionQuery) return mentionOptions.slice(0, 5);
     const q = mentionQuery.toLowerCase();
-    return list.filter((f) => f.label.toLowerCase().includes(q) || f.email.toLowerCase().includes(q)).slice(0, 5);
-  }, [mentionOpen, mentionQuery, friends, groups]);
+    return mentionOptions.filter((option) =>
+      option.label.toLowerCase().includes(q) || option.email.toLowerCase().includes(q)
+    ).slice(0, 5);
+  }, [mentionOpen, mentionOptions, mentionQuery]);
 
   const applySuggestion = (label: string) => {
     const el = textareaRef.current;
@@ -497,17 +504,17 @@ const CommentsPane: React.FC<CommentsPaneProps> = ({ comments, currentFrame, onA
                 comment={comment}
                 replies={comment.replies}
                 onAddComment={onAddComment}
-                onToggleResolve={onToggleResolve}
-                onJumpToFrame={onJumpToFrame}
-                onDeleteComment={onDeleteComment}
-                isActive={comment.id === activeCommentId}
-                setActive={() => setActiveCommentId(comment.id)}
-                friends={contacts}
-                isDark={isDark}
-                highlightCommentId={highlightCommentId ?? null}
-                highlightTerm={highlightTerm ?? null}
-                onSelectComment={setActiveCommentId}
-             />
+             onToggleResolve={onToggleResolve}
+             onJumpToFrame={onJumpToFrame}
+             onDeleteComment={onDeleteComment}
+             isActive={comment.id === activeCommentId}
+             setActive={() => setActiveCommentId(comment.id)}
+            mentionOptions={mentionOptions}
+            isDark={isDark}
+            highlightCommentId={highlightCommentId ?? null}
+            highlightTerm={highlightTerm ?? null}
+            onSelectComment={setActiveCommentId}
+         />
           </div>
         ))}
       </div>

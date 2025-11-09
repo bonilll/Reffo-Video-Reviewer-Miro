@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState, useMemo, useCallback } from 'react';
-import { Annotation, Point, Video, AnnotationTool, RectangleAnnotation, EllipseAnnotation, PointerPosition, Comment, TextAnnotation, ImageAnnotation, VideoAnnotation } from '../types';
+import { Annotation, Point, Video, AnnotationTool, RectangleAnnotation, EllipseAnnotation, PointerPosition, Comment, TextAnnotation, ImageAnnotation, VideoAnnotation, MentionOption } from '../types';
 import * as geo from '../utils/geometry';
 import CommentPopover from './CommentPopover';
 import NewCommentPopover from './NewCommentPopover';
@@ -45,6 +45,8 @@ interface AnnotationCanvasProps {
     originalHeight: number;
     duration?: number;
   }>;
+  threadMeta?: Record<string, { count: number; unread: boolean; mentionAlert: { unread: boolean; notificationIds: string[] } | null }>;
+  mentionOptions?: MentionOption[];
 }
 
 interface MovingCommentState {
@@ -57,6 +59,7 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
   activeTool, brushColor, brushSize, fontSize, selectedAnnotationIds, setSelectedAnnotationIds,
   comments, activeCommentId, onCommentPlacement, activeCommentPopoverId, setActiveCommentPopoverId,
   onUpdateCommentPosition, onAddComment, pendingComment, setPendingComment, isDark = true, onUploadAsset,
+  threadMeta = {}, mentionOptions = [],
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isDrawing, setIsDrawing] = useState(false);
@@ -79,7 +82,7 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
   const [assetUploadError, setAssetUploadError] = useState<string | null>(null);
   const [assetUploadLabel, setAssetUploadLabel] = useState<string | null>(null);
   const imageCache = useRef<Record<string, HTMLImageElement>>({});
-  const redrawRequest = useRef(0);
+  const [redrawTick, setRedrawTick] = useState(0);
   const videoRefs = useRef<Record<string, HTMLVideoElement | null>>({});
   
   type VideoControlState = {
@@ -369,7 +372,7 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
             newImg.src = imgAnno.src;
             newImg.onload = () => {
               imageCache.current[imgAnno.src] = newImg;
-              redrawRequest.current++; // Force a re-render
+              setRedrawTick((tick) => tick + 1); // Force a re-render once the image is ready
             };
           }
           break;
@@ -478,7 +481,7 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
         ctx.setLineDash([]);
     }
 
-  }, [annotationsToDraw, drawingShape, containerRect, renderedRect, activeTool, marquee, selectedAnnotations, transformedAnnotations, redrawRequest.current]);
+  }, [annotationsToDraw, drawingShape, containerRect, renderedRect, activeTool, marquee, selectedAnnotations, transformedAnnotations, redrawTick]);
   
   // FIX: Use a more generic type for the event object to accommodate different event sources,
   // specifying only the properties the function actually uses (`clientX`, `clientY`).
@@ -1132,6 +1135,10 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
             const pos = geo.normalizedToCanvas(commentToShow.position, renderedRect);
             const isActive = comment.id === activeCommentPopoverId;
             const isDraggingThis = Boolean(transformedComment && transformedComment.id === comment.id);
+            const meta = threadMeta?.[comment.id];
+            const conversationSize = meta?.count ?? 1;
+            const isThreadUnread = meta?.unread ?? false;
+            const mentionAlert = meta?.mentionAlert ?? null;
 
             return (
               <div
@@ -1148,17 +1155,40 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
                 onPointerDown={(e) => handleCommentMarkerPointerDown(e, comment)}
                 onPointerMove={handleCommentMarkerPointerMove}
                 onPointerUp={handleCommentMarkerPointerUp}
-              >
-                <img
-                  src={comment.authorAvatar}
-                  alt={comment.authorName}
-                  className={`w-full h-full rounded-full object-cover border-2 ${isDark ? 'border-gray-900/50' : 'border-gray-300'} pointer-events-none select-none`}
-                  draggable="false"
-                />
+                >
+                  <img
+                    src={comment.authorAvatar}
+                    alt={comment.authorName}
+                    className={`w-full h-full rounded-full object-cover border-2 ${isDark ? 'border-gray-900/50' : 'border-gray-300'} pointer-events-none select-none`}
+                    draggable="false"
+                  />
                 
-                {/* Number Badge */}
-                <div className={`absolute -top-1 -right-1 text-[10px] font-bold w-4 h-4 rounded-full flex items-center justify-center ring-2 ${isDark ? 'bg-gray-900/80 text-white ring-gray-900/50' : 'bg-white text-gray-900 ring-gray-300'}`}>
-                  {index + 1}
+                {/* Mention indicator */}
+                {mentionAlert && (
+                  <div
+                    className={`absolute -top-1 -left-1 text-[10px] font-bold min-w-[1.5rem] h-5 px-1.5 rounded-full flex items-center justify-center ring-2 ${
+                      mentionAlert.unread
+                        ? 'bg-red-500 text-white ring-red-400/70'
+                        : isDark
+                          ? 'bg-gray-900/80 text-white ring-gray-900/50'
+                          : 'bg-white text-gray-900 ring-gray-300'
+                    }`}
+                  >
+                    @
+                  </div>
+                )}
+
+                {/* Conversation size badge */}
+                <div
+                  className={`absolute -top-1 -right-1 text-[10px] font-bold min-w-[1.5rem] h-5 px-1.5 rounded-full flex items-center justify-center ring-2 ${
+                    isThreadUnread
+                      ? 'bg-red-500 text-white ring-red-400/70'
+                      : isDark
+                        ? 'bg-gray-900/80 text-white ring-gray-900/50'
+                        : 'bg-white text-gray-900 ring-gray-300'
+                  }`}
+                >
+                  {conversationSize}
                 </div>
 
                 {/* Resolved Checkmark */}
@@ -1181,6 +1211,7 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
             onClose={() => setActiveCommentPopoverId(null)}
             renderedRect={renderedRect}
             isDark={isDark}
+            mentionOptions={mentionOptions}
           />
       )}
       {renderedRect && pendingComment && (
@@ -1190,6 +1221,7 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
           onSubmit={onAddComment}
           onCancel={() => setPendingComment(null)}
           isDark={isDark}
+          mentionOptions={mentionOptions}
         />
       )}
       {editingText && renderedRect && (
