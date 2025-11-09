@@ -58,7 +58,14 @@ export const update = mutation({
       throw new ConvexError("NOT_FOUND");
     }
     if (project.ownerId !== user._id) {
-      throw new ConvexError("FORBIDDEN");
+      // Repair ownership in case of historical duplicate user records: match by email
+      const ownerDoc = await ctx.db.get(project.ownerId);
+      const canClaim = ownerDoc && ownerDoc.email && ownerDoc.email.toLowerCase() === (user as any).email?.toLowerCase();
+      if (canClaim) {
+        await ctx.db.patch(projectId, { ownerId: user._id, updatedAt: Date.now() });
+      } else {
+        throw new ConvexError("FORBIDDEN");
+      }
     }
 
     await ctx.db.patch(projectId, { name, updatedAt: Date.now() });
