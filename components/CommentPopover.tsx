@@ -13,6 +13,8 @@ interface CommentPopoverProps {
   renderedRect: RenderedRect;
   isDark?: boolean;
   mentionOptions?: MentionOption[];
+  onToggleResolve: (commentId: string) => void;
+  onEditComment: (commentId: string, text: string) => void;
 }
 
 const timeAgo = (dateString: string) => {
@@ -32,52 +34,129 @@ const timeAgo = (dateString: string) => {
 }
 
 
-const CommentThreadItem: React.FC<{ comment: Comment; isDark: boolean; mentionOptions?: MentionOption[] }> = ({ comment, isDark, mentionOptions }) => {
+interface CommentThreadItemProps {
+  comment: Comment;
+  isDark: boolean;
+  mentionOptions?: MentionOption[];
+  actions?: React.ReactNode;
+  isEditing?: boolean;
+  editingValue?: string;
+  onChangeEditing?: (value: string) => void;
+  onSaveEditing?: () => void;
+  onCancelEditing?: () => void;
+}
+
+const CommentThreadItem: React.FC<CommentThreadItemProps> = ({
+  comment,
+  isDark,
+  mentionOptions,
+  actions,
+  isEditing = false,
+  editingValue = '',
+  onChangeEditing,
+  onSaveEditing,
+  onCancelEditing,
+}) => {
   const segments = useMemo(() => splitMentionSegments(comment.text, mentionOptions), [comment.text, mentionOptions]);
-  const chipClass = isDark ? 'inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-xs font-semibold bg-white/10 text-white' : 'inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-xs font-semibold bg-black/10 text-gray-900';
+  const chipClass = isDark
+    ? 'inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-xs font-semibold bg-white/10 text-white'
+    : 'inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-xs font-semibold bg-black/10 text-gray-900';
 
   return (
     <div className="flex items-start space-x-2.5">
       <img src={comment.authorAvatar} alt={comment.authorName} className="w-7 h-7 rounded-full mt-0.5 border border-white/10" />
-      <div className="flex-1">
-        <div className="flex items-baseline space-x-2">
-          <span className="font-semibold text-white text-sm">{comment.authorName}</span>
-          <span className="text-xs text-white/40">{timeAgo(comment.createdAt)}</span>
+      <div className="flex-1 space-y-1">
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex items-baseline space-x-2">
+            <span className="font-semibold text-white text-sm">{comment.authorName}</span>
+            <span className="text-xs text-white/40">{timeAgo(comment.createdAt)}</span>
+          </div>
+          {actions && <div className="flex items-center gap-1">{actions}</div>}
         </div>
-        <p
-          className="text-sm text-white/70 break-words whitespace-pre-wrap"
-          style={{ hyphens: 'auto', wordBreak: 'break-word', overflowWrap: 'anywhere' }}
-        >
-          {segments.map((segment, idx) =>
-            segment.kind === 'mention' ? (
-              <span key={`mention-${idx}`} className={chipClass}>
-                @{segment.value}
-              </span>
-            ) : (
-              <React.Fragment key={`text-${idx}`}>{segment.value}</React.Fragment>
-            )
-          )}
-        </p>
+        {comment.resolved && (
+          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-200">
+            Resolved
+          </span>
+        )}
+        {isEditing ? (
+          <div className="space-y-2">
+            <textarea
+              value={editingValue}
+              onChange={(event) => onChangeEditing?.(event.target.value)}
+              className={`w-full rounded-xl border px-3 py-2 text-sm ${
+                isDark
+                  ? 'border-white/10 bg-black/40 text-white focus:border-white/40 focus:outline-none focus:ring-2 focus:ring-white/40'
+                  : 'border-gray-300 bg-white text-gray-900 focus:border-gray-500 focus:outline-none focus:ring-2 focus:ring-gray-300'
+              }`}
+              rows={3}
+            />
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={onCancelEditing}
+                className={`${isDark ? 'text-white/60 hover:text-white' : 'text-gray-600 hover:text-gray-900'} text-xs font-semibold`}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={onSaveEditing}
+                disabled={!editingValue.trim()}
+                className={`${isDark ? 'bg-white text-black hover:bg-white/90' : 'bg-black text-white hover:bg-black/90'} text-xs font-semibold px-3 py-1 rounded-full disabled:opacity-40`}
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-white/70 break-words whitespace-pre-wrap" style={{ hyphens: 'auto', wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
+            {segments.map((segment, idx) =>
+              segment.kind === 'mention' ? (
+                <span key={`mention-${idx}`} className={chipClass}>
+                  @{segment.value}
+                </span>
+              ) : (
+                <React.Fragment key={`text-${idx}`}>{segment.value}</React.Fragment>
+              )
+            )}
+          </p>
+        )}
       </div>
     </div>
   );
 };
 
-
-const CommentPopover: React.FC<CommentPopoverProps> = ({ comment, comments, onAddComment, onClose, renderedRect, isDark = true, mentionOptions = [] }) => {
+const CommentPopover: React.FC<CommentPopoverProps> = ({
+  comment,
+  comments,
+  onAddComment,
+  onClose,
+  renderedRect,
+  isDark = true,
+  mentionOptions = [],
+  onToggleResolve,
+  onEditComment,
+}) => {
   const [replyText, setReplyText] = useState('');
   const [suggestOpen, setSuggestOpen] = useState(false);
   const [suggestQuery, setSuggestQuery] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
   const { user } = useUser();
   const avatar = user?.imageUrl || '';
-  
+
   const thread = useMemo(() => {
     const replies = comments.filter(c => c.parentId === comment.id)
                             .sort((a,b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
     return [comment, ...replies];
   }, [comment, comments]);
-  
+  const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
+  const [editingDraft, setEditingDraft] = useState('');
+
+  useEffect(() => {
+    setEditingCommentId(null);
+    setEditingDraft('');
+  }, [comment.id]);
+
   const handleReplySubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (replyText.trim()) {
@@ -180,12 +259,55 @@ const CommentPopover: React.FC<CommentPopoverProps> = ({ comment, comments, onAd
     transform: 'translateX(-50%)',
     zIndex: 30,
   };
+
+  const rootComment = thread[0];
+  const replies = thread.slice(1);
+  const isEditingRoot = editingCommentId === rootComment.id;
+
+  const handleStartEditing = (target: Comment) => {
+    setEditingCommentId(target.id);
+    setEditingDraft(target.text);
+  };
+
+  const handleCancelEditing = () => {
+    setEditingCommentId(null);
+    setEditingDraft('');
+  };
+
+  const handleSaveEditing = (targetId: string) => {
+    const trimmed = editingDraft.trim();
+    if (!trimmed) return;
+    onEditComment(targetId, trimmed);
+    setEditingCommentId(null);
+    setEditingDraft('');
+  };
+
+  const rootActions = (
+    <div className="flex items-center gap-2">
+      <button
+        type="button"
+        onClick={() => onToggleResolve(rootComment.id)}
+        className={`${isDark ? 'text-xs rounded-full bg-white/10 px-2 py-1 text-white/80 hover:bg-white/20' : 'text-xs rounded-full bg-black/5 px-2 py-1 text-gray-800 hover:bg-black/10'}`}
+      >
+        {rootComment.resolved ? 'Reopen' : 'Resolve'}
+      </button>
+      {!isEditingRoot && (
+          <button
+            type="button"
+            onClick={() => handleStartEditing(rootComment)}
+            className={`${isDark ? 'text-xs rounded-full bg-white/10 px-2 py-1 text-white/80 hover:bg-white/20' : 'text-xs rounded-full bg-black/5 px-2 py-1 text-gray-800 hover:bg-black/10'}`}
+          >
+            Edit
+          </button>
+      )}
+    </div>
+  );
   
   return (
     <div
       ref={popoverRef}
       style={style}
-      className={`w-80 rounded-2xl shadow-2xl flex flex-col relative max-w-[90vw] backdrop-blur border ${isDark ? 'bg-black/80 border-white/10' : 'bg-white border-gray-200'}`}
+      className={`w-80 rounded-2xl shadow-2xl flex flex-col relative max-w-[90vw] backdrop-blur border overflow-hidden ${isDark ? 'bg-black/80 border-white/10' : 'bg-white border-gray-200'}`}
       onClick={e => e.stopPropagation()}
     >
         {!placement.flipY ? (
@@ -202,9 +324,44 @@ const CommentPopover: React.FC<CommentPopoverProps> = ({ comment, comments, onAd
         </div>
 
         <div className="px-3 py-3 space-y-3 max-h-[60vh] overflow-y-auto">
-            {thread.map(c => (
-              <CommentThreadItem key={c.id} comment={c} isDark={isDark} mentionOptions={mentionOptions} />
-            ))}
+            <CommentThreadItem
+              comment={rootComment}
+              isDark={isDark}
+              mentionOptions={mentionOptions}
+              actions={rootActions}
+              isEditing={isEditingRoot}
+              editingValue={isEditingRoot ? editingDraft : rootComment.text}
+              onChangeEditing={(value) => setEditingDraft(value)}
+              onSaveEditing={() => handleSaveEditing(rootComment.id)}
+              onCancelEditing={handleCancelEditing}
+            />
+            {replies.map((reply) => {
+              const isEditing = editingCommentId === reply.id;
+              return (
+                <CommentThreadItem
+                  key={reply.id}
+                  comment={reply}
+                  isDark={isDark}
+                  mentionOptions={mentionOptions}
+                  actions={
+                    !isEditing && (
+                      <button
+                        type="button"
+                        onClick={() => handleStartEditing(reply)}
+                        className={`${isDark ? 'text-[11px] rounded-full bg-white/10 px-2 py-1 text-white/70 hover:bg-white/20' : 'text-[11px] rounded-full bg-black/5 px-2 py-1 text-gray-700 hover:bg-black/10'}`}
+                      >
+                        Edit
+                      </button>
+                    )
+                  }
+                  isEditing={isEditing}
+                  editingValue={isEditing ? editingDraft : reply.text}
+                  onChangeEditing={(value) => setEditingDraft(value)}
+                  onSaveEditing={() => handleSaveEditing(reply.id)}
+                  onCancelEditing={handleCancelEditing}
+                />
+              );
+            })}
         </div>
 
         <div className={`px-3 py-2 border-t ${isDark ? 'border-white/10 bg-black/70' : 'border-gray-200 bg-white'}`}>

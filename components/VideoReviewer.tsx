@@ -1,5 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
-import { Video, Annotation, Comment, AnnotationTool, Point } from '../types';
+import { Video, Annotation, Comment, AnnotationTool, Point, RectangleAnnotation, EllipseAnnotation } from '../types';
 import VideoPlayer from './VideoPlayer';
 import AnnotationCanvas from './AnnotationCanvas';
 import CommentsPane from './CommentsPane';
@@ -43,6 +43,8 @@ const loadCommentSeenMap = (videoId: string): Record<string, number> => {
   }
 };
 
+const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
+
 type NotificationRecord = {
   id: string;
   type: string;
@@ -50,6 +52,28 @@ type NotificationRecord = {
   readAt: number | null;
   mentionText?: string | null;
   videoId?: string | null;
+};
+
+type AnnotationHistoryEntry =
+  | { kind: 'create'; annotations: Annotation[] }
+  | { kind: 'delete'; annotations: Annotation[] }
+  | { kind: 'update'; before: Annotation[]; after: Annotation[] };
+
+const MAX_HISTORY_ENTRIES = 100;
+
+const cloneAnnotation = (annotation: Annotation): Annotation =>
+  JSON.parse(JSON.stringify(annotation)) as Annotation;
+
+const cloneAnnotations = (items: Annotation[]): Annotation[] => items.map(cloneAnnotation);
+
+const toCreatePayload = (annotation: Annotation) => {
+  const payload = cloneAnnotation(annotation) as any;
+  delete payload.id;
+  delete payload.videoId;
+  delete payload.authorId;
+  delete payload.createdAt;
+  delete payload.updatedAt;
+  return payload;
 };
 
 const uploadBlobWithProgress = (url: string, blob: Blob, onProgress?: (percent: number) => void) =>
@@ -92,9 +116,25 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
   const [currentFrame, setCurrentFrame] = useState(0);
   
   const [activeTool, setActiveTool] = useState<AnnotationTool>(AnnotationTool.SELECT);
-  const [brushColor, setBrushColor] = useState('#ef4444'); // red-500
-  const [brushSize, setBrushSize] = useState(4);
+  const [brushColor, setBrushColorState] = useState('#ef4444'); // red-500
+  const [brushSize, setBrushSizeState] = useState(4);
   const [fontSize, setFontSize] = useState(16);
+  const [shapeFillEnabled, setShapeFillEnabled] = useState(true);
+  const [shapeFillOpacity, setShapeFillOpacity] = useState(0.35);
+  const undoStack = useRef<AnnotationHistoryEntry[]>([]);
+  const redoStack = useRef<AnnotationHistoryEntry[]>([]);
+  const historyRecordingRef = useRef(true);
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
+  const pushHistory = useCallback((entry: AnnotationHistoryEntry) => {
+    undoStack.current.push(entry);
+    if (undoStack.current.length > MAX_HISTORY_ENTRIES) {
+      undoStack.current.shift();
+    }
+    redoStack.current = [];
+    setCanUndo(undoStack.current.length > 0);
+    setCanRedo(false);
+  }, []);
 
   const [selectedAnnotationIds, setSelectedAnnotationIds] = useState<string[]>([]);
   
@@ -117,6 +157,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
   const toggleCommentResolvedMutation = useMutation(api.comments.toggleResolved);
   const deleteCommentMutation = useMutation(api.comments.remove);
   const updateCommentPositionMutation = useMutation(api.comments.updatePosition);
+  const updateCommentTextMutation = useMutation(api.comments.updateText);
   const getDownloadUrlAction = useAction(api.storage.getDownloadUrl);
   const generateAnnotationAssetUploadUrl = useAction(api.storage.generateAnnotationAssetUploadUrl);
   const syncFriends = useMutation(api.shareGroups.syncFriendsFromGroups);
@@ -352,7 +393,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
           const uploadDetails = await generateAnnotationAssetUploadUrl({
             contentType: compressed.mimeType,
             fileName: file.name,
-            videoId: video.id,
+            videoId: video.id as Id<'videos'>,
             assetType: 'image',
           });
           if (!uploadDetails) {
@@ -391,7 +432,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
         const uploadDetails = await generateAnnotationAssetUploadUrl({
           contentType: mimeType,
           fileName: file.name,
-          videoId: video.id,
+          videoId: video.id as Id<'videos'>,
           assetType: 'video',
         });
         if (!uploadDetails) {
@@ -666,37 +707,15 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
     }
   }, [commentsQuery, convertCommentFromServer]);
 
-  const undo = useCallback(() => {}, []);
-  const redo = useCallback(() => {}, []);
-  const canUndo = false;
-  const canRedo = false;
-  
   // State changes are persisted directly to Convex within handlers; no parent callbacks required.
 
-  // Keyboard shortcuts for undo/redo
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Don't trigger shortcuts if user is typing in an input/textarea
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
-        return;
-      }
-      
-      const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
-      const isUndo = (isMac ? e.metaKey : e.ctrlKey) && e.key === 'z' && !e.shiftKey;
-      const isRedo = (isMac ? e.metaKey && e.shiftKey && e.key === 'z' : e.ctrlKey && e.key === 'y');
-
-      if (isUndo) {
-        e.preventDefault();
-        undo();
-      } else if (isRedo) {
-        e.preventDefault();
-        redo();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [undo, redo]);
-
+    undoStack.current = [];
+    redoStack.current = [];
+    setCanUndo(false);
+    setCanRedo(false);
+    historyRecordingRef.current = true;
+  }, [video.id]);
 
   const handleTimeUpdate = (time: number, frame: number) => {
     setCurrentTime(time);
@@ -750,20 +769,32 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
         });
         const real = convertAnnotationFromServer(created);
         setAnnotations(prev => prev.map(a => (a.id === tempId ? real : a)));
+        if (historyRecordingRef.current) {
+          pushHistory({ kind: 'create', annotations: cloneAnnotations([real]) });
+        }
       } catch (error) {
         console.error('Failed to add annotation', error);
         // remove temp on error
         setAnnotations(prev => prev.filter(a => a.id !== tempId));
       }
     })();
-  }, [createAnnotationMutation, videoId, convertAnnotationFromServer, video.id]);
+  }, [createAnnotationMutation, videoId, convertAnnotationFromServer, video.id, pushHistory]);
 
   const handleUpdateAnnotations = useCallback((updatedAnnotations: Annotation[]) => {
+    const shouldRecord = historyRecordingRef.current;
+    let beforeSnapshots: Annotation[] = [];
+    if (shouldRecord) {
+      const ids = new Set(updatedAnnotations.map((annotation) => annotation.id));
+      beforeSnapshots = annotations.filter((annotation) => ids.has(annotation.id)).map(cloneAnnotation);
+    }
     // Optimistic local update first
     setAnnotations(prev => prev.map(a => {
       const updated = updatedAnnotations.find(u => u.id === a.id);
       return updated ? updated : a;
     }));
+    if (shouldRecord && beforeSnapshots.length > 0) {
+      pushHistory({ kind: 'update', before: beforeSnapshots, after: cloneAnnotations(updatedAnnotations) });
+    }
     void (async () => {
       try {
         await Promise.all(
@@ -778,13 +809,41 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
         console.error('Failed to update annotations', error);
       }
     })();
-  }, [updateAnnotationMutation, serializeAnnotationForMutation]);
+  }, [annotations, updateAnnotationMutation, serializeAnnotationForMutation, pushHistory]);
+
+  const patchSelectedAnnotations = useCallback(
+    (mutator: (annotation: Annotation) => Annotation | null) => {
+      if (selectedAnnotationIds.length === 0) return;
+      const selectedSet = new Set(selectedAnnotationIds);
+      const updates: Annotation[] = [];
+      for (const annotation of annotations) {
+        if (!selectedSet.has(annotation.id)) continue;
+        const next = mutator(annotation);
+        if (next && next !== annotation) {
+          updates.push(next);
+        }
+      }
+      if (updates.length > 0) {
+        handleUpdateAnnotations(updates);
+      }
+    },
+    [annotations, selectedAnnotationIds, handleUpdateAnnotations],
+  );
 
   const handleDeleteAnnotations = useCallback((ids: string[]) => {
     if (ids.length === 0) return;
+    const shouldRecord = historyRecordingRef.current;
+    let deletedSnapshots: Annotation[] = [];
+    if (shouldRecord) {
+      const targetIds = new Set(ids);
+      deletedSnapshots = annotations.filter((annotation) => targetIds.has(annotation.id)).map(cloneAnnotation);
+    }
     // Optimistic remove
     setAnnotations(prev => prev.filter(a => !ids.includes(a.id)));
     setSelectedAnnotationIds([]);
+    if (shouldRecord && deletedSnapshots.length > 0) {
+      pushHistory({ kind: 'delete', annotations: deletedSnapshots });
+    }
     void (async () => {
       try {
         await deleteAnnotationsMutation({
@@ -794,7 +853,222 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
         console.error('Failed to delete annotations', error);
       }
     })();
-  }, [deleteAnnotationsMutation]);
+  }, [annotations, deleteAnnotationsMutation, pushHistory]);
+
+  const handleUndo = useCallback(async () => {
+    if (undoStack.current.length === 0) return;
+    const entry = undoStack.current.pop()!;
+    historyRecordingRef.current = false;
+    try {
+      switch (entry.kind) {
+        case 'create': {
+          const ids = entry.annotations.map((annotation) => annotation.id);
+          if (ids.length) {
+            handleDeleteAnnotations(ids);
+          }
+          break;
+        }
+        case 'delete': {
+          const restored: Annotation[] = [];
+          for (const annotation of entry.annotations) {
+            try {
+              const created = await createAnnotationMutation({
+                videoId: (annotation.videoId ?? video.id) as Id<'videos'>,
+                annotation: toCreatePayload(annotation),
+              });
+              const real = convertAnnotationFromServer(created);
+              restored.push(real);
+            } catch (error) {
+              console.error('Failed to restore annotation', error);
+            }
+          }
+          if (restored.length) {
+            setAnnotations((prev) => [...prev, ...restored]);
+            setSelectedAnnotationIds(restored.map((annotation) => annotation.id));
+            entry.annotations = cloneAnnotations(restored);
+          }
+          break;
+        }
+        case 'update': {
+          if (entry.before.length) {
+            handleUpdateAnnotations(entry.before);
+          }
+          break;
+        }
+      }
+    } finally {
+      historyRecordingRef.current = true;
+    }
+    redoStack.current.push(entry);
+    setCanUndo(undoStack.current.length > 0);
+    setCanRedo(redoStack.current.length > 0);
+  }, [handleDeleteAnnotations, createAnnotationMutation, convertAnnotationFromServer, handleUpdateAnnotations, setAnnotations, setSelectedAnnotationIds, video.id]);
+
+  const handleRedo = useCallback(async () => {
+    if (redoStack.current.length === 0) return;
+    const entry = redoStack.current.pop()!;
+    historyRecordingRef.current = false;
+    try {
+      switch (entry.kind) {
+        case 'create': {
+          const recreated: Annotation[] = [];
+          for (const annotation of entry.annotations) {
+            try {
+              const created = await createAnnotationMutation({
+                videoId: (annotation.videoId ?? video.id) as Id<'videos'>,
+                annotation: toCreatePayload(annotation),
+              });
+              const real = convertAnnotationFromServer(created);
+              recreated.push(real);
+            } catch (error) {
+              console.error('Failed to recreate annotation', error);
+            }
+          }
+          if (recreated.length) {
+            setAnnotations((prev) => [...prev, ...recreated]);
+            setSelectedAnnotationIds(recreated.map((annotation) => annotation.id));
+            entry.annotations = cloneAnnotations(recreated);
+          }
+          break;
+        }
+        case 'delete': {
+          const ids = entry.annotations.map((annotation) => annotation.id);
+          if (ids.length) {
+            handleDeleteAnnotations(ids);
+          }
+          break;
+        }
+        case 'update': {
+          if (entry.after.length) {
+            handleUpdateAnnotations(entry.after);
+          }
+          break;
+        }
+      }
+    } finally {
+      historyRecordingRef.current = true;
+    }
+    undoStack.current.push(entry);
+    setCanUndo(undoStack.current.length > 0);
+    setCanRedo(redoStack.current.length > 0);
+  }, [handleDeleteAnnotations, createAnnotationMutation, convertAnnotationFromServer, handleUpdateAnnotations, setAnnotations, setSelectedAnnotationIds, video.id]);
+
+  const triggerUndo = useCallback(() => {
+    void handleUndo();
+  }, [handleUndo]);
+
+  const triggerRedo = useCallback(() => {
+    void handleRedo();
+  }, [handleRedo]);
+
+  // Keyboard shortcuts for undo/redo
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        return;
+      }
+
+      const isMac = navigator.platform.toUpperCase().includes('MAC');
+      const isUndo = (isMac ? e.metaKey : e.ctrlKey) && e.key === 'z' && !e.shiftKey;
+      const isRedo = isMac ? (e.metaKey && e.shiftKey && e.key === 'z') : (e.ctrlKey && e.key === 'y');
+
+      if (isUndo) {
+        e.preventDefault();
+        if (canUndo) triggerUndo();
+      } else if (isRedo) {
+        e.preventDefault();
+        if (canRedo) triggerRedo();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [canUndo, canRedo, triggerRedo, triggerUndo]);
+
+  const handleBrushColorChange = useCallback(
+    (color: string) => {
+      setBrushColorState(color);
+      patchSelectedAnnotations((annotation) => {
+        if (annotation.color === color) return null;
+        return { ...annotation, color };
+      });
+    },
+    [patchSelectedAnnotations, setBrushColorState],
+  );
+
+  const handleBrushSizeChange = useCallback(
+    (size: number) => {
+      setBrushSizeState(size);
+      patchSelectedAnnotations((annotation) => {
+        if (annotation.type === AnnotationTool.TEXT) return null;
+        if ((annotation.lineWidth ?? 0) === size) return null;
+        return { ...annotation, lineWidth: size };
+      });
+    },
+    [patchSelectedAnnotations, setBrushSizeState],
+  );
+
+  const handleShapeFillToggle = useCallback(
+    (enabled: boolean) => {
+      setShapeFillEnabled(enabled);
+      let targetOpacity = shapeFillOpacity;
+      if (enabled && targetOpacity <= 0) {
+        targetOpacity = 0.35;
+        setShapeFillOpacity(0.35);
+      }
+      if (!enabled) {
+        targetOpacity = 0;
+      }
+      const finalOpacity = clamp01(targetOpacity);
+      patchSelectedAnnotations((annotation) => {
+        if (annotation.type !== AnnotationTool.RECTANGLE && annotation.type !== AnnotationTool.ELLIPSE) {
+          return null;
+        }
+        const currentOpacity = (annotation as RectangleAnnotation | EllipseAnnotation).fillOpacity ?? 0;
+        if (Math.abs(currentOpacity - finalOpacity) < 0.001) {
+          return null;
+        }
+        return { ...annotation, fillOpacity: finalOpacity };
+      });
+    },
+    [patchSelectedAnnotations, shapeFillOpacity, setShapeFillEnabled, setShapeFillOpacity],
+  );
+
+  const handleShapeFillOpacityChange = useCallback(
+    (opacity: number) => {
+      const normalized = clamp01(opacity);
+      setShapeFillOpacity(normalized);
+      if (!shapeFillEnabled) return;
+      patchSelectedAnnotations((annotation) => {
+        if (annotation.type !== AnnotationTool.RECTANGLE && annotation.type !== AnnotationTool.ELLIPSE) {
+          return null;
+        }
+        const currentOpacity = (annotation as RectangleAnnotation | EllipseAnnotation).fillOpacity ?? 0;
+        if (Math.abs(currentOpacity - normalized) < 0.001) {
+          return null;
+        }
+        return { ...annotation, fillOpacity: normalized };
+      });
+    },
+    [shapeFillEnabled, patchSelectedAnnotations, setShapeFillOpacity],
+  );
+
+  useEffect(() => {
+    if (selectedAnnotationIds.length === 0) return;
+    const selectedSet = new Set(selectedAnnotationIds);
+    const shapes = annotations.filter(
+      (annotation) =>
+        selectedSet.has(annotation.id) &&
+        (annotation.type === AnnotationTool.RECTANGLE || annotation.type === AnnotationTool.ELLIPSE),
+    ) as (RectangleAnnotation | EllipseAnnotation)[];
+    if (shapes.length === 0) return;
+    const opacities = shapes.map((shape) => shape.fillOpacity ?? 0);
+    const anyFilled = opacities.some((value) => value > 0.001);
+    setShapeFillEnabled(anyFilled);
+    if (anyFilled) {
+      const average = opacities.reduce((sum, value) => sum + value, 0) / opacities.length;
+      setShapeFillOpacity(clamp01(average));
+    }
+  }, [annotations, selectedAnnotationIds, setShapeFillEnabled, setShapeFillOpacity]);
 
   const handleAddComment = useCallback((text: string, parentId?: string) => {
     const pendingPosition = pendingComment?.position;
@@ -834,6 +1108,21 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
       }
     })();
   }, [toggleCommentResolvedMutation]);
+
+  const handleEditCommentText = useCallback((id: string, text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    void (async () => {
+      try {
+        await updateCommentTextMutation({ commentId: id as Id<'comments'>, text: trimmed });
+        setComments((prev) =>
+          prev.map((c) => (c.id === id ? { ...c, text: trimmed, updatedAt: Date.now() } : c)),
+        );
+      } catch (error) {
+        console.error('Failed to update comment', error);
+      }
+    })();
+  }, [updateCommentTextMutation]);
   
   const handleUpdateCommentPosition = useCallback((id: string, newPosition: Point) => {
     // Optimistic update first to avoid UI delay
@@ -1164,13 +1453,17 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
             activeTool={activeTool} 
             setActiveTool={setActiveTool}
             brushColor={brushColor}
-            setBrushColor={setBrushColor}
+            setBrushColor={handleBrushColorChange}
             brushSize={brushSize}
-            setBrushSize={setBrushSize}
+            setBrushSize={handleBrushSizeChange}
             fontSize={fontSize}
             setFontSize={setFontSize}
-            undo={undo}
-            redo={redo}
+            shapeFillEnabled={shapeFillEnabled}
+            onToggleShapeFill={handleShapeFillToggle}
+            shapeFillOpacity={shapeFillOpacity}
+            onChangeShapeFillOpacity={handleShapeFillOpacityChange}
+            undo={triggerUndo}
+            redo={triggerRedo}
             canUndo={canUndo}
             canRedo={canRedo}
             isDark={isDark}
@@ -1207,6 +1500,8 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
                     brushColor={brushColor}
                     brushSize={brushSize}
                     fontSize={fontSize}
+                    shapeFillEnabled={shapeFillEnabled}
+                    shapeFillOpacity={shapeFillOpacity}
                     selectedAnnotationIds={selectedAnnotationIds}
                     setSelectedAnnotationIds={setSelectedAnnotationIds}
                     comments={comments}
@@ -1216,6 +1511,8 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
                     setActiveCommentPopoverId={setActiveCommentPopoverId}
                     onUpdateCommentPosition={handleUpdateCommentPosition}
                     onAddComment={handleAddComment}
+                    onToggleCommentResolved={handleToggleCommentResolved}
+                    onEditComment={handleEditCommentText}
                     pendingComment={pendingComment}
                     setPendingComment={setPendingComment}
                     isDark={isDark}
@@ -1276,6 +1573,8 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
                   brushColor={brushColor}
                   brushSize={brushSize}
                   fontSize={fontSize}
+                  shapeFillEnabled={shapeFillEnabled}
+                  shapeFillOpacity={shapeFillOpacity}
                   selectedAnnotationIds={selectedAnnotationIds}
                   setSelectedAnnotationIds={setSelectedAnnotationIds}
                   comments={comments}
@@ -1285,6 +1584,8 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
                   setActiveCommentPopoverId={setActiveCommentPopoverId}
                   onUpdateCommentPosition={handleUpdateCommentPosition}
                   onAddComment={handleAddComment}
+                  onToggleCommentResolved={handleToggleCommentResolved}
+                  onEditComment={handleEditCommentText}
                   pendingComment={pendingComment}
                   setPendingComment={setPendingComment}
                   isDark={isDark}

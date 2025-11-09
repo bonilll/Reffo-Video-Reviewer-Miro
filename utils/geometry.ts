@@ -31,6 +31,7 @@ export interface TransformState {
         width: number,
         height: number,
     };
+    preserveAspectRatio?: boolean;
 }
 
 /**
@@ -154,6 +155,14 @@ const getAxisAlignedBoundingBox = (points: Point[]): BoundingBox | null => {
 const getCombinedBoundingBox = (annotations: Annotation[], renderedRect: RenderedRect, videoToCanvasScaleY: number): BoundingBox | null => {
     const allPoints = annotations.flatMap(a => getAnnotationPoints(a, renderedRect, videoToCanvasScaleY));
     return getAxisAlignedBoundingBox(allPoints);
+};
+
+export const getAnnotationBoundingBox = (annotation: Annotation, renderedRect: RenderedRect, videoToCanvasScaleY: number): BoundingBox | null => {
+    return getAxisAlignedBoundingBox(getAnnotationPoints(annotation, renderedRect, videoToCanvasScaleY));
+};
+
+export const getAnnotationsBoundingBox = (annotations: Annotation[], renderedRect: RenderedRect, videoToCanvasScaleY: number): BoundingBox | null => {
+    return getCombinedBoundingBox(annotations, renderedRect, videoToCanvasScaleY);
 };
 
 const HANDLE_SIZE = 8;
@@ -322,7 +331,13 @@ export const isAnnotationInMarquee = (anno: Annotation, marquee: BoundingBox, re
 };
 
 
-export const startTransform = (action: Handle, startPoint: Point, annotations: Annotation[], renderedRect: RenderedRect): TransformState => {
+export const startTransform = (
+    action: Handle,
+    startPoint: Point,
+    annotations: Annotation[],
+    renderedRect: RenderedRect,
+    options: { preserveAspectRatio?: boolean } = {},
+): TransformState => {
     const videoToCanvasScaleY = renderedRect.height > 0 ? renderedRect.height / renderedRect.height : 1;
     const initialBoxCanvas = getCombinedBoundingBox(annotations, renderedRect, videoToCanvasScaleY)!;
     return {
@@ -337,7 +352,8 @@ export const startTransform = (action: Handle, startPoint: Point, annotations: A
             center: {x: initialBoxCanvas.start.x + (initialBoxCanvas.end.x - initialBoxCanvas.start.x) / 2, y: initialBoxCanvas.start.y + (initialBoxCanvas.end.y - initialBoxCanvas.start.y) / 2},
             width: initialBoxCanvas.end.x - initialBoxCanvas.start.x,
             height: initialBoxCanvas.end.y - initialBoxCanvas.start.y,
-        }
+        },
+        preserveAspectRatio: Boolean(options.preserveAspectRatio),
     };
 };
 
@@ -429,6 +445,14 @@ export const applyTransform = (currentPoint: Point, state: TransformState, rende
                 
                 let scaleX = originalDx ? currentDx / originalDx : 1;
                 let scaleY = originalDy ? currentDy / originalDy : 1;
+
+                if (state.preserveAspectRatio) {
+                    const uniform = Math.max(Math.abs(scaleX), Math.abs(scaleY));
+                    const signX = scaleX < 0 ? -1 : 1;
+                    const signY = scaleY < 0 ? -1 : 1;
+                    scaleX = uniform * signX;
+                    scaleY = uniform * signY;
+                }
 
                 return state.initialAnnotations.map(anno => {
                     const newAnno = { ...anno };

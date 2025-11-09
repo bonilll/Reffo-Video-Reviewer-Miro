@@ -41,6 +41,7 @@ export interface RectangleAnnotation extends BaseAnnotation {
   width: number;
   height: number;
   rotation: number; // in radians
+  fillOpacity?: number; // 0..1, 0 means transparent
 }
 
 export interface ImageAnnotation extends BaseAnnotation {
@@ -78,6 +79,7 @@ export interface EllipseAnnotation extends BaseAnnotation {
   width: number;
   height: number;
   rotation: number; // in radians
+  fillOpacity?: number; // 0..1, 0 means transparent
 }
 
 export interface ArrowAnnotation extends BaseAnnotation {

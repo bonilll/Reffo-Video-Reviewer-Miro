@@ -11,6 +11,10 @@ interface ToolbarProps {
   setBrushSize: (size: number) => void;
   fontSize: number;
   setFontSize: (size: number) => void;
+  shapeFillEnabled: boolean;
+  onToggleShapeFill: (enabled: boolean) => void;
+  shapeFillOpacity: number;
+  onChangeShapeFillOpacity: (opacity: number) => void;
   undo: () => void;
   redo: () => void;
   canUndo: boolean;
@@ -31,12 +35,29 @@ const tools = [
 const colors = ['#ef4444', '#f97316', '#facc15', '#4ade80', '#38bdf8', '#a78bfa', '#f472b6', '#ffffff'];
 
 const Toolbar: React.FC<ToolbarProps> = ({ 
-  activeTool, setActiveTool, brushColor, setBrushColor, brushSize, setBrushSize,
-  fontSize, setFontSize, undo, redo, canUndo, canRedo, isDark = true, onOpenCompare
+  activeTool,
+  setActiveTool,
+  brushColor,
+  setBrushColor,
+  brushSize,
+  setBrushSize,
+  fontSize,
+  setFontSize,
+  shapeFillEnabled,
+  onToggleShapeFill,
+  shapeFillOpacity,
+  onChangeShapeFillOpacity,
+  undo,
+  redo,
+  canUndo,
+  canRedo,
+  isDark = true,
+  onOpenCompare,
 }) => {
   
   const isDrawingTool = [AnnotationTool.FREEHAND, AnnotationTool.RECTANGLE, AnnotationTool.ELLIPSE, AnnotationTool.ARROW].includes(activeTool);
   const isTextTool = activeTool === AnnotationTool.TEXT;
+  const supportsFill = [AnnotationTool.RECTANGLE, AnnotationTool.ELLIPSE].includes(activeTool);
 
   return (
     <div className={`absolute top-6 left-1/2 -translate-x-1/2 z-10 backdrop-blur px-4 py-3 rounded-full shadow-lg flex items-center gap-4 ${isDark ? 'bg-black/70 border border-white/10 text-white/70' : 'bg-white/90 border border-gray-200 text-gray-700'}`}>
@@ -130,6 +151,35 @@ const Toolbar: React.FC<ToolbarProps> = ({
           )}
         </div>
       </> }
+      {supportsFill && (
+        <>
+          <div className={`w-px h-8 ${isDark ? 'bg-white/10' : 'bg-gray-200'}`} />
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => onToggleShapeFill(!shapeFillEnabled)}
+              className={`px-3 py-1.5 text-xs font-semibold rounded-full transition ${
+                shapeFillEnabled
+                  ? isDark ? 'bg-white text-black hover:bg-white/90' : 'bg-black text-white hover:bg-black/90'
+                  : isDark ? 'bg-white/10 text-white/70 hover:bg-white/20' : 'bg-black/5 text-gray-800 hover:bg-black/10'
+              }`}
+            >
+              {shapeFillEnabled ? 'Fill On' : 'Fill Off'}
+            </button>
+            <div className="flex items-center gap-1">
+              <span className={`text-xs uppercase ${isDark ? 'text-white/40' : 'text-gray-500'}`}>Opacity</span>
+              <input
+                type="range"
+                min={5}
+                max={100}
+                value={Math.round(shapeFillOpacity * 100)}
+                onChange={(e) => onChangeShapeFillOpacity(Number(e.target.value) / 100)}
+                className={`w-24 h-1 ${isDark ? 'accent-white' : 'accent-black'}`}
+                disabled={!shapeFillEnabled}
+              />
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 };

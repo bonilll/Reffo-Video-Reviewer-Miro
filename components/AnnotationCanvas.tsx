@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState, useMemo, useCallback } from 'react';
-import { Annotation, Point, Video, AnnotationTool, RectangleAnnotation, EllipseAnnotation, PointerPosition, Comment, TextAnnotation, ImageAnnotation, VideoAnnotation, MentionOption } from '../types';
+import { Annotation, Point, Video, AnnotationTool, RectangleAnnotation, EllipseAnnotation, PointerPosition, Comment, TextAnnotation, ImageAnnotation, VideoAnnotation, MentionOption, FreehandAnnotation, ArrowAnnotation } from '../types';
 import * as geo from '../utils/geometry';
 import CommentPopover from './CommentPopover';
 import NewCommentPopover from './NewCommentPopover';
@@ -17,6 +17,8 @@ interface AnnotationCanvasProps {
   brushColor: string;
   brushSize: number;
   fontSize: number;
+  shapeFillEnabled: boolean;
+  shapeFillOpacity: number;
   selectedAnnotationIds: string[];
   setSelectedAnnotationIds: (ids: string[]) => void;
   comments: Comment[];
@@ -27,6 +29,8 @@ interface AnnotationCanvasProps {
   setActiveCommentPopoverId: React.Dispatch<React.SetStateAction<string | null>>;
   onUpdateCommentPosition: (id: string, position: Point) => void;
   onAddComment: (text: string, parentId?: string) => void;
+  onToggleCommentResolved: (commentId: string) => void;
+  onEditComment: (commentId: string, text: string) => void;
   pendingComment: { position: Point } | null;
   setPendingComment: (p: { position: Point } | null) => void;
   isDark?: boolean;
@@ -49,17 +53,66 @@ interface AnnotationCanvasProps {
   mentionOptions?: MentionOption[];
 }
 
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+
+const hexToRgba = (hex: string, alpha: number) => {
+  let normalized = hex.replace('#', '');
+  if (normalized.length === 3) {
+    normalized = normalized.split('').map((char) => char + char).join('');
+  }
+  const bigint = parseInt(normalized, 16);
+  if (Number.isNaN(bigint)) {
+    return `rgba(255, 255, 255, ${clamp(alpha, 0, 1)})`;
+  }
+  const r = (bigint >> 16) & 255;
+  const g = (bigint >> 8) & 255;
+  const b = bigint & 255;
+  return `rgba(${r}, ${g}, ${b}, ${clamp(alpha, 0, 1)})`;
+};
+
+const resolveFillStyle = (color: string | undefined, opacity?: number) => {
+  if (!color || opacity == null || opacity <= 0) return null;
+  if (color === 'transparent') return null;
+  if (color.startsWith('#')) {
+    return hexToRgba(color, opacity);
+  }
+  if (color.startsWith('rgba')) {
+    const alpha = clamp(opacity, 0, 1);
+    return color.replace(/rgba\(([^)]+)\)/, (_, inner) => {
+      const parts = inner.split(',').map((part) => part.trim());
+      if (parts.length < 3) return color;
+      return `rgba(${parts[0]}, ${parts[1]}, ${parts[2]}, ${alpha})`;
+    });
+  }
+  if (color.startsWith('rgb')) {
+    const inner = color.slice(color.indexOf('(') + 1, color.lastIndexOf(')'));
+    return `rgba(${inner}, ${clamp(opacity, 0, 1)})`;
+  }
+  return color;
+};
+
 interface MovingCommentState {
   comment: Comment;
   startPoint: Point; // Normalized coordinates
 }
 
+interface AlignmentGuide {
+  orientation: 'vertical' | 'horizontal';
+  position: number;
+  start: number;
+  end: number;
+}
+
+const SNAP_THRESHOLD = 6;
+
 const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
   video, videoElement, currentFrame, annotations, onAddAnnotation, onUpdateAnnotations, onDeleteAnnotations,
   activeTool, brushColor, brushSize, fontSize, selectedAnnotationIds, setSelectedAnnotationIds,
   comments, activeCommentId, onCommentPlacement, activeCommentPopoverId, setActiveCommentPopoverId,
-  onUpdateCommentPosition, onAddComment, pendingComment, setPendingComment, isDark = true, onUploadAsset,
+  onUpdateCommentPosition, onAddComment, onToggleCommentResolved, onEditComment, pendingComment, setPendingComment, isDark = true, onUploadAsset,
   threadMeta = {}, mentionOptions = [],
+  shapeFillEnabled,
+  shapeFillOpacity,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isDrawing, setIsDrawing] = useState(false);
@@ -73,6 +126,7 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
   
   const [movingCommentState, setMovingCommentState] = useState<MovingCommentState | null>(null);
   const [transformedComment, setTransformedComment] = useState<Comment | null>(null);
+  const [alignmentGuides, setAlignmentGuides] = useState<AlignmentGuide[]>([]);
 
   const [editingText, setEditingText] = useState<{ position: Point, text: string } | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -391,6 +445,7 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
           break;
         case AnnotationTool.RECTANGLE: {
             const rectAnno = anno as RectangleAnnotation & { start?: Point, end?: Point };
+            const fillStyle = resolveFillStyle(rectAnno.color, rectAnno.fillOpacity);
             if (rectAnno.center && rectAnno.width != null && rectAnno.height != null) {
                 const center = geo.normalizedToCanvas(rectAnno.center, renderedRect);
                 const width = rectAnno.width * renderedRect.width;
@@ -398,17 +453,30 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
                 ctx.save();
                 ctx.translate(center.x, center.y);
                 ctx.rotate(rectAnno.rotation || 0);
-                ctx.strokeRect(-width / 2, -height / 2, width, height);
+                ctx.beginPath();
+                ctx.rect(-width / 2, -height / 2, width, height);
+                if (fillStyle) {
+                  ctx.fillStyle = fillStyle;
+                  ctx.fill();
+                }
+                ctx.stroke();
                 ctx.restore();
             } else if (rectAnno.start && rectAnno.end) {
                 const start = geo.normalizedToCanvas(rectAnno.start, renderedRect);
                 const end = geo.normalizedToCanvas(rectAnno.end, renderedRect);
-                ctx.strokeRect(start.x, start.y, end.x - start.x, end.y - start.y);
+                ctx.beginPath();
+                ctx.rect(start.x, start.y, end.x - start.x, end.y - start.y);
+                if (fillStyle) {
+                  ctx.fillStyle = fillStyle;
+                  ctx.fill();
+                }
+                ctx.stroke();
             }
             break;
         }
         case AnnotationTool.ELLIPSE: {
             const ellipseAnno = anno as EllipseAnnotation & { start?: Point, end?: Point };
+            const fillStyle = resolveFillStyle(ellipseAnno.color, ellipseAnno.fillOpacity);
             if (ellipseAnno.center && ellipseAnno.width != null && ellipseAnno.height != null) {
                 const center = geo.normalizedToCanvas(ellipseAnno.center, renderedRect);
                 const radiusX = (ellipseAnno.width * renderedRect.width) / 2;
@@ -418,6 +486,10 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
                 ctx.rotate(ellipseAnno.rotation || 0);
                 ctx.beginPath();
                 ctx.ellipse(0, 0, Math.abs(radiusX), Math.abs(radiusY), 0, 0, 2 * Math.PI);
+                if (fillStyle) {
+                  ctx.fillStyle = fillStyle;
+                  ctx.fill();
+                }
                 ctx.stroke();
                 ctx.restore();
             } else if (ellipseAnno.start && ellipseAnno.end) {
@@ -428,6 +500,10 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
                 const radiusY = Math.abs(end.y - start.y) / 2;
                 ctx.beginPath();
                 ctx.ellipse(center.x, center.y, radiusX, radiusY, 0, 0, 2 * Math.PI);
+                if (fillStyle) {
+                  ctx.fillStyle = fillStyle;
+                  ctx.fill();
+                }
                 ctx.stroke();
             }
             break;
@@ -555,7 +631,7 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
     if (activeTool === AnnotationTool.SELECT) {
         const handle = selectedAnnotations.length > 0 ? geo.getHandleUnderPoint(pos.canvas, selectedAnnotations, renderedRect) : null;
         if (handle) {
-            setTransform(geo.startTransform(handle, pos.canvas, selectedAnnotations, renderedRect));
+            setTransform(geo.startTransform(handle, pos.canvas, selectedAnnotations, renderedRect, { preserveAspectRatio: e.shiftKey }));
             return;
         }
 
@@ -589,13 +665,14 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
 
         setIsDrawing(true);
         const baseAnno = { frame: currentFrame, color: brushColor, lineWidth: brushSize };
+        const fillOpacity = shapeFillEnabled ? clamp(shapeFillOpacity, 0, 1) : 0;
         switch (activeTool) {
             case AnnotationTool.FREEHAND:
                 setDrawingShape({ ...baseAnno, type: AnnotationTool.FREEHAND, points: [pos.normalized] });
                 break;
             case AnnotationTool.RECTANGLE:
             case AnnotationTool.ELLIPSE:
-                setDrawingShape({ ...baseAnno, type: activeTool, start: pos.normalized, end: pos.normalized, rotation: 0 });
+                setDrawingShape({ ...baseAnno, type: activeTool, start: pos.normalized, end: pos.normalized, rotation: 0, fillOpacity });
                 break;
             case AnnotationTool.ARROW:
                 setDrawingShape({ ...baseAnno, type: activeTool, start: pos.normalized, end: pos.normalized });
@@ -660,8 +737,26 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
     }
 
     if (transform) {
-        const updatedAnnotations = geo.applyTransform(pos.canvas, transform, renderedRect);
-        setTransformedAnnotations(updatedAnnotations);
+        let workingTransform = transform;
+        const isScaleHandle = transform.action.startsWith('scale');
+        if (isScaleHandle && transform.preserveAspectRatio !== e.shiftKey) {
+            workingTransform = { ...transform, preserveAspectRatio: e.shiftKey };
+            setTransform(workingTransform);
+        }
+        const updatedAnnotations = geo.applyTransform(pos.canvas, workingTransform, renderedRect);
+        if (workingTransform.action === 'move') {
+            const { dx, dy, guides } = computeAlignmentSnap(updatedAnnotations);
+            if (dx !== 0 || dy !== 0) {
+                const adjusted = updatedAnnotations.map((annotation) => translateAnnotation(annotation, dx, dy));
+                setTransformedAnnotations(adjusted);
+            } else {
+                setTransformedAnnotations(updatedAnnotations);
+            }
+            setAlignmentGuides(guides);
+        } else {
+            setAlignmentGuides([]);
+            setTransformedAnnotations(updatedAnnotations);
+        }
         return;
     }
 
@@ -753,6 +848,7 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
     setMovingCommentState(null);
     setTransformedComment(null);
     setHoveredVideoId(null);
+    setAlignmentGuides([]);
   };
 
   const handleControlsPointerEnter = useCallback((id: string) => {
@@ -810,6 +906,173 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
     if (transform?.action === 'move') return 'grabbing';
     return 'default';
   };
+
+  const translateAnnotation = useCallback((annotation: Annotation, dx: number, dy: number): Annotation => {
+    switch (annotation.type) {
+      case AnnotationTool.RECTANGLE:
+      case AnnotationTool.ELLIPSE:
+      case AnnotationTool.IMAGE:
+      case AnnotationTool.VIDEO: {
+        const typed = annotation as RectangleAnnotation | EllipseAnnotation | ImageAnnotation | VideoAnnotation;
+        if (!typed.center) return annotation;
+        return {
+          ...typed,
+          center: {
+            x: typed.center.x + dx,
+            y: typed.center.y + dy,
+          },
+        };
+      }
+      case AnnotationTool.ARROW: {
+        const typed = annotation as ArrowAnnotation;
+        return {
+          ...typed,
+          start: { x: typed.start.x + dx, y: typed.start.y + dy },
+          end: { x: typed.end.x + dx, y: typed.end.y + dy },
+        };
+      }
+      case AnnotationTool.FREEHAND: {
+        const typed = annotation as FreehandAnnotation;
+        return {
+          ...typed,
+          points: typed.points.map((point) => ({ x: point.x + dx, y: point.y + dy })),
+        };
+      }
+      case AnnotationTool.TEXT: {
+        const typed = annotation as TextAnnotation;
+        if (!typed.position) return annotation;
+        return {
+          ...typed,
+          position: { x: typed.position.x + dx, y: typed.position.y + dy },
+        };
+      }
+      default:
+        return annotation;
+    }
+  }, []);
+
+  const computeAlignmentSnap = useCallback(
+    (movedAnnotations: Annotation[]): { dx: number; dy: number; guides: AlignmentGuide[] } => {
+      if (!renderedRect) return { dx: 0, dy: 0, guides: [] };
+      const scaleY = video.height > 0 && renderedRect.height > 0 ? video.height / renderedRect.height : 1;
+      const movingBox = geo.getAnnotationsBoundingBox(movedAnnotations, renderedRect, scaleY);
+      if (!movingBox) return { dx: 0, dy: 0, guides: [] };
+
+      const movingMetrics = {
+        left: movingBox.start.x,
+        right: movingBox.end.x,
+        centerX: (movingBox.start.x + movingBox.end.x) / 2,
+        top: movingBox.start.y,
+        bottom: movingBox.end.y,
+        centerY: (movingBox.start.y + movingBox.end.y) / 2,
+      };
+
+      const verticalTargets: Array<{ position: number; start: number; end: number }> = [];
+      const horizontalTargets: Array<{ position: number; start: number; end: number }> = [];
+
+      const others = annotationsForFrame.filter((annotation) => !selectedAnnotationIds.includes(annotation.id));
+      others.forEach((annotation) => {
+        const box = geo.getAnnotationBoundingBox(annotation, renderedRect, scaleY);
+        if (!box) return;
+        const metrics = {
+          left: box.start.x,
+          right: box.end.x,
+          centerX: (box.start.x + box.end.x) / 2,
+          top: box.start.y,
+          bottom: box.end.y,
+          centerY: (box.start.y + box.end.y) / 2,
+        };
+        verticalTargets.push({ position: metrics.left, start: box.start.y, end: box.end.y });
+        verticalTargets.push({ position: metrics.centerX, start: box.start.y, end: box.end.y });
+        verticalTargets.push({ position: metrics.right, start: box.start.y, end: box.end.y });
+        horizontalTargets.push({ position: metrics.top, start: box.start.x, end: box.end.x });
+        horizontalTargets.push({ position: metrics.centerY, start: box.start.x, end: box.end.x });
+        horizontalTargets.push({ position: metrics.bottom, start: box.start.x, end: box.end.x });
+      });
+
+      // Container guides
+      verticalTargets.push({ position: renderedRect.x, start: renderedRect.y, end: renderedRect.y + renderedRect.height });
+      verticalTargets.push({
+        position: renderedRect.x + renderedRect.width / 2,
+        start: renderedRect.y,
+        end: renderedRect.y + renderedRect.height,
+      });
+      verticalTargets.push({
+        position: renderedRect.x + renderedRect.width,
+        start: renderedRect.y,
+        end: renderedRect.y + renderedRect.height,
+      });
+
+      horizontalTargets.push({ position: renderedRect.y, start: renderedRect.x, end: renderedRect.x + renderedRect.width });
+      horizontalTargets.push({
+        position: renderedRect.y + renderedRect.height / 2,
+        start: renderedRect.x,
+        end: renderedRect.x + renderedRect.width,
+      });
+      horizontalTargets.push({
+        position: renderedRect.y + renderedRect.height,
+        start: renderedRect.x,
+        end: renderedRect.x + renderedRect.width,
+      });
+
+      const movingVerticalLines = [
+        { position: movingMetrics.left, start: movingBox.start.y, end: movingBox.end.y },
+        { position: movingMetrics.centerX, start: movingBox.start.y, end: movingBox.end.y },
+        { position: movingMetrics.right, start: movingBox.start.y, end: movingBox.end.y },
+      ];
+
+      const movingHorizontalLines = [
+        { position: movingMetrics.top, start: movingBox.start.x, end: movingBox.end.x },
+        { position: movingMetrics.centerY, start: movingBox.start.x, end: movingBox.end.x },
+        { position: movingMetrics.bottom, start: movingBox.start.x, end: movingBox.end.x },
+      ];
+
+      let bestVerticalShift: number | null = null;
+      let bestVerticalGuide: AlignmentGuide | null = null;
+      verticalTargets.forEach((target) => {
+        movingVerticalLines.forEach((line) => {
+          const diff = target.position - line.position;
+          if (Math.abs(diff) <= SNAP_THRESHOLD && (bestVerticalShift === null || Math.abs(diff) < Math.abs(bestVerticalShift))) {
+            bestVerticalShift = diff;
+            const start = Math.min(line.start, target.start);
+            const end = Math.max(line.end, target.end);
+            bestVerticalGuide = { orientation: 'vertical', position: target.position, start, end };
+          }
+        });
+      });
+
+      let bestHorizontalShift: number | null = null;
+      let bestHorizontalGuide: AlignmentGuide | null = null;
+      horizontalTargets.forEach((target) => {
+        movingHorizontalLines.forEach((line) => {
+          const diff = target.position - line.position;
+          if (Math.abs(diff) <= SNAP_THRESHOLD && (bestHorizontalShift === null || Math.abs(diff) < Math.abs(bestHorizontalShift))) {
+            bestHorizontalShift = diff;
+            const start = Math.min(line.start, target.start);
+            const end = Math.max(line.end, target.end);
+            bestHorizontalGuide = { orientation: 'horizontal', position: target.position, start, end };
+          }
+        });
+      });
+
+      const guides: AlignmentGuide[] = [];
+      let dx = 0;
+      let dy = 0;
+
+      if (bestVerticalShift !== null && renderedRect.width > 0) {
+        dx = bestVerticalShift / renderedRect.width;
+        if (bestVerticalGuide) guides.push(bestVerticalGuide);
+      }
+
+      if (bestHorizontalShift !== null && renderedRect.height > 0) {
+        dy = bestHorizontalShift / renderedRect.height;
+        if (bestHorizontalGuide) guides.push(bestHorizontalGuide);
+      }
+
+      return { dx, dy, guides };
+    },
+    [annotationsForFrame, selectedAnnotationIds, renderedRect, video.height],
+  );
 
   const activePopoverComment = useMemo(() => {
     return comments.find(c => c.id === activeCommentPopoverId);
@@ -1124,6 +1387,36 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
           {assetUploadError}
         </div>
       )}
+
+      {renderedRect && alignmentGuides.length > 0 && (
+        <div className="absolute top-0 left-0 w-full h-full pointer-events-none z-30">
+          {alignmentGuides.map((guide, index) =>
+            guide.orientation === 'vertical' ? (
+              <div
+                key={`guide-vertical-${index}`}
+                className="absolute bg-sky-400/70"
+                style={{
+                  left: `${guide.position}px`,
+                  top: `${guide.start}px`,
+                  width: '1px',
+                  height: `${guide.end - guide.start}px`,
+                }}
+              />
+            ) : (
+              <div
+                key={`guide-horizontal-${index}`}
+                className="absolute bg-sky-400/70"
+                style={{
+                  top: `${guide.position}px`,
+                  left: `${guide.start}px`,
+                  height: '1px',
+                  width: `${guide.end - guide.start}px`,
+                }}
+              />
+            )
+          )}
+        </div>
+      )}
       
       {/* HTML rendered Comment Markers */}
       {renderedRect && (
@@ -1212,6 +1505,8 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
             renderedRect={renderedRect}
             isDark={isDark}
             mentionOptions={mentionOptions}
+          onToggleResolve={onToggleCommentResolved}
+          onEditComment={onEditComment}
           />
       )}
       {renderedRect && pendingComment && (
