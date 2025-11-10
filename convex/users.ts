@@ -27,18 +27,27 @@ export const ensure = mutation({
       .unique();
 
     if (existing) {
-      await ctx.db.patch(existing._id, {
-        email: identity.email ?? existing.email,
-        name:
-          identity.name ??
-          identity.nickname ??
-          identity.preferredUsername ??
-          identity.email ??
-          existing.name ??
-          existing.email,
-        avatar: identity.pictureUrl ?? existing.avatar,
-        updatedAt: now,
-      });
+      const nextEmail = identity.email ?? existing.email;
+      const nextName =
+        identity.name ??
+        identity.nickname ??
+        identity.preferredUsername ??
+        identity.email ??
+        existing.name ??
+        existing.email;
+      const nextAvatar = identity.pictureUrl ?? existing.avatar;
+      const needsPatch =
+        existing.email !== nextEmail ||
+        existing.name !== nextName ||
+        existing.avatar !== nextAvatar;
+      if (needsPatch) {
+        await ctx.db.patch(existing._id, {
+          email: nextEmail,
+          name: nextName,
+          avatar: nextAvatar,
+          updatedAt: now,
+        });
+      }
       return existing._id;
     }
 

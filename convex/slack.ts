@@ -64,7 +64,14 @@ export const exchangeCode = action({
     if (!identity) {
       throw new ConvexError("NOT_AUTHENTICATED");
     }
-    const userId = await ctx.runMutation(api.users.ensure, {});
+    // Prefer non-writing read; if missing, provision once
+    let userDoc = await ctx.runQuery(api.users.current, {});
+    if (!userDoc?._id) {
+      await ctx.runMutation(api.users.ensure, {});
+      userDoc = await ctx.runQuery(api.users.current, {});
+    }
+    if (!userDoc?._id) throw new ConvexError("NOT_PROVISIONED");
+    const userId = userDoc._id as Id<"users">;
     const baseRedirect = redirectUri ?? process.env.SLACK_REDIRECT_URI ?? `${PUBLIC_SITE_URL()}/profile`;
 
     const body = new URLSearchParams({
@@ -92,7 +99,7 @@ export const exchangeCode = action({
     }
 
     await ctx.runMutation(internal.slackData.upsertConnection, {
-      userId: userId as Id<"users">,
+      userId,
       teamId: team.id,
       teamName: team.name ?? team.id,
       botUserId: botUserId || "bot",
@@ -106,18 +113,18 @@ export const exchangeCode = action({
 export const disconnect = action({
   args: {},
   async handler(ctx, _args) {
-    const user = await ctx.runMutation(api.users.ensure, {});
-    if (!user) return;
-    await ctx.runMutation(internal.slackData.deleteForUser, { userId: user as Id<"users"> });
+    const current = await ctx.runQuery(api.users.current, {});
+    if (!current?._id) return;
+    await ctx.runMutation(internal.slackData.deleteForUser, { userId: current._id as Id<"users"> });
   },
 });
 
 export const testDm = action({
   args: {},
   async handler(ctx) {
-    const user = await ctx.runMutation(api.users.ensure, {});
-    if (!user) throw new ConvexError("NOT_AUTHENTICATED");
-    const secret = await ctx.runMutation(internal.slackData.getConnectionSecret, { userId: user as Id<"users"> }) as any;
+    const current = await ctx.runQuery(api.users.current, {});
+    if (!current?._id) throw new ConvexError("NOT_AUTHENTICATED");
+    const secret = await ctx.runMutation(internal.slackData.getConnectionSecret, { userId: current._id as Id<"users"> }) as any;
     if (!secret) throw new ConvexError("SLACK_NOT_CONNECTED");
     const base = PUBLIC_SITE_URL().replace(/\/$/, "");
     const blocks = [

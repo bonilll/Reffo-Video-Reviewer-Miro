@@ -265,6 +265,7 @@ const App: React.FC = () => {
   const shareAccessLoggedRef = useRef<string | null>(null);
 
   const ensureUser = useMutation(api.users.ensure);
+  const ensuredRef = useRef(false);
   const createProject = useMutation(api.projects.create);
   const updateProject = useMutation(api.projects.update);
   const deleteProject = useMutation(api.projects.remove);
@@ -377,6 +378,7 @@ const App: React.FC = () => {
     if (!isSignedIn) {
       setIsEnsuringUser(false);
       setEnsureError(null);
+      ensuredRef.current = false;
       return;
     }
 
@@ -386,10 +388,11 @@ const App: React.FC = () => {
 
     if (currentUser !== null) {
       setEnsureError(null);
+      ensuredRef.current = true;
       return;
     }
 
-    if (isEnsuringUser) {
+    if (isEnsuringUser || ensuredRef.current) {
       return;
     }
 

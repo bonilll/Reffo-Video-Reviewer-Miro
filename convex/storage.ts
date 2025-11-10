@@ -106,7 +106,11 @@ export const generateVideoUploadUrl = action({
       throw new ConvexError("NOT_AUTHENTICATED");
     }
 
-    const userId = await ctx.runMutation(api.users.ensure);
+    const current = await ctx.runQuery(api.users.current, {});
+    if (!current?._id) {
+      throw new ConvexError("NOT_PROVISIONED");
+    }
+    const userId = current._id as string;
     const storageKey = buildStorageKey(userId, fileName ?? undefined);
 
     const command = new PutObjectCommand({
@@ -138,7 +142,11 @@ export const generateProfileImageUploadUrl = action({
       throw new ConvexError("NOT_AUTHENTICATED");
     }
 
-    const userId = await ctx.runMutation(api.users.ensure);
+    const current = await ctx.runQuery(api.users.current, {});
+    if (!current?._id) {
+      throw new ConvexError("NOT_PROVISIONED");
+    }
+    const userId = current._id as string;
     const storageKey = buildAvatarKey(userId, fileName ?? undefined);
 
     const command = new PutObjectCommand({
@@ -166,7 +174,11 @@ export const generateAnnotationAssetUploadUrl = action({
       throw new ConvexError("NOT_AUTHENTICATED");
     }
 
-    const userId = await ctx.runMutation(api.users.ensure);
+    const current = await ctx.runQuery(api.users.current, {});
+    if (!current?._id) {
+      throw new ConvexError("NOT_PROVISIONED");
+    }
+    const userId = current._id as string;
     const storageKey = buildAnnotationKey(userId, videoId, assetType, fileName ?? undefined);
 
     const command = new PutObjectCommand({
