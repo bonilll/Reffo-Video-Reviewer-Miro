@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
-import { SignedIn, SignedOut, useUser, useClerk, useSignIn, useSignUp, useAuth } from '@clerk/clerk-react';
+import { SignedIn, SignedOut, useUser, useClerk, useSignIn, useSignUp } from '@clerk/clerk-react';
 import { useQuery, useMutation, useAction } from 'convex/react';
 import { api } from './convex/_generated/api';
 import VideoReviewer from './components/VideoReviewer';
@@ -36,9 +36,7 @@ type Route =
   | { name: 'profile' }
   | { name: 'project'; id: string }
   | { name: 'review'; id: string }
-  | { name: 'share'; token: string }
-  | { name: 'oauthStart'; provider: 'google' }
-  | { name: 'oauthComplete' };
+  | { name: 'share'; token: string };
 
 type NotificationRecord = {
   id: string;
@@ -94,9 +92,6 @@ function parseRoute(pathname: string): Route {
   if (reviewMatch) return { name: 'review', id: reviewMatch[1] };
   const shareMatch = pathname.match(/^\/share\/([^\/?#]+)/);
   if (shareMatch) return { name: 'share', token: shareMatch[1] };
-  const oauthStartMatch = pathname.match(/^\/oauth-start\/google$/);
-  if (oauthStartMatch) return { name: 'oauthStart', provider: 'google' };
-  if (pathname === '/oauth-complete') return { name: 'oauthComplete' };
   
   // default to home
   return { name: 'home' };
@@ -137,7 +132,7 @@ const App: React.FC = () => {
   const [pendingProjectFocus, setPendingProjectFocus] = useState<{ projectId: string; message?: string } | null>(null);
   const [isEnsuringUser, setIsEnsuringUser] = useState(false);
   const [ensureError, setEnsureError] = useState<string | null>(null);
-  const [isMiroEmbed, setIsMiroEmbed] = useState(false);
+  const [isMiroEmbed, setIsMiroEmbed] = useState(false); // legacy, no longer used
   const [authMode, setAuthMode] = useState<'signin' | 'signup' | 'verify'>('signin');
   const [authEmail, setAuthEmail] = useState('');
   const [authPassword, setAuthPassword] = useState('');
@@ -146,17 +141,7 @@ const App: React.FC = () => {
   const [pendingVerificationEmail, setPendingVerificationEmail] = useState<string | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
   const [authLoading, setAuthLoading] = useState(false);
-  const MIRO_SESSION_STORAGE_KEY = 'reffo_miro_session_id';
-
-  // Compute our first-party origin to validate postMessage
-  const siteOrigin = useMemo(() => {
-    try {
-      const url = (import.meta as any).env?.VITE_PUBLIC_SITE_URL || window.location.origin;
-      return new URL(url).origin;
-    } catch {
-      return window.location.origin;
-    }
-  }, []);
+  const MIRO_SESSION_STORAGE_KEY = 'reffo_miro_session_id'; // legacy, no longer used
   const { isSignedIn } = useUser();
   const { signIn, isLoaded: isSignInLoaded } = useSignIn();
   const { signUp, isLoaded: isSignUpLoaded } = useSignUp();
@@ -421,61 +406,7 @@ const App: React.FC = () => {
 
   const dataLoading = Boolean(currentUser) && (projectsQuery === undefined || videosQuery === undefined);
 
-  // Detect if running inside Miro panel so we can adapt the landing layout
-  useEffect(() => {
-    try {
-      const isEmbed = Boolean((window as any).miro && (window as any).miro.board && (window as any).miro.board.ui);
-      setIsMiroEmbed(isEmbed);
-    } catch {}
-  }, []);
-
-  // OAuth popup start page logic
-  useEffect(() => {
-    if (route.name !== 'oauthStart') return;
-    (async () => {
-      if (!isSignInLoaded || !signIn) return;
-      try {
-        const strategy = 'oauth_google' as const;
-        await signIn.authenticateWithRedirect({
-          strategy,
-          redirectUrl: window.location.href,
-          redirectUrlComplete: '/oauth-complete',
-        });
-      } catch (err) {
-        console.error('OAuth start failed', err);
-      }
-    })();
-  }, [route, isSignInLoaded, signIn]);
-
-  // OAuth popup completion page logic: post sessionId to opener, then close.
-  const { isLoaded: authLoaded, isSignedIn: authSignedIn, sessionId } = useAuth();
-  useEffect(() => {
-    if (route.name !== 'oauthComplete') return;
-    if (!authLoaded) return;
-    try {
-      const message: any = { type: 'oauth-success' };
-      if (authSignedIn && sessionId) message.sessionId = sessionId;
-      if (window.opener) {
-        window.opener.postMessage(message, siteOrigin);
-      }
-      setTimeout(() => window.close(), 200);
-    } catch (err) {
-      console.error('Failed to postMessage oauth-success', err);
-    }
-  }, [route, authLoaded, authSignedIn, sessionId, siteOrigin]);
-
-  // Rehydrate session in Miro iframe on load using stored sessionId (cookies may be blocked)
-  useEffect(() => {
-    if (!authLoaded) return;
-    if (!isMiroEmbed) return;
-    if (authSignedIn) return;
-    try {
-      const stored = localStorage.getItem(MIRO_SESSION_STORAGE_KEY);
-      if (stored) {
-        setActive({ session: stored }).catch(() => {});
-      }
-    } catch {}
-  }, [authLoaded, isMiroEmbed, authSignedIn, setActive]);
+  // Legacy Miro/OAuth popup flows removed for a simpler, robust login.
 
   const currentVideo = useMemo(() => {
     if (!selectedVideoId) return null;
@@ -516,49 +447,9 @@ const App: React.FC = () => {
       }
     } catch {}
   }, [route]);
-  const startOAuthPopup = useCallback((provider: 'google') => {
-    const w = 500;
-    const h = 700;
-    const dualScreenLeft = window.screenLeft ?? (window as any).screenX ?? 0;
-    const dualScreenTop = window.screenTop ?? (window as any).screenY ?? 0;
-    const width = window.innerWidth ?? document.documentElement.clientWidth ?? screen.width;
-    const height = window.innerHeight ?? document.documentElement.clientHeight ?? screen.height;
-    const left = Math.max(0, width / 2 - w / 2) + dualScreenLeft;
-    const top = Math.max(0, height / 2 - h / 2) + dualScreenTop;
-    const popup = window.open(
-      `/oauth-start/${provider}`,
-      'oauthWindow',
-      `scrollbars=yes,width=${w},height=${h},top=${top},left=${left}`,
-    );
-    if (!popup) return;
-    const onMessage = (event: MessageEvent) => {
-      if (event.origin !== siteOrigin) return;
-      if (event.data && event.data.type === 'oauth-success') {
-        window.removeEventListener('message', onMessage);
-        const sessionId = event.data.sessionId as string | undefined;
-        try {
-          if (sessionId) {
-            // Persist for future reloads in Miro context
-            localStorage.setItem(MIRO_SESSION_STORAGE_KEY, sessionId);
-            setActive({ session: sessionId })
-              .then(() => navigate('/dashboard', true))
-              .catch(() => navigate('/dashboard', true));
-          } else {
-            navigate('/dashboard', true);
-          }
-        } catch {
-          navigate('/dashboard', true);
-        }
-      }
-    };
-    window.addEventListener('message', onMessage);
-  }, [siteOrigin, setActive]);
+  // Removed popup-based OAuth; rely on standard redirect flows.
 
   const handleGoogleSignIn = useCallback(async () => {
-    if (isMiroEmbed) {
-      startOAuthPopup('google');
-      return;
-    }
     if (!isSignInLoaded || !signIn) return;
     try {
       await signIn.authenticateWithRedirect({
@@ -569,7 +460,7 @@ const App: React.FC = () => {
     } catch (err) {
       console.error('Google sign-in redirect failed', err);
     }
-  }, [isMiroEmbed, isSignInLoaded, signIn, startOAuthPopup]);
+  }, [isSignInLoaded, signIn]);
 
   const handleSwitchAuthMode = useCallback((mode: 'signin' | 'signup') => {
     setAuthMode(mode);
@@ -991,28 +882,8 @@ const App: React.FC = () => {
     });
   }, [markAllNotificationsRead]);
 
-  const preference = userSettings?.workspace.theme ?? 'system';
+  const preference: ThemePref = (userSettings?.workspace.theme ?? 'system') as ThemePref;
   const isDark = useThemePreference(preference);
-
-  // Minimal pages for OAuth popup routing
-  if (route.name === 'oauthStart') {
-    return (
-      <div className="min-h-screen flex items-center justify-center p-6 text-white">
-        <div className="rounded-2xl border border-white/10 bg-black/50 px-6 py-8 text-center shadow-2xl">
-          <p className="text-sm text-white/70">Redirecting to Google…</p>
-        </div>
-      </div>
-    );
-  }
-  if (route.name === 'oauthComplete') {
-    return (
-      <div className="min-h-screen flex items-center justify-center p-6 text-white">
-        <div className="rounded-2xl border border-white/10 bg-black/50 px-6 py-8 text-center shadow-2xl">
-          <p className="text-sm text-white/70">Finishing sign‑in… You can close this window.</p>
-        </div>
-      </div>
-    );
-  }
 
   return (
     // Rely on body.theme-dark / body.theme-light from useThemePreference + index.css
