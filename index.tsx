@@ -7,11 +7,14 @@ import { ConvexReactClient } from 'convex/react';
 import { ConvexProviderWithClerk } from 'convex/react-clerk';
 import './index.css';
 
-const convexUrl = import.meta.env.VITE_CONVEX_URL;
+// Prefer self-hosted Convex URL if provided; fallback to legacy VITE_CONVEX_URL
+const convexUrl =
+  (import.meta as any)?.env?.VITE_CONVEX_SELF_HOSTED_URL ||
+  (import.meta as any)?.env?.VITE_CONVEX_URL;
 const clerkPublishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
 
 if (!convexUrl) {
-  throw new Error('Missing VITE_CONVEX_URL environment variable');
+  throw new Error('Missing VITE_CONVEX_SELF_HOSTED_URL or VITE_CONVEX_URL environment variable');
 }
 
 if (!clerkPublishableKey) {
