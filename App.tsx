@@ -266,6 +266,7 @@ const App: React.FC = () => {
 
   const ensureUser = useMutation(api.users.ensure);
   const ensuredRef = useRef(false);
+  const ensureAttemptsRef = useRef(0);
   const createProject = useMutation(api.projects.create);
   const updateProject = useMutation(api.projects.update);
   const deleteProject = useMutation(api.projects.remove);
@@ -366,9 +367,24 @@ const App: React.FC = () => {
     setEnsureError(null);
     try {
       await ensureUser();
+      ensureAttemptsRef.current = 0;
     } catch (error) {
       console.error('Failed to sync user in Convex', error);
-      setEnsureError('Unable to connect your account to the backend. Please try again.');
+      ensureAttemptsRef.current += 1;
+      const message = (error as any)?.data?.message ?? (error as Error)?.message ?? '';
+      const isTransient =
+        /NOT_AUTHENTICATED/i.test(message) ||
+        /No auth provider/i.test(message) ||
+        /Server Error/i.test(message);
+      if (isTransient && ensureAttemptsRef.current < 3) {
+        setTimeout(() => {
+          if (!ensuredRef.current) {
+            void attemptEnsureUser();
+          }
+        }, 1000 * ensureAttemptsRef.current);
+      } else {
+        setEnsureError('Unable to connect your account to the backend. Please try again.');
+      }
     } finally {
       setIsEnsuringUser(false);
     }
