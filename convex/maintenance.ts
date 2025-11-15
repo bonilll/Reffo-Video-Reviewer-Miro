@@ -228,3 +228,98 @@ export const relinkUserIds = mutation({
     return { updated };
   },
 });
+
+export const rewritePublicUrls = mutation({
+  args: {
+    fromBase: v.string(),
+    toBase: v.string(),
+    dryRun: v.optional(v.boolean()),
+  },
+  async handler(ctx, { fromBase, toBase, dryRun }) {
+    const from = fromBase.replace(/\/$/, "");
+    const to = toBase.replace(/\/$/, "");
+
+    const replaceUrl = (url: any): string | null => {
+      if (typeof url !== 'string' || url.length === 0) return null;
+      if (url === to || url.startsWith(to + '/')) return null; // already correct base
+      if (url === from) return to;
+      if (url.startsWith(from + '/')) {
+        return to + url.slice(from.length);
+      }
+      return null;
+    };
+
+    let updatedVideos = 0;
+    let updatedUsers = 0;
+    let updatedAnnotations = 0;
+    let updatedNotifications = 0;
+
+    // videos: src, thumbnailUrl
+    const videos = await ctx.db.query('videos').collect();
+    for (const vdoc of videos) {
+      const nextSrc = replaceUrl((vdoc as any).src);
+      const nextThumb = replaceUrl((vdoc as any).thumbnailUrl ?? null);
+      if (nextSrc || nextThumb) {
+        updatedVideos++;
+        if (!dryRun) {
+          await ctx.db.patch(vdoc._id, {
+            src: nextSrc ? nextSrc : vdoc.src,
+            thumbnailUrl: nextThumb ? nextThumb : vdoc.thumbnailUrl,
+          } as any);
+        }
+      }
+    }
+
+    // users: avatar
+    const users = await ctx.db.query('users').collect();
+    for (const u of users) {
+      const nextAvatar = replaceUrl((u as any).avatar ?? null);
+      if (nextAvatar) {
+        updatedUsers++;
+        if (!dryRun) {
+          await ctx.db.patch(u._id as Id<'users'>, { avatar: nextAvatar } as any);
+        }
+      }
+    }
+
+    // annotations: data.src in media payloads
+    const anns = await ctx.db.query('annotations').collect();
+    for (const a of anns) {
+      const data: any = (a as any).data;
+      if (data && typeof data === 'object' && typeof (data as any).src === 'string') {
+        const next = replaceUrl((data as any).src);
+        if (next) {
+          updatedAnnotations++;
+          if (!dryRun) {
+            const nextData = { ...(data as any), src: next };
+            await ctx.db.patch(a._id as Id<'annotations'>, { data: nextData } as any);
+          }
+        }
+      }
+    }
+
+    // notifications: previewUrl
+    const notes = await ctx.db.query('notifications').collect();
+    for (const n of notes) {
+      const nextPrev = replaceUrl((n as any).previewUrl ?? null);
+      if (nextPrev) {
+        updatedNotifications++;
+        if (!dryRun) {
+          await ctx.db.patch(n._id as Id<'notifications'>, { previewUrl: nextPrev } as any);
+        }
+      }
+    }
+
+    return {
+      dryRun: !!dryRun,
+      from,
+      to,
+      updated: {
+        videos: updatedVideos,
+        users: updatedUsers,
+        annotations: updatedAnnotations,
+        notifications: updatedNotifications,
+      },
+    };
+  },
+});
