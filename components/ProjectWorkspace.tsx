@@ -4,7 +4,8 @@ import { Video, Project, ContentShare } from '../types';
 import { useThemePreference } from '../useTheme';
 import { useQuery, useMutation } from 'convex/react';
 import { api } from '../convex/_generated/api';
-import lottieSaved from '../assets/animations/saved.json?url';
+import lottieSavedRaw from '../assets/animations/saved.json?raw';
+const lottieSaved = `data:application/json;charset=utf-8,${encodeURIComponent(lottieSavedRaw as unknown as string)}`;
 import {
   VideoActionsMenu,
   RenameVideoModal,

@@ -16,7 +16,8 @@ import {
   Loader2,
 } from 'lucide-react';
 import { applyTheme, useThemePreference } from '../useTheme';
-import lottieLoader from '../assets/animations/Loader.json?url';
+import lottieLoaderRaw from '../assets/animations/Loader.json?raw';
+const lottieLoader = `data:application/json;charset=utf-8,${encodeURIComponent(lottieLoaderRaw as unknown as string)}`;
 
 interface ProfileSettingsProps {
   user: {

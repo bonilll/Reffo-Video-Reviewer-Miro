@@ -26,7 +26,8 @@ import {
   ChevronDown,
 } from 'lucide-react';
 // Ensure saved animation is included in build output
-import lottieSaved from '../assets/animations/saved.json?url';
+import lottieSavedRaw from '../assets/animations/saved.json?raw';
+const lottieSaved = `data:application/json;charset=utf-8,${encodeURIComponent(lottieSavedRaw as unknown as string)}`;
 import { useMutation, useQuery } from 'convex/react';
 import { api } from '../convex/_generated/api';
 import { Project, Video, ShareGroup, ContentShare } from '../types';
