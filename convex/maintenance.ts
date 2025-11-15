@@ -1,6 +1,7 @@
 import { mutation } from "./_generated/server";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
+import { query } from "./_generated/server";
 
 function pickCanonical(users: Array<any>) {
   if (users.length === 0) return null;
@@ -321,5 +322,73 @@ export const rewritePublicUrls = mutation({
         notifications: updatedNotifications,
       },
     };
+  },
+});
+
+export const scanPublicUrlPrefixes = query({
+  args: {},
+  async handler(ctx) {
+    const prefixes = (url: any): string | null => {
+      if (typeof url !== 'string' || url.length === 0) return null;
+      try {
+        const u = new URL(url);
+        // origin + first path segment (bucket name in path-style addressing)
+        const first = u.pathname.split('/').filter(Boolean)[0] ?? '';
+        if (!first) return u.origin;
+        return `${u.origin}/${first}`;
+      } catch {
+        return null;
+      }
+    };
+
+    const add = (map: Record<string, number>, key: string | null) => {
+      if (!key) return;
+      map[key] = (map[key] ?? 0) + 1;
+    };
+
+    const videos = await ctx.db.query('videos').collect();
+    const users = await ctx.db.query('users').collect();
+    const anns = await ctx.db.query('annotations').collect();
+    const notes = await ctx.db.query('notifications').collect();
+
+    const out = {
+      videos: { src: {} as Record<string, number>, thumbnailUrl: {} as Record<string, number> },
+      users: { avatar: {} as Record<string, number> },
+      annotations: { dataSrc: {} as Record<string, number> },
+      notifications: { previewUrl: {} as Record<string, number> },
+      samples: {
+        videos: [] as Array<{ id: Id<'videos'>; src?: string; thumbnailUrl?: string }>,
+        users: [] as Array<{ id: Id<'users'>; avatar?: string }>,
+        annotations: [] as Array<{ id: Id<'annotations'>; src?: string }>,
+        notifications: [] as Array<{ id: Id<'notifications'>; previewUrl?: string }>,
+      },
+    };
+
+    for (const vdoc of videos) {
+      add(out.videos.src, prefixes((vdoc as any).src));
+      add(out.videos.thumbnailUrl, prefixes((vdoc as any).thumbnailUrl ?? null));
+    }
+    for (const u of users) {
+      add(out.users.avatar, prefixes((u as any).avatar ?? null));
+    }
+    for (const a of anns) {
+      const data: any = (a as any).data;
+      const src = data && typeof data === 'object' ? (data as any).src : undefined;
+      if (typeof src === 'string') add(out.annotations.dataSrc, prefixes(src));
+    }
+    for (const n of notes) {
+      add(out.notifications.previewUrl, prefixes((n as any).previewUrl ?? null));
+    }
+
+    // add up to a few samples for convenience
+    out.samples.videos = videos.slice(0, 5).map((v: any) => ({ id: v._id, src: v.src, thumbnailUrl: v.thumbnailUrl }));
+    out.samples.users = users.slice(0, 5).map((u: any) => ({ id: u._id, avatar: u.avatar }));
+    out.samples.annotations = anns
+      .filter((a: any) => a?.data && typeof a.data === 'object' && typeof a.data.src === 'string')
+      .slice(0, 5)
+      .map((a: any) => ({ id: a._id, src: a.data.src }));
+    out.samples.notifications = notes.slice(0, 5).map((n: any) => ({ id: n._id, previewUrl: (n as any).previewUrl }));
+
+    return out;
   },
 });
