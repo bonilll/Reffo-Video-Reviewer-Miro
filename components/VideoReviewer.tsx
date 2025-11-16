@@ -147,6 +147,14 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
 
   const videoId = video.id as Id<'videos'>;
 
+  // When annotations are hidden, also hide comment bubbles/popovers on canvas
+  useEffect(() => {
+    if (!showAnnotations) {
+      setActiveCommentPopoverId(null);
+      setPendingComment(null);
+    }
+  }, [showAnnotations]);
+
   const annotationsQuery = useQuery(api.annotations.listByVideo, { videoId });
   const commentsQuery = useQuery(api.comments.listByVideo, { videoId });
 
@@ -1589,7 +1597,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
                   shapeFillOpacity={shapeFillOpacity}
                   selectedAnnotationIds={selectedAnnotationIds}
                   setSelectedAnnotationIds={setSelectedAnnotationIds}
-                  comments={comments}
+                  comments={showAnnotations ? comments : []}
                   activeCommentId={activeCommentId}
                   onCommentPlacement={handleCommentPlacement}
                   activeCommentPopoverId={activeCommentPopoverId}
