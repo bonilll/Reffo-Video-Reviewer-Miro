@@ -190,6 +190,8 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [loopEnabled, setLoopEnabled] = useState(false);
   const [videoWidthPx, setVideoWidthPx] = useState(0);
+  // Preserve a stable controls width so the bottom control bar doesn't jump when compare is active
+  const baseControlsWidthRef = useRef<number>(0);
   const [effectiveFps, setEffectiveFps] = useState<number>(Math.max(1, Math.floor(video.fps || 24)));
   const [fpsDetected, setFpsDetected] = useState<boolean>(false);
 
@@ -507,6 +509,13 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
     const w = videoRef.current?.getBoundingClientRect().width ?? 0;
     setVideoWidthPx(w);
   }, []);
+
+  // When not in side-by-side compare, learn/update the stable width for controls
+  useEffect(() => {
+    if (!compareSource || compareMode === 'overlay') {
+      if (videoWidthPx > 0) baseControlsWidthRef.current = videoWidthPx;
+    }
+  }, [videoWidthPx, compareSource, compareMode]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1794,7 +1803,9 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
               <div
                 ref={controlsEl}
                 className={`${isDark ? 'bg-black border-t border-white/10 text-white' : 'bg-gray-100 border-t border-gray-200 text-gray-900'} flex flex-col gap-3 px-6 py-3 h-28`}
-                style={{ width: videoWidthPx ? `${videoWidthPx}px` : '100%' }}
+                style={{ width: (compareSource && compareMode !== 'overlay')
+                                ? (baseControlsWidthRef.current ? `${baseControlsWidthRef.current}px` : (videoWidthPx ? `${videoWidthPx}px` : '100%'))
+                                : (videoWidthPx ? `${videoWidthPx}px` : '100%') }}
               >
                 <div className="flex-1 flex flex-col">
                   <Timeline
