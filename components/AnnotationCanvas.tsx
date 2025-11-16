@@ -102,6 +102,12 @@ interface AlignmentGuide {
   position: number;
   start: number;
   end: number;
+  spacing?: {
+    axis: 'horizontal' | 'vertical';
+    from: Point;
+    to: Point;
+    label: string;
+  };
 }
 
 const SNAP_THRESHOLD = 6;
@@ -811,7 +817,19 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
           const diff = desiredX - nextCenterC.x;
           if (Math.abs(diff) <= SNAP_THRESHOLD) {
             nextCenterC = { ...nextCenterC, x: desiredX };
-            guides.push({ orientation: 'vertical', position: desiredX, start: renderedRect.y, end: renderedRect.y + renderedRect.height });
+            const measureY = clamp(Math.min(left.y, nextCenterC.y) - 24, renderedRect.y + 6, renderedRect.y + renderedRect.height - 6);
+            guides.push({
+              orientation: 'vertical',
+              position: desiredX,
+              start: renderedRect.y,
+              end: renderedRect.y + renderedRect.height,
+              spacing: {
+                axis: 'horizontal',
+                from: { x: left.x, y: measureY },
+                to: { x: nextCenterC.x, y: measureY },
+                label: `${Math.abs(Math.round(nextCenterC.x - left.x))} px`,
+              },
+            });
           }
         }
       }
@@ -829,7 +847,19 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
           const diff = desiredY - nextCenterC.y;
           if (Math.abs(diff) <= SNAP_THRESHOLD) {
             nextCenterC = { ...nextCenterC, y: desiredY };
-            guides.push({ orientation: 'horizontal', position: desiredY, start: renderedRect.x, end: renderedRect.x + renderedRect.width });
+            const measureX = clamp(nextCenterC.x + 24, renderedRect.x + 6, renderedRect.x + renderedRect.width - 6);
+            guides.push({
+              orientation: 'horizontal',
+              position: desiredY,
+              start: renderedRect.x,
+              end: renderedRect.x + renderedRect.width,
+              spacing: {
+                axis: 'vertical',
+                from: { x: measureX, y: top.y },
+                to: { x: measureX, y: nextCenterC.y },
+                label: `${Math.abs(Math.round(nextCenterC.y - top.y))} px`,
+              },
+            });
           }
         }
       }
@@ -1237,7 +1267,19 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
           const diffCanvasX = desiredCenterX - movingMetrics.centerX;
           if (Math.abs(diffCanvasX) <= SNAP_THRESHOLD && renderedRect.width > 0) {
             dx = diffCanvasX / renderedRect.width;
-            guides.push({ orientation: 'vertical', position: desiredCenterX, start: renderedRect.y, end: renderedRect.y + renderedRect.height });
+            const measureY = clamp(movingBox.start.y - 20, renderedRect.y + 6, renderedRect.y + renderedRect.height - 6);
+            guides.push({
+              orientation: 'vertical',
+              position: desiredCenterX,
+              start: renderedRect.y,
+              end: renderedRect.y + renderedRect.height,
+              spacing: {
+                axis: 'horizontal',
+                from: { x: leftEdge, y: measureY },
+                to: { x: desiredLeft, y: measureY },
+                label: `${Math.abs(Math.round(desiredLeft - leftEdge))} px`,
+              },
+            });
           }
         }
 
@@ -1259,7 +1301,19 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
           const diffCanvasY = desiredCenterY - movingMetrics.centerY;
           if (Math.abs(diffCanvasY) <= SNAP_THRESHOLD && renderedRect.height > 0) {
             dy = diffCanvasY / renderedRect.height;
-            guides.push({ orientation: 'horizontal', position: desiredCenterY, start: renderedRect.x, end: renderedRect.x + renderedRect.width });
+            const measureX = clamp(movingBox.start.x - 24, renderedRect.x + 6, renderedRect.x + renderedRect.width - 6);
+            guides.push({
+              orientation: 'horizontal',
+              position: desiredCenterY,
+              start: renderedRect.x,
+              end: renderedRect.x + renderedRect.width,
+              spacing: {
+                axis: 'vertical',
+                from: { x: measureX, y: topEdge },
+                to: { x: measureX, y: desiredTop },
+                label: `${Math.abs(Math.round(desiredTop - topEdge))} px`,
+              },
+            });
           }
         }
       }
@@ -1585,31 +1639,100 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
 
       {renderedRect && alignmentGuides.length > 0 && (
         <div className="absolute top-0 left-0 w-full h-full pointer-events-none z-30">
-          {alignmentGuides.map((guide, index) =>
-            guide.orientation === 'vertical' ? (
-              <div
-                key={`guide-vertical-${index}`}
+          {alignmentGuides.map((guide, index) => {
+            const key = `guide-${guide.orientation}-${index}`;
+            const line = guide.orientation === 'vertical'
+              ? (
+                <div
+                  key={key}
                   className="absolute bg-amber-400/80"
-                style={{
-                  left: `${guide.position}px`,
-                  top: `${guide.start}px`,
-                  width: '1px',
-                  height: `${guide.end - guide.start}px`,
-                }}
-              />
-            ) : (
-              <div
-                key={`guide-horizontal-${index}`}
+                  style={{
+                    left: `${guide.position}px`,
+                    top: `${guide.start}px`,
+                    width: '1px',
+                    height: `${guide.end - guide.start}px`,
+                  }}
+                />
+              ) : (
+                <div
+                  key={key}
                   className="absolute bg-amber-400/80"
-                style={{
-                  top: `${guide.position}px`,
-                  left: `${guide.start}px`,
-                  height: '1px',
-                  width: `${guide.end - guide.start}px`,
-                }}
-              />
-            )
-          )}
+                  style={{
+                    top: `${guide.position}px`,
+                    left: `${guide.start}px`,
+                    height: '1px',
+                    width: `${guide.end - guide.start}px`,
+                  }}
+                />
+              );
+            return (
+              <React.Fragment key={key}>
+                {line}
+                {guide.spacing && (() => {
+                  const spacing = guide.spacing;
+                  if (spacing.axis === 'horizontal') {
+                    const x = Math.min(spacing.from.x, spacing.to.x);
+                    const width = Math.abs(spacing.to.x - spacing.from.x);
+                    const y = spacing.from.y;
+                    if (width < 2) return null;
+                    const labelLeft = x + width / 2;
+                    const labelTop = y - 14;
+                    return (
+                      <React.Fragment key={`${key}-spacing`}>
+                        <div
+                          className="absolute bg-amber-300"
+                          style={{ left: `${x}px`, top: `${y}px`, width: `${width}px`, height: '1px' }}
+                        />
+                        <div
+                          className="absolute h-2 w-[1px] bg-amber-300"
+                          style={{ left: `${spacing.from.x}px`, top: `${y - 3}px` }}
+                        />
+                        <div
+                          className="absolute h-2 w-[1px] bg-amber-300"
+                          style={{ left: `${spacing.to.x}px`, top: `${y - 3}px` }}
+                        />
+                        <div
+                          className="absolute text-[10px] font-semibold text-gray-900 bg-amber-100 px-1.5 py-0.5 rounded-full shadow"
+                          style={{ left: `${labelLeft}px`, top: `${labelTop}px`, transform: 'translate(-50%, -50%)' }}
+                        >
+                          {spacing.label}
+                        </div>
+                      </React.Fragment>
+                    );
+                  } else {
+                    const y = Math.min(spacing.from.y, spacing.to.y);
+                    const height = Math.abs(spacing.to.y - spacing.from.y);
+                    const x = spacing.from.x;
+                    if (height < 2) return null;
+                    const labelLeft = x + 14;
+                    const labelTop = y + height / 2;
+                    return (
+                      <React.Fragment key={`${key}-spacing`}>
+                        <div
+                          className="absolute bg-amber-300"
+                          style={{ left: `${x}px`, top: `${y}px`, width: '1px', height: `${height}px` }}
+                        />
+                        <div
+                          className="absolute w-2 h-[1px] bg-amber-300"
+                          style={{ left: `${x - 1}px`, top: `${spacing.from.y}px` }}
+                        />
+                        <div
+                          className="absolute w-2 h-[1px] bg-amber-300"
+                          style={{ left: `${x - 1}px`, top: `${spacing.to.y}px` }}
+                        />
+                        <div
+                          className="absolute text-[10px] font-semibold text-gray-900 bg-amber-100 px-1.5 py-0.5 rounded-full shadow"
+                          style={{ left: `${labelLeft}px`, top: `${labelTop}px`, transform: 'translate(-50%, -50%)' }}
+                        >
+                          {spacing.label}
+                        </div>
+                      </React.Fragment>
+                    );
+                  }
+                })()}
+              </React.Fragment>
+            );
+          })}
         </div>
       )}
       
