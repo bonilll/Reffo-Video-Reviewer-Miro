@@ -385,7 +385,7 @@ const CommentItem: React.FC<CommentProps & { mentionOptions?: MentionOption[] }>
                 </div>
               )}
             </div>
-            <button type="submit" className="bg-white text-black px-3 py-1.5 rounded-full text-xs font-semibold hover:bg-white/90">Send</button>
+            <button type="submit" className="bg-black text-gray-50 px-3 py-1.5 rounded-full text-xs font-semibold hover:bg-black/90">Send</button>
           </form>
         </div>
       )}

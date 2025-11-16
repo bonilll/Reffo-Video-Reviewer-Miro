@@ -400,7 +400,7 @@ const CommentPopover: React.FC<CommentPopoverProps> = ({
                     className={`${isDark ? 'w-full bg-white/5 border border-white/10 rounded-full px-3 py-1.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-white' : 'w-full bg-gray-50 border border-gray-300 rounded-full px-3 py-1.5 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900'}`}
                     ref={inputRef}
                 />
-                <button type="submit" className={`${isDark ? 'bg-white text-black hover:bg-white/90' : 'bg-black text-white hover:bg-black/90'} p-2 rounded-full text-sm font-semibold flex-shrink-0`} title="Reply">
+                <button type="submit" className={`${isDark ? 'bg-white text-black hover:bg-white/90' : 'bg-black text-gray-50 hover:bg-black/90'} p-2 rounded-full text-sm font-semibold flex-shrink-0`} title="Reply">
                     <CornerDownRight size={16} />
                 </button>
                 {suggestOpen && suggestions.length > 0 && (

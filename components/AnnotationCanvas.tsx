@@ -1885,9 +1885,7 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
                     className={`absolute -top-1 -left-1 text-[10px] font-bold min-w-[1.5rem] h-5 px-1.5 rounded-full flex items-center justify-center ring-2 ${
                       mentionAlert.unread
                         ? 'bg-red-500 text-white ring-red-400/70'
-                        : isDark
-                          ? 'bg-gray-900/80 text-white ring-gray-900/50'
-                          : 'bg-white text-gray-900 ring-gray-300'
+                        : 'bg-gray-900/80 text-gray-50 ring-gray-900/50'
                     }`}
                   >
                     @
@@ -1899,9 +1897,7 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
                   className={`absolute -top-1 -right-1 text-[10px] font-bold min-w-[1.5rem] h-5 px-1.5 rounded-full flex items-center justify-center ring-2 ${
                     isThreadUnread
                       ? 'bg-red-500 text-white ring-red-400/70'
-                      : isDark
-                        ? 'bg-gray-900/80 text-white ring-gray-900/50'
-                        : 'bg-white text-gray-900 ring-gray-300'
+                      : 'bg-gray-900/80 text-gray-50 ring-gray-900/50'
                   }`}
                 >
                   {conversationSize}

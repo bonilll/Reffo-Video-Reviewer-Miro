@@ -104,7 +104,7 @@ const Timeline: React.FC<TimelineProps> = ({ currentTime, duration, onSeek, vide
         >
           <div className={`${isDark ? 'bg-white' : 'bg-gray-900'}`} style={{ width: 1, height: 24 }} />
           <div
-            className={`${isDark ? 'bg-white text-black ring-1 ring-black/10' : 'bg-gray-900 text-white ring-1 ring-white/15'} ml-1 rounded-md px-2 py-0.5 text-[10px] font-semibold shadow-md whitespace-nowrap`}
+            className={`${isDark ? 'bg-white text-black ring-1 ring-black/10' : 'bg-gray-900 text-gray-50 ring-1 ring-white/15'} ml-1 rounded-md px-2 py-0.5 text-[10px] font-semibold shadow-md whitespace-nowrap`}
             title={`Frame ${currentFrameNumber}`}
           >
             {currentFrameNumber}

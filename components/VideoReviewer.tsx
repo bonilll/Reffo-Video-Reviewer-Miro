@@ -190,6 +190,13 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [loopEnabled, setLoopEnabled] = useState(false);
   const [videoWidthPx, setVideoWidthPx] = useState(0);
+  const [effectiveFps, setEffectiveFps] = useState<number>(Math.max(1, Math.floor(video.fps || 24)));
+  const [fpsDetected, setFpsDetected] = useState<boolean>(false);
+
+  // Reset FPS detection marker when switching video/source
+  useEffect(() => {
+    setFpsDetected(false);
+  }, [video.id, playbackUrl]);
   const [compareModalOpen, setCompareModalOpen] = useState(false);
   const [compareSource, setCompareSource] = useState<{ url: string; name: string; objectUrl?: boolean } | null>(null);
   const [compareMode, setCompareMode] = useState<CompareMode>('overlay');
@@ -1375,8 +1382,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
     const s = Math.floor(secs % 60).toString().padStart(2, '0');
     return `${m}:${s}`;
   }, []);
-
-  const [effectiveFps, setEffectiveFps] = useState<number>(Math.max(1, Math.floor(video.fps || 24)));
+  
   const headerDuration = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : (duration || 0);
 
   return (
@@ -1409,7 +1415,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
               {video.title}
             </h1>
             <div className={`${isDark ? 'text-white/50' : 'text-gray-500'} text-[11px]`}> 
-              {video.width}×{video.height} • {effectiveFps} fps • {formatClock(headerDuration)}
+              {video.width}×{video.height} • {fpsDetected ? `${effectiveFps} fps` : '... fps'} • {formatClock(headerDuration)}
             </div>
           </div>
           <div />
@@ -1581,7 +1587,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
                   currentFrame={currentFrame}
                   externalControls
                   onDuration={setDuration}
-                  onFps={(fps) => setEffectiveFps(Math.max(1, Math.round(fps)))}
+                  onFps={(fps) => { setEffectiveFps(Math.max(1, Math.round(fps))); setFpsDetected(true); }}
                   loopEnabled={loopEnabled}
                 />
                 <AnnotationCanvas
@@ -1705,12 +1711,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
                     comments={comments}
                     isDark={isDark}
                   />
-                  <div className={`mt-2 grid grid-cols-[1fr_auto_1fr] items-center text-xs uppercase ${isDark ? 'text-white/70' : 'text-gray-600'}`}>
-                    <div />
-                    <div className="justify-self-end">
-                      <span>{video.width}×{video.height} • {video.fps} fps</span>
-                    </div>
-                  </div>
+                  {/* Removed resolution • fps row under the timeline as requested */}
                 </div>
                 <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-4">
                   {/* Left side: Loop toggle */}

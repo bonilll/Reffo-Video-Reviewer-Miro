@@ -34,6 +34,7 @@ const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
     const [isReady, setIsReady] = useState(false);
 
     const fpsRef = useRef(Math.max(1, Math.floor(video.fps || 24)));
+    const hasReportedFpsRef = useRef(false);
     const lastSampleRef = useRef<{ frames: number; mediaTime: number; wall: number } | null>(null);
 
     const formatTime = (timeInSeconds: number) => {
@@ -73,7 +74,11 @@ const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
             if (raw > 5 && raw < 200) {
               // Smooth update
               const next = Math.round(0.7 * fpsRef.current + 0.3 * raw);
-              if (Math.abs(next - fpsRef.current) >= 1) {
+              if (!hasReportedFpsRef.current) {
+                fpsRef.current = next;
+                hasReportedFpsRef.current = true;
+                onFps?.(next);
+              } else if (Math.abs(next - fpsRef.current) >= 1) {
                 fpsRef.current = next;
                 onFps?.(next);
               }
@@ -94,6 +99,7 @@ const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
       const handleLoadedMetadata = () => {
         setDuration(videoElement.duration);
         if (onDuration) onDuration(videoElement.duration);
+        hasReportedFpsRef.current = false;
       };
       const handleCanPlay = () => setIsReady(true);
       const handleError = () => setIsReady(false);
@@ -124,7 +130,11 @@ const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
                   const raw = dF / dT;
                   if (raw > 5 && raw < 200) {
                     const next = Math.round(0.7 * fpsRef.current + 0.3 * raw);
-                    if (Math.abs(next - fpsRef.current) >= 1) {
+                    if (!hasReportedFpsRef.current) {
+                      fpsRef.current = next;
+                      hasReportedFpsRef.current = true;
+                      onFps?.(next);
+                    } else if (Math.abs(next - fpsRef.current) >= 1) {
                       fpsRef.current = next;
                       onFps?.(next);
                     }
@@ -266,11 +276,11 @@ const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
                 annotations={annotations}
                 comments={comments}
             />
-            <div className="flex items-center justify-between text-white/80 text-xs uppercase">
+            <div className="flex items-center justify-start text-white/80 text-xs uppercase">
                 <button onClick={() => setTimeDisplayMode(mode => mode === 'frame' ? 'time' : 'frame')} className="px-3 py-1 rounded-full bg-white/10 hover:bg-white/20 text-white/70">
                     {timeDisplayMode === 'frame' ? `${currentFrame} f` : formatTime(videoRef.current?.currentTime || 0)}
                 </button>
-                <span>{video.width}×{video.height} • {Math.max(1, fpsRef.current)} fps</span>
+                {/* Removed resolution • fps display under timeline as requested */}
             </div>
             <div className="flex items-center justify-between text-white">
                 <div className="flex items-center gap-2">
