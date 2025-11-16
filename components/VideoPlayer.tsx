@@ -17,10 +17,11 @@ interface VideoPlayerProps {
   externalControls?: boolean;
   onDuration?: (duration: number) => void;
   loopEnabled?: boolean;
+  onFps?: (fps: number) => void;
 }
 
 const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
-  ({ video, sourceUrl, isPlaying, setIsPlaying, onTimeUpdate, annotations, comments, onSeek, currentFrame, externalControls, onDuration, loopEnabled }, ref) => {
+  ({ video, sourceUrl, isPlaying, setIsPlaying, onTimeUpdate, annotations, comments, onSeek, currentFrame, externalControls, onDuration, loopEnabled, onFps }, ref) => {
     const localRef = useRef<HTMLVideoElement>(null);
     const videoRef = (ref || localRef) as React.RefObject<HTMLVideoElement>;
     const containerRef = useRef<HTMLDivElement>(null);
@@ -32,25 +33,59 @@ const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [isReady, setIsReady] = useState(false);
 
+    const fpsRef = useRef(Math.max(1, Math.floor(video.fps || 24)));
+    const lastSampleRef = useRef<{ frames: number; mediaTime: number; wall: number } | null>(null);
+
     const formatTime = (timeInSeconds: number) => {
         const seconds = Math.floor(timeInSeconds % 60).toString().padStart(2, '0');
         const minutes = Math.floor((timeInSeconds / 60) % 60).toString().padStart(2, '0');
-        const frame = Math.floor((timeInSeconds * video.fps) % video.fps).toString().padStart(2, '0');
+        const f = Math.max(1, fpsRef.current);
+        const frame = Math.floor((timeInSeconds * f) % f).toString().padStart(2, '0');
         return `${minutes}:${seconds}:${frame}`;
     };
     
-    const totalFrames = useMemo(() => Math.floor(duration * video.fps), [duration, video.fps]);
+    const totalFrames = useMemo(() => Math.floor(duration * Math.max(1, fpsRef.current)), [duration]);
 
-    const handleFrameUpdate = useCallback(() => {
+    const handleFrameUpdate = useCallback((now?: any, metadata?: any) => {
       if (!videoRef.current) return;
       const time = videoRef.current.currentTime;
-      const frame = Math.round(time * video.fps);
+      const frame = Math.round(time * Math.max(1, fpsRef.current));
       onTimeUpdate(time, frame);
+      // FPS estimation using requestVideoFrameCallback metadata when available
+      try {
+        const presented = metadata?.presentedFrames;
+        const mediaTime = typeof metadata?.mediaTime === 'number' ? metadata.mediaTime : time;
+        const wall = typeof now === 'number' ? now : performance.now();
+        let framesNow: number | null = null;
+        if (typeof presented === 'number') {
+          framesNow = presented;
+        } else if (typeof (videoRef.current as any).getVideoPlaybackQuality === 'function') {
+          const q = (videoRef.current as any).getVideoPlaybackQuality();
+          if (q && typeof q.totalVideoFrames === 'number') framesNow = q.totalVideoFrames as number;
+        }
+        if (framesNow !== null) {
+          const prev = lastSampleRef.current;
+          lastSampleRef.current = { frames: framesNow, mediaTime, wall };
+          if (prev && framesNow > prev.frames) {
+            const dF = framesNow - prev.frames;
+            const dT = Math.max(0.001, mediaTime - prev.mediaTime);
+            const raw = dF / dT;
+            if (raw > 5 && raw < 200) {
+              // Smooth update
+              const next = Math.round(0.7 * fpsRef.current + 0.3 * raw);
+              if (Math.abs(next - fpsRef.current) >= 1) {
+                fpsRef.current = next;
+                onFps?.(next);
+              }
+            }
+          }
+        }
+      } catch {}
       
       if ('requestVideoFrameCallback' in videoRef.current) {
         (videoRef.current as any).requestVideoFrameCallback(handleFrameUpdate);
       }
-    }, [onTimeUpdate, video.fps, videoRef]);
+    }, [onTimeUpdate, onFps, videoRef]);
 
     useEffect(() => {
       const videoElement = videoRef.current;
@@ -75,8 +110,29 @@ const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
         intervalId = window.setInterval(() => {
             if (!videoRef.current) return;
             const time = videoRef.current.currentTime;
-            onTimeUpdate(time, Math.round(time * video.fps));
-        }, 1000 / video.fps);
+            onTimeUpdate(time, Math.round(time * Math.max(1, fpsRef.current)));
+            // Try sampling frames via playback quality
+            try {
+              const q = (videoRef.current as any).getVideoPlaybackQuality?.();
+              if (q && typeof q.totalVideoFrames === 'number') {
+                const now = performance.now();
+                const prev = lastSampleRef.current;
+                lastSampleRef.current = { frames: q.totalVideoFrames, mediaTime: time, wall: now };
+                if (prev && q.totalVideoFrames > prev.frames) {
+                  const dF = q.totalVideoFrames - prev.frames;
+                  const dT = Math.max(0.001, time - prev.mediaTime);
+                  const raw = dF / dT;
+                  if (raw > 5 && raw < 200) {
+                    const next = Math.round(0.7 * fpsRef.current + 0.3 * raw);
+                    if (Math.abs(next - fpsRef.current) >= 1) {
+                      fpsRef.current = next;
+                      onFps?.(next);
+                    }
+                  }
+                }
+              }
+            } catch {}
+        }, Math.max(16, Math.round(1000 / Math.max(24, fpsRef.current))));
       }
       
       return () => {
@@ -214,16 +270,16 @@ const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
                 <button onClick={() => setTimeDisplayMode(mode => mode === 'frame' ? 'time' : 'frame')} className="px-3 py-1 rounded-full bg-white/10 hover:bg-white/20 text-white/70">
                     {timeDisplayMode === 'frame' ? `${currentFrame} f` : formatTime(videoRef.current?.currentTime || 0)}
                 </button>
-                <span>{video.width}×{video.height} • {video.fps} fps</span>
+                <span>{video.width}×{video.height} • {Math.max(1, fpsRef.current)} fps</span>
             </div>
             <div className="flex items-center justify-between text-white">
                 <div className="flex items-center gap-2">
                     <button onClick={() => stepFrame(-1)} className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white/80"><Rewind size={18} /></button>
-                    <button onClick={() => stepFrame(-video.fps)} className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white/80"><SkipBack size={18} /></button>
+                    <button onClick={() => stepFrame(-fpsRef.current)} className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white/80"><SkipBack size={18} /></button>
                     <button onClick={togglePlayPause} className="p-3 rounded-full bg-white text-black hover:bg-white/90">
                         {isPlaying ? <Pause size={22} /> : <Play size={22} />}
                     </button>
-                    <button onClick={() => stepFrame(video.fps)} className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white/80"><SkipForward size={18} /></button>
+                    <button onClick={() => stepFrame(fpsRef.current)} className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white/80"><SkipForward size={18} /></button>
                     <button onClick={() => stepFrame(1)} className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white/80"><FastForward size={18} /></button>
                 </div>
                 <div className="flex items-center gap-3 text-white/70">

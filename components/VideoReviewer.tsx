@@ -1271,7 +1271,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
     initialFocus,
     comments,
     video.id,
-    video.fps,
+    effectiveFps,
     compareSource,
     compareElements,
     onConsumeInitialFocus,
@@ -1280,9 +1280,10 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
 
   // Derived helpers for external controls
   const stepFrame = useCallback((deltaFrames: number) => {
-    const newTime = Math.max(0, Math.min(duration, (currentFrame + deltaFrames) / video.fps));
+    const fps = Math.max(1, effectiveFps);
+    const newTime = Math.max(0, Math.min(duration, (currentFrame + deltaFrames) / fps));
     handleSeek(newTime);
-  }, [currentFrame, duration, video.fps]);
+  }, [currentFrame, duration, effectiveFps, handleSeek]);
 
   const jumpFrames = useMemo(() => {
     const frames = new Set<number>();
@@ -1301,8 +1302,8 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
       targetFrame = reversed.find(f => f < currentFrame);
       if (targetFrame === undefined && jumpFrames.length) targetFrame = jumpFrames[jumpFrames.length - 1];
     }
-    if (targetFrame !== undefined) handleSeek(targetFrame / video.fps);
-  }, [jumpFrames, currentFrame, handleSeek, video.fps]);
+    if (targetFrame !== undefined) handleSeek(targetFrame / Math.max(1, effectiveFps));
+  }, [jumpFrames, currentFrame, handleSeek, effectiveFps]);
 
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -1375,6 +1376,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
     return `${m}:${s}`;
   }, []);
 
+  const [effectiveFps, setEffectiveFps] = useState<number>(Math.max(1, Math.floor(video.fps || 24)));
   const headerDuration = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : (duration || 0);
 
   return (
@@ -1407,7 +1409,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
               {video.title}
             </h1>
             <div className={`${isDark ? 'text-white/50' : 'text-gray-500'} text-[11px]`}> 
-              {video.width}×{video.height} • {video.fps} fps • {formatClock(headerDuration)}
+              {video.width}×{video.height} • {effectiveFps} fps • {formatClock(headerDuration)}
             </div>
           </div>
           <div />
@@ -1579,6 +1581,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
                   currentFrame={currentFrame}
                   externalControls
                   onDuration={setDuration}
+                  onFps={(fps) => setEffectiveFps(Math.max(1, Math.round(fps)))}
                   loopEnabled={loopEnabled}
                 />
                 <AnnotationCanvas
