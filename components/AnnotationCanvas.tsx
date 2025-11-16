@@ -1030,11 +1030,17 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
         case AnnotationTool.RECTANGLE:
         case AnnotationTool.ELLIPSE: {
           if ((prev as any).start && e.shiftKey && renderedRect) {
-            const start = (prev as any).start as Point;
-            const dx = pos.normalized.x - start.x;
-            const dy = pos.normalized.y - start.y;
-            const size = Math.max(Math.abs(dx), Math.abs(dy));
-            const end = { x: start.x + Math.sign(dx || 1) * size, y: start.y + Math.sign(dy || 1) * size };
+            // Enforce perfect square/circle in canvas pixel space
+            const startN = (prev as any).start as Point;
+            const startC = geo.normalizedToCanvas(startN, renderedRect);
+            const dxC = pos.canvas.x - startC.x;
+            const dyC = pos.canvas.y - startC.y;
+            const sizeC = Math.max(Math.abs(dxC), Math.abs(dyC));
+            const endC = {
+              x: startC.x + (dxC === 0 ? sizeC : Math.sign(dxC) * sizeC),
+              y: startC.y + (dyC === 0 ? sizeC : Math.sign(dyC) * sizeC),
+            };
+            const end = geo.canvasToNormalized(endC, renderedRect);
             return { ...prev, end };
           }
           return { ...prev, end: pos.normalized };
