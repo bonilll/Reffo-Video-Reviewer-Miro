@@ -567,7 +567,8 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
         el.addEventListener('loadedmetadata', sync, { once: true });
       }
     });
-  }, [compareSource, loopEnabled, isPlaying, compareElements]);
+    // Also resync when layout/mode changes so newly mounted element plays
+  }, [compareSource, compareMode, loopEnabled, isPlaying, compareElements]);
 
   useEffect(() => {
     const els = compareElements();
@@ -580,7 +581,8 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
         el.pause();
       }
     });
-  }, [isPlaying, compareSource, compareElements]);
+    // Ensure play/pause is applied when switching between overlay/side-by-side
+  }, [isPlaying, compareSource, compareMode, compareElements]);
 
   const convertAnnotationFromServer = useCallback((doc: any): Annotation => {
     const { id, videoId: docVideoId, authorId, createdAt, ...rest } = doc;
@@ -1666,12 +1668,45 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
                 </div>
                 <div className="mt-3 flex items-center justify-between text-[11px]">
                   <span>Mode</span>
-                  <button
-                    onClick={openCompareModal}
-                    className={`${isDark ? 'bg-white/10 hover:bg-white/20 text-white' : 'bg-black/5 hover:bg-black/10 text-gray-800'} px-3 py-1 rounded-full text-[11px] font-semibold`}
-                  >
-                    {compareMode === 'overlay' ? 'Overlay' : compareMode === 'side-by-side-horizontal' ? 'Horizontal' : 'Vertical'}
-                  </button>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => setCompareMode('overlay')}
+                      className={`${compareMode === 'overlay'
+                        ? (isDark ? 'bg-white/20 text-white' : 'bg-black/10 text-gray-900')
+                        : (isDark ? 'bg-white/10 text-white/70 hover:bg-white/20' : 'bg-black/5 text-gray-700 hover:bg-black/10')}
+                        px-2.5 py-1 rounded-full text-[11px] font-semibold`}
+                      title="Overlay"
+                    >
+                      Overlay
+                    </button>
+                    <button
+                      onClick={() => setCompareMode('side-by-side-horizontal')}
+                      className={`${compareMode === 'side-by-side-horizontal'
+                        ? (isDark ? 'bg-white/20 text-white' : 'bg-black/10 text-gray-900')
+                        : (isDark ? 'bg-white/10 text-white/70 hover:bg-white/20' : 'bg-black/5 text-gray-700 hover:bg-black/10')}
+                        px-2.5 py-1 rounded-full text-[11px] font-semibold`}
+                      title="Horizontal"
+                    >
+                      H
+                    </button>
+                    <button
+                      onClick={() => setCompareMode('side-by-side-vertical')}
+                      className={`${compareMode === 'side-by-side-vertical'
+                        ? (isDark ? 'bg-white/20 text-white' : 'bg-black/10 text-gray-900')
+                        : (isDark ? 'bg-white/10 text-white/70 hover:bg-white/20' : 'bg-black/5 text-gray-700 hover:bg-black/10')}
+                        px-2.5 py-1 rounded-full text-[11px] font-semibold`}
+                      title="Vertical"
+                    >
+                      V
+                    </button>
+                    <button
+                      onClick={openCompareModal}
+                      className={`${isDark ? 'bg-white/10 hover:bg-white/20 text-white' : 'bg-black/5 hover:bg-black/10 text-gray-800'} px-2.5 py-1 rounded-full text-[11px] font-semibold`}
+                      title="More options"
+                    >
+                      …
+                    </button>
+                  </div>
                 </div>
                 {compareMode === 'overlay' && (
                   <div className="mt-3">
