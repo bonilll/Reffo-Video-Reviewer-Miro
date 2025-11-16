@@ -542,6 +542,39 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
     return els;
   }, []);
 
+  // Smoothly synchronize the comparison element to the main video's time
+  const syncCompareElement = useCallback((el: HTMLVideoElement, mainTime: number) => {
+    if (!el) return;
+    const fps = Math.max(1, effectiveFps);
+    const offsetSec = Math.max(0, compareOffsetFrames) / fps;
+    const target = Math.max(0, mainTime - offsetSec);
+
+    // Before offset: keep paused at 0 for a clean start
+    if (mainTime + 1 / fps < offsetSec) {
+      try { el.pause(); } catch {}
+      try { if (el.currentTime !== 0) el.currentTime = 0; } catch {}
+      el.playbackRate = 1.0;
+      return;
+    }
+
+    const current = el.currentTime || 0;
+    const diff = target - current;
+    const SEEK_THRESHOLD = 0.75; // seconds – bigger jumps seek to avoid drift
+    const RATE_EPSILON = 0.04;   // seconds – tiny diffs use normal rate
+    if (Math.abs(diff) > SEEK_THRESHOLD) {
+      try { el.currentTime = target; } catch {}
+      el.playbackRate = 1.0;
+      if (isPlaying) { const p = el.play(); (p as any)?.catch?.(() => undefined); }
+    } else {
+      // Micro adjust playbackRate to converge smoothly without thrashing seeks
+      // Scale correction by diff (sec) with gentle factor and clamp
+      const correction = 1.0 + diff * 0.6; // 0.6 chosen empirically for quick converge without jitter
+      const rate = Math.max(0.8, Math.min(1.25, correction));
+      el.playbackRate = Math.abs(diff) < RATE_EPSILON ? 1.0 : rate;
+      if (isPlaying) { const p = el.play(); (p as any)?.catch?.(() => undefined); } else { try { el.pause(); } catch {} }
+    }
+  }, [compareOffsetFrames, effectiveFps, isPlaying]);
+
   useEffect(() => {
     const els = compareElements();
     els.forEach((el) => {
@@ -554,15 +587,8 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
       el.muted = true;
       el.loop = loopEnabled;
       const sync = () => {
-        if (videoRef.current && !Number.isNaN(videoRef.current.currentTime)) {
-          const offsetSec = Math.max(0, compareOffsetFrames) / Math.max(1, effectiveFps);
-          const target = Math.max(0, videoRef.current.currentTime - offsetSec);
-          try { el.currentTime = target; } catch {}
-        }
-        if (isPlaying) {
-          const p = el.play();
-          (p as any)?.catch?.(() => undefined);
-        }
+        const mainTime = videoRef.current?.currentTime ?? 0;
+        if (!Number.isNaN(mainTime)) syncCompareElement(el, mainTime);
       };
       if (el.readyState >= 1) {
         sync();
@@ -571,21 +597,17 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
       }
     });
     // Also resync when layout/mode or offset changes so newly mounted element plays in sync
-  }, [compareSource, compareMode, compareOffsetFrames, effectiveFps, loopEnabled, isPlaying, compareElements]);
+  }, [compareSource, compareMode, compareOffsetFrames, effectiveFps, loopEnabled, isPlaying, compareElements, syncCompareElement]);
 
   useEffect(() => {
     const els = compareElements();
     els.forEach((el) => {
       if (!compareSource) return;
-      if (isPlaying) {
-        const p = el.play();
-        (p as any)?.catch?.(() => undefined);
-      } else {
-        el.pause();
-      }
+      const mainTime = videoRef.current?.currentTime ?? 0;
+      if (!Number.isNaN(mainTime)) syncCompareElement(el, mainTime);
     });
-    // Ensure play/pause is applied when switching between overlay/side-by-side
-  }, [isPlaying, compareSource, compareMode, compareElements]);
+    // Ensure play/pause and minor drift corrections when switching between overlay/side-by-side
+  }, [isPlaying, compareSource, compareMode, compareElements, syncCompareElement]);
 
   const convertAnnotationFromServer = useCallback((doc: any): Annotation => {
     const { id, videoId: docVideoId, authorId, createdAt, ...rest } = doc;
@@ -749,14 +771,8 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
     setCurrentTime(time);
     setCurrentFrame(frame);
     if (compareSource) {
-      compareElements().forEach((el) => {
-        const offsetSec = Math.max(0, compareOffsetFrames) / Math.max(1, effectiveFps);
-        const target = Math.max(0, time - offsetSec);
-        const diff = Math.abs((el.currentTime || 0) - target);
-        if (diff > 0.2) {
-          try { el.currentTime = target; } catch {}
-        }
-      });
+      const els = compareElements();
+      for (const el of els) syncCompareElement(el, time);
     }
     if (loopEnabled && duration > 0) {
       // Fallback epsilon equals one frame duration
@@ -1579,10 +1595,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
                         el.muted = true;
                         el.loop = loopEnabled;
                         const t = videoRef.current?.currentTime ?? 0;
-                        const offsetSec = Math.max(0, compareOffsetFrames) / Math.max(1, effectiveFps);
-                        const target = Math.max(0, t - offsetSec);
-                        if (!Number.isNaN(target)) el.currentTime = target;
-                        if (isPlaying) { const p = el.play(); (p as any)?.catch?.(()=>{}); }
+                        syncCompareElement(el, Number.isFinite(t) ? t : 0);
                       } catch {}
                     }}
                   />
@@ -1656,10 +1669,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
                         el.muted = true;
                         el.loop = loopEnabled;
                         const t = videoRef.current?.currentTime ?? 0;
-                        const offsetSec = Math.max(0, compareOffsetFrames) / Math.max(1, effectiveFps);
-                        const target = Math.max(0, t - offsetSec);
-                        if (!Number.isNaN(target)) el.currentTime = target;
-                        if (isPlaying) { const p = el.play(); (p as any)?.catch?.(()=>{}); }
+                        syncCompareElement(el, Number.isFinite(t) ? t : 0);
                       } catch {}
                     }}
                   />
