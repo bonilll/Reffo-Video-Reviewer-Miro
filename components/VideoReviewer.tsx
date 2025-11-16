@@ -201,12 +201,13 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
   const [compareSource, setCompareSource] = useState<{ url: string; name: string; objectUrl?: boolean } | null>(null);
   const [compareMode, setCompareMode] = useState<CompareMode>('overlay');
   const [compareOpacity, setCompareOpacity] = useState(0.6);
-  const [compareDraft, setCompareDraft] = useState<{ url: string | null; name: string | null; objectUrl?: boolean; mode: CompareMode; opacity: number }>({ url: null, name: null, objectUrl: false, mode: 'overlay', opacity: 0.6 });
+  const [compareDraft, setCompareDraft] = useState<{ url: string | null; name: string | null; objectUrl?: boolean; mode: CompareMode; opacity: number; offsetFrames: number }>({ url: null, name: null, objectUrl: false, mode: 'overlay', opacity: 0.6, offsetFrames: 0 });
   const compareVideoOverlayRef = useRef<HTMLVideoElement>(null);
   const compareVideoSideRef = useRef<HTMLVideoElement>(null);
   const draftUrlRef = useRef<string | null>(null);
   const prevCompareUrlRef = useRef<string | null>(null);
   const appliedFocusRef = useRef<string | null>(null);
+  const [compareOffsetFrames, setCompareOffsetFrames] = useState<number>(0);
 
   useEffect(() => {
     // Ensure 'Friends' are synced from groups even when landing directly in reviewer.
@@ -554,7 +555,9 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
       el.loop = loopEnabled;
       const sync = () => {
         if (videoRef.current && !Number.isNaN(videoRef.current.currentTime)) {
-          try { el.currentTime = videoRef.current.currentTime; } catch {}
+          const offsetSec = Math.max(0, compareOffsetFrames) / Math.max(1, effectiveFps);
+          const target = Math.max(0, videoRef.current.currentTime - offsetSec);
+          try { el.currentTime = target; } catch {}
         }
         if (isPlaying) {
           const p = el.play();
@@ -567,8 +570,8 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
         el.addEventListener('loadedmetadata', sync, { once: true });
       }
     });
-    // Also resync when layout/mode changes so newly mounted element plays
-  }, [compareSource, compareMode, loopEnabled, isPlaying, compareElements]);
+    // Also resync when layout/mode or offset changes so newly mounted element plays in sync
+  }, [compareSource, compareMode, compareOffsetFrames, effectiveFps, loopEnabled, isPlaying, compareElements]);
 
   useEffect(() => {
     const els = compareElements();
@@ -606,9 +609,10 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
       objectUrl: false,
       mode: compareMode,
       opacity: compareOpacity,
+      offsetFrames: compareOffsetFrames,
     });
     setCompareModalOpen(true);
-  }, [compareSource, compareMode, compareOpacity]);
+  }, [compareSource, compareMode, compareOpacity, compareOffsetFrames]);
 
   const closeCompareModal = useCallback(() => {
     if (draftUrlRef.current && draftUrlRef.current.startsWith('blob:')) {
@@ -627,6 +631,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
       });
       setCompareMode(compareDraft.mode);
       setCompareOpacity(compareDraft.opacity);
+      setCompareOffsetFrames(compareDraft.offsetFrames || 0);
     } else {
       setCompareSource(null);
     }
@@ -666,6 +671,11 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
 
   const handleDraftOpacityChange = useCallback((value: number) => {
     setCompareDraft(prev => ({ ...prev, opacity: value }));
+  }, []);
+
+  const handleDraftOffsetChange = useCallback((value: number) => {
+    const v = Number.isFinite(value) ? Math.round(value) : 0;
+    setCompareDraft(prev => ({ ...prev, offsetFrames: v }));
   }, []);
 
   const convertCommentFromServer = useCallback((doc: any): Comment => ({
@@ -740,9 +750,11 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
     setCurrentFrame(frame);
     if (compareSource) {
       compareElements().forEach((el) => {
-        const diff = Math.abs((el.currentTime || 0) - time);
+        const offsetSec = Math.max(0, compareOffsetFrames) / Math.max(1, effectiveFps);
+        const target = Math.max(0, time - offsetSec);
+        const diff = Math.abs((el.currentTime || 0) - target);
         if (diff > 0.2) {
-          try { el.currentTime = time; } catch {}
+          try { el.currentTime = target; } catch {}
         }
       });
     }
@@ -1567,7 +1579,9 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
                         el.muted = true;
                         el.loop = loopEnabled;
                         const t = videoRef.current?.currentTime ?? 0;
-                        if (!Number.isNaN(t)) el.currentTime = t;
+                        const offsetSec = Math.max(0, compareOffsetFrames) / Math.max(1, effectiveFps);
+                        const target = Math.max(0, t - offsetSec);
+                        if (!Number.isNaN(target)) el.currentTime = target;
                         if (isPlaying) { const p = el.play(); (p as any)?.catch?.(()=>{}); }
                       } catch {}
                     }}
@@ -1642,7 +1656,9 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
                         el.muted = true;
                         el.loop = loopEnabled;
                         const t = videoRef.current?.currentTime ?? 0;
-                        if (!Number.isNaN(t)) el.currentTime = t;
+                        const offsetSec = Math.max(0, compareOffsetFrames) / Math.max(1, effectiveFps);
+                        const target = Math.max(0, t - offsetSec);
+                        if (!Number.isNaN(target)) el.currentTime = target;
                         if (isPlaying) { const p = el.play(); (p as any)?.catch?.(()=>{}); }
                       } catch {}
                     }}
@@ -1725,6 +1741,40 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
                     />
                   </div>
                 )}
+
+                {/* Offset control (frames) */}
+                <div className="mt-3">
+                  <label className={`flex items-center justify-between text-[11px] uppercase gap-3`}>
+                    <span className={`${isDark ? 'text-white/60' : 'text-gray-600'}`}>Offset</span>
+                    <span className={`${isDark ? 'text-white/80' : 'text-gray-800'}`}>
+                      {compareOffsetFrames} f • ≈ {(compareOffsetFrames / Math.max(1, effectiveFps)).toFixed(2)}s
+                    </span>
+                  </label>
+                  <div className="mt-2 flex items-center gap-2">
+                    <button
+                      onClick={() => setCompareOffsetFrames((v) => Math.max(0, v - 1))}
+                      className={`${isDark ? 'bg-white/10 hover:bg-white/20 text-white' : 'bg-black/5 hover:bg-black/10 text-gray-800'} px-2 py-1 rounded-full text-[11px] font-semibold`}
+                      title="-1 frame"
+                    >
+                      −
+                    </button>
+                    <input
+                      type="number"
+                      min={0}
+                      step={1}
+                      value={compareOffsetFrames}
+                      onChange={(e) => setCompareOffsetFrames(Math.max(0, Math.round(Number(e.target.value) || 0)))}
+                      className={`${isDark ? 'bg-white/10 text-white border-white/10' : 'bg-black/5 text-gray-900 border-gray-300'} w-20 rounded-md border px-2 py-1 text-[11px]`}
+                    />
+                    <button
+                      onClick={() => setCompareOffsetFrames((v) => v + 1)}
+                      className={`${isDark ? 'bg-white/10 hover:bg-white/20 text-white' : 'bg-black/5 hover:bg-black/10 text-gray-800'} px-2 py-1 rounded-full text-[11px] font-semibold`}
+                      title="+1 frame"
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
           </div>
@@ -1795,6 +1845,39 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
                       {isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
                     </button>
                   </div>
+                </div>
+              </div>
+              {/* Offset control */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-xs uppercase">
+                  <span className={`${isDark ? 'text-white/60' : 'text-gray-600'}`}>Offset (frames)</span>
+                  <span className={`${isDark ? 'text-white/80' : 'text-gray-800'}`}>
+                    {compareDraft.offsetFrames} f • ≈ {(compareDraft.offsetFrames / Math.max(1, effectiveFps)).toFixed(2)}s
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleDraftOffsetChange(Math.max(0, (compareDraft.offsetFrames || 0) - 1))}
+                    className={`${isDark ? 'bg-white/10 hover:bg-white/20 text-white' : 'bg-black/5 hover:bg-black/10 text-gray-800'} px-2 py-1 rounded-full text-[11px] font-semibold`}
+                  >
+                    −
+                  </button>
+                  <input
+                    type="number"
+                    min={0}
+                    step={1}
+                    value={compareDraft.offsetFrames}
+                    onChange={(e) => handleDraftOffsetChange(Math.max(0, Math.round(Number(e.target.value) || 0)))}
+                    className={`${isDark ? 'bg-white/10 text-white border-white/10' : 'bg-black/5 text-gray-900 border-gray-300'} w-24 rounded-md border px-2 py-1 text-[11px]`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleDraftOffsetChange((compareDraft.offsetFrames || 0) + 1)}
+                    className={`${isDark ? 'bg-white/10 hover:bg-white/20 text-white' : 'bg-black/5 hover:bg-black/10 text-gray-800'} px-2 py-1 rounded-full text-[11px] font-semibold`}
+                  >
+                    +
+                  </button>
                 </div>
               </div>
             </div>
