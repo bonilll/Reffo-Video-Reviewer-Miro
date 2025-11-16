@@ -83,12 +83,12 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
     });
   }, [settingsDoc, ensureSettings, user?.email]);
 
-  const [slackStatus, setSlackStatus] = useState<{ teamId: string; teamName: string } | null>(null);
+  const [slackStatus, setSlackStatus] = useState<Array<{ teamId: string; teamName: string }> | null>(null);
   useEffect(() => {
     (async () => {
       try {
         const s = await getSlackStatus({});
-        setSlackStatus(s);
+        setSlackStatus(Array.isArray(s) ? s : (s ? [s] : []));
       } catch {}
     })();
   }, [getSlackStatus]);
@@ -107,7 +107,7 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
           await exchangeSlackCode({ code, redirectUri: window.location.origin + '/profile?source=slack' });
           try {
             const s = await getSlackStatus({});
-            setSlackStatus(s);
+            setSlackStatus(Array.isArray(s) ? s : (s ? [s] : []));
           } catch {}
         } catch (err) {
           console.error('Slack OAuth exchange failed', err);
@@ -368,13 +368,16 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
               <div>
                 <div className="text-sm font-semibold text-white">Slack</div>
                 <div className="text-xs text-white/60">
-                  {slackStatus
-                    ? <>Connected to <span className="font-semibold">{slackStatus.teamName}</span></>
-                    : <>Not connected</>}
+                  {slackStatus && slackStatus.length > 0
+                    ? (
+                      <>Connected to {slackStatus.map(s => <span key={s.teamId} className="font-semibold">{s.teamName}</span>).reduce((prev, curr) => [prev, <span key={Math.random()}> , </span>, curr])}</>
+                    ) : (
+                      <>Not connected</>
+                    )}
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                {!slackStatus ? (
+                {!slackStatus || slackStatus.length === 0 ? (
                   <button
                     onClick={async () => {
                       try {
@@ -390,15 +393,10 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
                     Connect Slack
                   </button>
                 ) : (
-                  <>
+                  <div className="flex items-center gap-2 flex-wrap">
                     <button
                       onClick={async () => {
-                        try {
-                          await testSlackDm({});
-                          // optional: no-op
-                        } catch (err) {
-                          console.error('Failed to send test DM', err);
-                        }
+                        try { await testSlackDm({}); } catch (err) { console.error('Failed to send test DM', err); }
                       }}
                       className="rounded-full bg-white/10 px-4 py-2 text-sm font-semibold text-white/80 hover:bg-white/20"
                     >
@@ -407,17 +405,33 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
                     <button
                       onClick={async () => {
                         try {
-                          await disconnectSlack({});
-                          setSlackStatus(null);
+                          const redirectUri = window.location.origin + '/profile?source=slack';
+                          const url = await getSlackAuthUrl({ redirectUri });
+                          window.location.assign(url);
                         } catch (err) {
-                          console.error('Failed to disconnect Slack', err);
+                          console.error('Failed to start Slack OAuth', err);
                         }
                       }}
                       className="rounded-full bg-white/10 px-4 py-2 text-sm font-semibold text-white/80 hover:bg-white/20"
                     >
-                      Disconnect
+                      Connect another workspace
                     </button>
-                  </>
+                    {slackStatus?.map((s) => (
+                      <button
+                        key={s.teamId}
+                        onClick={async () => {
+                          try { await disconnectSlack({ teamId: s.teamId });
+                            const next = await getSlackStatus({});
+                            setSlackStatus(Array.isArray(next) ? next : (next ? [next] : []));
+                          } catch (err) { console.error('Failed to disconnect Slack', err); }
+                        }}
+                        className="rounded-full bg-white/10 px-3 py-1.5 text-xs font-semibold text-white/80 hover:bg-white/20"
+                        title={`Disconnect ${s.teamName}`}
+                      >
+                        Disconnect {s.teamName}
+                      </button>
+                    ))}
+                  </div>
                 )}
               </div>
             </div>

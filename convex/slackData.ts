@@ -12,15 +12,16 @@ export const status = query({
       .withIndex("byClerkId", (q) => q.eq("clerkId", identity.subject))
       .unique();
     if (!user) return null;
-    const row = await ctx.db.query("slackConnections").withIndex("byUser", (q) => q.eq("userId", user._id)).unique();
-    if (!row) return null;
-    return {
+    const rows = await ctx.db.query("slackConnections").withIndex("byUser", (q) => q.eq("userId", user._id)).collect();
+    if (!rows.length) return [];
+    return rows.map((row) => ({
+      id: row._id,
       teamId: row.teamId,
       teamName: row.teamName,
       botUserId: row.botUserId,
       slackUserId: row.slackUserId,
       connectedAt: row.createdAt,
-    };
+    }));
   },
 });
 
@@ -34,7 +35,10 @@ export const upsertConnection = internalMutation({
     accessToken: v.string(),
   },
   async handler(ctx, { userId, teamId, teamName, botUserId, slackUserId, accessToken }) {
-    const existing = await ctx.db.query("slackConnections").withIndex("byUser", (q) => q.eq("userId", userId)).unique();
+    const existing = await ctx.db
+      .query("slackConnections")
+      .withIndex("byUserAndTeam", (q) => q.eq("userId", userId).eq("teamId", teamId))
+      .unique();
     const now = Date.now();
     if (existing) {
       await ctx.db.patch(existing._id, {
@@ -61,21 +65,26 @@ export const upsertConnection = internalMutation({
 });
 
 export const deleteForUser = internalMutation({
-  args: { userId: v.id("users") },
-  async handler(ctx, { userId }) {
-    const existing = await ctx.db.query("slackConnections").withIndex("byUser", (q) => q.eq("userId", userId)).unique();
-    if (existing) {
-      await ctx.db.delete(existing._id);
+  args: { userId: v.id("users"), teamId: v.optional(v.string()) },
+  async handler(ctx, { userId, teamId }) {
+    if (teamId) {
+      const existing = await ctx.db
+        .query("slackConnections")
+        .withIndex("byUserAndTeam", (q) => q.eq("userId", userId).eq("teamId", teamId))
+        .unique();
+      if (existing) await ctx.db.delete(existing._id);
+      return;
     }
+    const list = await ctx.db.query("slackConnections").withIndex("byUser", (q) => q.eq("userId", userId)).collect();
+    for (const row of list) await ctx.db.delete(row._id);
   },
 });
 
-export const getConnectionSecret = internalMutation({
+export const getConnectionSecrets = internalMutation({
   args: { userId: v.id("users") },
   async handler(ctx, { userId }) {
-    const row = await ctx.db.query("slackConnections").withIndex("byUser", (q) => q.eq("userId", userId)).unique();
-    if (!row) return null;
-    return { accessToken: row.accessToken, slackUserId: row.slackUserId };
+    const rows = await ctx.db.query("slackConnections").withIndex("byUser", (q) => q.eq("userId", userId)).collect();
+    return rows.map((row) => ({ accessToken: row.accessToken, slackUserId: row.slackUserId }));
   },
 });
 
@@ -86,7 +95,7 @@ export const buildMentionPayload = query({
     commentId: v.id("comments"),
   },
   async handler(ctx, { toUserId, videoId, commentId }) {
-    const conn = await ctx.db.query("slackConnections").withIndex("byUser", (q) => q.eq("userId", toUserId)).unique();
+    const conns = await ctx.db.query("slackConnections").withIndex("byUser", (q) => q.eq("userId", toUserId)).collect();
     const [video, comment] = await Promise.all([ctx.db.get(videoId), ctx.db.get(commentId)]);
     if (!video || !comment) return null;
     const [project, author] = await Promise.all([
@@ -94,9 +103,7 @@ export const buildMentionPayload = query({
       ctx.db.get(comment.authorId),
     ]);
     return {
-      connection: conn
-        ? { accessToken: conn.accessToken, slackUserId: conn.slackUserId }
-        : null,
+      connections: conns.map((row) => ({ accessToken: row.accessToken, slackUserId: row.slackUserId })),
       video: { id: videoId, title: video.title, projectId: video.projectId ?? null },
       project: project ? { id: project._id as Id<"projects">, name: (project as any).name as string } : null,
       author: { name: (author as any)?.name ?? (author as any)?.email ?? "Someone" },
@@ -104,5 +111,4 @@ export const buildMentionPayload = query({
     };
   },
 });
-
 

@@ -172,7 +172,7 @@ export default defineSchema({
     updatedAt: v.number(),
   }).index("byUser", ["userId"]),
 
-  // Per-user Slack OAuth connection to send DMs for mentions
+  // Per-user Slack OAuth connections (multi-workspace) to send DMs for mentions
   slackConnections: defineTable({
     userId: v.id("users"),
     teamId: v.string(),
@@ -182,5 +182,7 @@ export default defineSchema({
     accessToken: v.string(),
     createdAt: v.number(),
     updatedAt: v.number(),
-  }).index("byUser", ["userId"]),
+  })
+    .index("byUser", ["userId"]) 
+    .index("byUserAndTeam", ["userId", "teamId"]),
 });

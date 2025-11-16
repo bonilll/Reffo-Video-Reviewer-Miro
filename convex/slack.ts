@@ -111,11 +111,11 @@ export const exchangeCode = action({
 });
 
 export const disconnect = action({
-  args: {},
-  async handler(ctx, _args) {
+  args: { teamId: v.optional(v.string()) },
+  async handler(ctx, args) {
     const current = await ctx.runQuery(api.users.current, {});
     if (!current?._id) return;
-    await ctx.runMutation(internal.slackData.deleteForUser, { userId: current._id as Id<"users"> });
+    await ctx.runMutation(internal.slackData.deleteForUser, { userId: current._id as Id<"users">, teamId: args.teamId });
   },
 });
 
@@ -124,14 +124,16 @@ export const testDm = action({
   async handler(ctx) {
     const current = await ctx.runQuery(api.users.current, {});
     if (!current?._id) throw new ConvexError("NOT_AUTHENTICATED");
-    const secret = await ctx.runMutation(internal.slackData.getConnectionSecret, { userId: current._id as Id<"users"> }) as any;
-    if (!secret) throw new ConvexError("SLACK_NOT_CONNECTED");
+    const secrets = await ctx.runMutation(internal.slackData.getConnectionSecrets, { userId: current._id as Id<"users"> }) as any[];
+    if (!secrets?.length) throw new ConvexError("SLACK_NOT_CONNECTED");
     const base = PUBLIC_SITE_URL().replace(/\/$/, "");
     const blocks = [
       { type: "section", text: { type: "mrkdwn", text: "*Connected to Reffo*" } },
       { type: "section", text: { type: "mrkdwn", text: `You will receive DMs when someone mentions you in comments.\nOpen <${base}/dashboard|Dashboard>` } },
     ];
-    await sendDm(secret.accessToken, secret.slackUserId, { text: "Connected to Reffo", blocks });
+    for (const s of secrets) {
+      await sendDm(s.accessToken, s.slackUserId, { text: "Connected to Reffo", blocks });
+    }
     return { ok: true };
   },
 });
@@ -144,7 +146,7 @@ export const notifyMention = internalAction({
   },
   async handler(ctx, { toUserId, videoId, commentId }) {
     const payload = await ctx.runQuery(api.slackData.buildMentionPayload, { toUserId, videoId, commentId });
-    if (!payload || !payload.connection) return;
+    if (!payload || !payload.connections?.length) return;
     const base = PUBLIC_SITE_URL().replace(/\/$/, "");
     const reviewUrlBase = `${base}/review/${videoId}?comment=${commentId}`;
     const reviewUrl = typeof payload.comment.frame === "number" ? `${reviewUrlBase}&frame=${payload.comment.frame}` : reviewUrlBase;
@@ -168,10 +170,12 @@ export const notifyMention = internalAction({
       blocks.push({ type: "context", elements: [{ type: "mrkdwn", text: `Frame ${payload.comment.frame}` }] });
     }
 
-    await sendDm(payload.connection.accessToken, payload.connection.slackUserId, {
-      text: "Slack connection successful",
-      blocks,
-    });
+    for (const c of payload.connections) {
+      await sendDm(c.accessToken, c.slackUserId, {
+        text: "Reffo mention",
+        blocks,
+      });
+    }
   },
 });
 
@@ -223,5 +227,3 @@ async function withRetry<T>(fn: () => Promise<T>, attempts = 3, baseDelayMs = 40
   }
   throw lastErr instanceof Error ? lastErr : new Error("Slack request failed");
 }
-
-
