@@ -551,7 +551,7 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
     if (marquee && renderedRect) {
         const start = geo.normalizedToCanvas(marquee.start, renderedRect);
         const end = geo.normalizedToCanvas(marquee.end, renderedRect);
-        ctx.strokeStyle = 'rgba(0, 255, 255, 0.7)';
+        ctx.strokeStyle = 'rgba(255, 193, 7, 0.9)';
         ctx.lineWidth = 1;
         ctx.setLineDash([4, 2]);
         ctx.strokeRect(start.x, start.y, end.x - start.x, end.y - start.y);
@@ -725,14 +725,82 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
 
     // Handle an ACTIVE comment move
     if (movingCommentState && transformedComment) {
-      const dx = pos.normalized.x - movingCommentState.startPoint.x;
-      const dy = pos.normalized.y - movingCommentState.startPoint.y;
+      // Compute proposed center in canvas space
+      const base = movingCommentState.comment.position;
+      const baseC = geo.normalizedToCanvas(base, renderedRect);
+      const deltaC = {
+        x: (pos.canvas.x - geo.normalizedToCanvas(movingCommentState.startPoint, renderedRect).x),
+        y: (pos.canvas.y - geo.normalizedToCanvas(movingCommentState.startPoint, renderedRect).y),
+      };
+      let nextCenterC = { x: baseC.x + deltaC.x, y: baseC.y + deltaC.y };
+
+      // Build alignment targets from other comments and annotation boxes
+      const verticalTargets: Array<{ position: number; start: number; end: number }> = [];
+      const horizontalTargets: Array<{ position: number; start: number; end: number }> = [];
+
+      // Other comments (centers)
+      commentsOnFrame
+        .filter((c) => c.id !== movingCommentState.comment.id)
+        .forEach((c) => {
+          const pc = geo.normalizedToCanvas(c.position!, renderedRect);
+          verticalTargets.push({ position: pc.x, start: renderedRect.y, end: renderedRect.y + renderedRect.height });
+          horizontalTargets.push({ position: pc.y, start: renderedRect.x, end: renderedRect.x + renderedRect.width });
+        });
+
+      // Annotation edges/centers
+      const scaleY = renderedRect.height > 0 ? renderedRect.height / renderedRect.height : 1;
+      annotationsForFrame.forEach((annotation) => {
+        const box = geo.getAnnotationBoundingBox(annotation, renderedRect, scaleY);
+        if (!box) return;
+        const metrics = {
+          left: box.start.x,
+          right: box.end.x,
+          centerX: (box.start.x + box.end.x) / 2,
+          top: box.start.y,
+          bottom: box.end.y,
+          centerY: (box.start.y + box.end.y) / 2,
+        };
+        verticalTargets.push({ position: metrics.left, start: box.start.y, end: box.end.y });
+        verticalTargets.push({ position: metrics.centerX, start: box.start.y, end: box.end.y });
+        verticalTargets.push({ position: metrics.right, start: box.start.y, end: box.end.y });
+        horizontalTargets.push({ position: metrics.top, start: box.start.x, end: box.end.x });
+        horizontalTargets.push({ position: metrics.centerY, start: box.start.x, end: box.end.x });
+        horizontalTargets.push({ position: metrics.bottom, start: box.start.x, end: box.end.x });
+      });
+
+      // Container guides
+      verticalTargets.push({ position: renderedRect.x, start: renderedRect.y, end: renderedRect.y + renderedRect.height });
+      verticalTargets.push({ position: renderedRect.x + renderedRect.width / 2, start: renderedRect.y, end: renderedRect.y + renderedRect.height });
+      verticalTargets.push({ position: renderedRect.x + renderedRect.width, start: renderedRect.y, end: renderedRect.y + renderedRect.height });
+      horizontalTargets.push({ position: renderedRect.y, start: renderedRect.x, end: renderedRect.x + renderedRect.width });
+      horizontalTargets.push({ position: renderedRect.y + renderedRect.height / 2, start: renderedRect.x, end: renderedRect.x + renderedRect.width });
+      horizontalTargets.push({ position: renderedRect.y + renderedRect.height, start: renderedRect.x, end: renderedRect.x + renderedRect.width });
+
+      // Snap to nearest target within threshold
+      let bestVX: { diff: number; guide: AlignmentGuide } | null = null;
+      verticalTargets.forEach((t) => {
+        const diff = t.position - nextCenterC.x;
+        if (Math.abs(diff) <= SNAP_THRESHOLD && (!bestVX || Math.abs(diff) < Math.abs(bestVX.diff))) {
+          bestVX = { diff, guide: { orientation: 'vertical', position: t.position, start: t.start, end: t.end } };
+        }
+      });
+      let bestHY: { diff: number; guide: AlignmentGuide } | null = null;
+      horizontalTargets.forEach((t) => {
+        const diff = t.position - nextCenterC.y;
+        if (Math.abs(diff) <= SNAP_THRESHOLD && (!bestHY || Math.abs(diff) < Math.abs(bestHY.diff))) {
+          bestHY = { diff, guide: { orientation: 'horizontal', position: t.position, start: t.start, end: t.end } };
+        }
+      });
+
+      const guides: AlignmentGuide[] = [];
+      if (bestVX) { nextCenterC = { ...nextCenterC, x: nextCenterC.x + bestVX.diff }; guides.push(bestVX.guide); }
+      if (bestHY) { nextCenterC = { ...nextCenterC, y: nextCenterC.y + bestHY.diff }; guides.push(bestHY.guide); }
+      setAlignmentGuides(guides);
+
+      const nextNorm = geo.canvasToNormalized(nextCenterC, renderedRect);
       setTransformedComment({
         ...transformedComment,
-        position: {
-          x: movingCommentState.comment.position.x + dx,
-          y: movingCommentState.comment.position.y + dy,
-        },
+        position: nextNorm,
       });
       return;
     }
@@ -778,12 +846,49 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
     setDrawingShape(prev => {
       if (!prev) return null;
       switch(prev.type) {
-        case AnnotationTool.FREEHAND:
-          return { ...prev, points: [...(prev.points || []), pos.normalized] };
+        case AnnotationTool.FREEHAND: {
+          const last = (prev.points || [pos.normalized])[ (prev.points?.length || 1) - 1 ];
+          let next = pos.normalized;
+          if (e.shiftKey && last) {
+            const dx = pos.normalized.x - last.x;
+            const dy = pos.normalized.y - last.y;
+            if (Math.abs(dx) >= Math.abs(dy)) {
+              next = { x: pos.normalized.x, y: last.y };
+            } else {
+              next = { x: last.x, y: pos.normalized.y };
+            }
+          }
+          return { ...prev, points: [...(prev.points || []), next] };
+        }
         case AnnotationTool.RECTANGLE:
-        case AnnotationTool.ELLIPSE:
-        case AnnotationTool.ARROW:
+        case AnnotationTool.ELLIPSE: {
+          if ((prev as any).start && e.shiftKey && renderedRect) {
+            const start = (prev as any).start as Point;
+            const dx = pos.normalized.x - start.x;
+            const dy = pos.normalized.y - start.y;
+            const size = Math.max(Math.abs(dx), Math.abs(dy));
+            const end = { x: start.x + Math.sign(dx || 1) * size, y: start.y + Math.sign(dy || 1) * size };
+            return { ...prev, end };
+          }
           return { ...prev, end: pos.normalized };
+        }
+        case AnnotationTool.ARROW: {
+          if ((prev as any).start && e.shiftKey && renderedRect) {
+            const startN = (prev as any).start as Point;
+            const startC = geo.normalizedToCanvas(startN, renderedRect);
+            const endC = pos.canvas;
+            const vx = endC.x - startC.x;
+            const vy = endC.y - startC.y;
+            const len = Math.max(1, Math.hypot(vx, vy));
+            const angle = Math.atan2(vy, vx);
+            const snap = Math.PI / 4; // 45 degrees
+            const snapped = Math.round(angle / snap) * snap;
+            const snappedEndC = { x: startC.x + len * Math.cos(snapped), y: startC.y + len * Math.sin(snapped) };
+            const end = geo.canvasToNormalized(snappedEndC, renderedRect);
+            return { ...prev, end };
+          }
+          return { ...prev, end: pos.normalized };
+        }
         default:
           return prev;
       }
@@ -1395,7 +1500,7 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
             guide.orientation === 'vertical' ? (
               <div
                 key={`guide-vertical-${index}`}
-                className="absolute bg-sky-400/70"
+                  className="absolute bg-amber-400/80"
                 style={{
                   left: `${guide.position}px`,
                   top: `${guide.start}px`,
@@ -1406,7 +1511,7 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
             ) : (
               <div
                 key={`guide-horizontal-${index}`}
-                className="absolute bg-sky-400/70"
+                  className="absolute bg-amber-400/80"
                 style={{
                   top: `${guide.position}px`,
                   left: `${guide.start}px`,

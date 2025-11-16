@@ -184,8 +184,8 @@ export const drawSelection = (ctx: CanvasRenderingContext2D, annotations: Annota
     const box = getCombinedBoundingBox(annotations, renderedRect, videoToCanvasScaleY);
     if (!box) return;
 
-    // Draw main bounding box
-    ctx.strokeStyle = 'rgba(0, 255, 255, 0.9)';
+    // Draw main bounding box (amber for high contrast)
+    ctx.strokeStyle = 'rgba(255, 193, 7, 0.95)';
     ctx.lineWidth = 1;
     ctx.setLineDash([4, 2]);
     ctx.strokeRect(box.start.x, box.start.y, box.end.x - box.start.x, box.end.y - box.start.y);
@@ -193,7 +193,7 @@ export const drawSelection = (ctx: CanvasRenderingContext2D, annotations: Annota
 
     // Draw handles
     const handles = getTransformHandles(box);
-    ctx.fillStyle = 'rgba(0, 255, 255, 0.9)';
+    ctx.fillStyle = 'rgba(255, 193, 7, 0.95)';
 
     // Rotation line and handle
     const rotHandle = handles['rotate'];
