@@ -4,7 +4,7 @@ import VideoPlayer from './VideoPlayer';
 import AnnotationCanvas from './AnnotationCanvas';
 import CommentsPane from './CommentsPane';
 import Toolbar from './Toolbar';
-import { ChevronLeft, Eye, EyeOff, Play, Pause, Volume2, VolumeX, SkipBack, SkipForward, Rewind, FastForward, Maximize, Minimize, Share2 } from 'lucide-react';
+import { ChevronLeft, Eye, EyeOff, Play, Pause, Volume2, VolumeX, SkipBack, SkipForward, Rewind, FastForward, Maximize, Minimize, Share2, MessageSquare } from 'lucide-react';
 import Timeline from './Timeline';
 import { useQuery, useMutation, useAction } from 'convex/react';
 import { api } from '../convex/_generated/api';
@@ -106,7 +106,8 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const [comments, setComments] = useState<Comment[]>([]);
   
-  // Comments pane is always visible
+  // Comments pane visibility
+  const [showComments, setShowComments] = useState(true);
   const [pendingComment, setPendingComment] = useState<{ position: Point } | null>(null);
 
 
@@ -1403,8 +1404,18 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
           </div>
           <div />
         </div>
-        {/* Right column (aligned with comments): actions centered */}
-        <div className="flex items-center justify-center gap-2 md:gap-3">
+        {/* Right column (aligned with comments): 4-column grid matching comments width */}
+        <div className="grid grid-cols-4 items-center justify-items-center w-[360px] gap-2 md:gap-3">
+          {/* Toggle comments panel */}
+          <button
+            onClick={() => setShowComments((v) => !v)}
+            title={showComments ? 'Hide Comments' : 'Show Comments'}
+            className={`${
+              isDark ? 'text-white/70 hover:text-white hover:bg-white/10' : 'text-gray-700 hover:text-gray-900 hover:bg-gray-100'
+            } p-2 rounded-full transition-colors`}
+          >
+            <MessageSquare size={18} />
+          </button>
           <button
             onClick={() => setShowAnnotations((s) => !s)}
             title={showAnnotations ? 'Hide Annotations' : 'Show Annotations'}
@@ -1742,8 +1753,9 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
             </div>
           </div>
         </div>
+        {showComments && (
         <div className={`flex-shrink-0 overflow-hidden w-[360px] min-h-[93vh]`} style={{ minHeight: '93vh' }}>
-          <CommentsPane
+          <CommentsPane 
             comments={comments}
             currentFrame={currentFrame}
             onAddComment={handleAddComment}
@@ -1758,6 +1770,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
           mentionOptions={mentionableOptions ?? []}
         />
         </div>
+        )}
       </div>
       {shareOpen && shareGroups && (
         <ShareModal

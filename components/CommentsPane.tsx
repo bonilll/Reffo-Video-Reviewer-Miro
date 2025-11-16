@@ -410,7 +410,18 @@ interface CommentsPaneProps {
 
 const CommentsPane: React.FC<CommentsPaneProps> = ({ comments, currentFrame, onAddComment, onToggleResolve, onJumpToFrame, activeCommentId, setActiveCommentId, onDeleteComment, isDark = true, highlightCommentId = null, highlightTerm = null, mentionOptions = [] }) => {
   const [newCommentText, setNewCommentText] = useState('');
-  const [filter, setFilter] = useState<'all' | 'open' | 'resolved'>('all');
+  type Filter = 'active' | 'all' | 'open' | 'resolved';
+  const FILTER_STORAGE_KEY = 'videoreviewer:commentsFilter';
+  const [filter, setFilter] = useState<Filter>(() => {
+    if (typeof window === 'undefined') return 'active';
+    try {
+      const saved = window.localStorage.getItem(FILTER_STORAGE_KEY) as Filter | null;
+      return (saved === 'all' || saved === 'open' || saved === 'resolved' || saved === 'active') ? saved : 'active';
+    } catch { return 'active'; }
+  });
+  useEffect(() => {
+    try { window.localStorage.setItem(FILTER_STORAGE_KEY, filter); } catch {}
+  }, [filter]);
   const activeCommentRef = useRef<HTMLDivElement>(null);
   const [mentionOpen, setMentionOpen] = useState(false);
   const [mentionQuery, setMentionQuery] = useState('');
@@ -437,9 +448,16 @@ const CommentsPane: React.FC<CommentsPaneProps> = ({ comments, currentFrame, onA
   
   const filteredComments = useMemo(() => {
     if (filter === 'all') return commentTree;
+    if (filter === 'active') {
+      const inFrame = (c: Comment & { replies: Comment[] }) => {
+        if (c.frame === currentFrame) return true;
+        return c.replies.some(r => r.frame === currentFrame);
+      };
+      return commentTree.filter(inFrame);
+    }
     const isOpen = filter === 'open';
     return commentTree.filter(c => c.resolved !== isOpen);
-  }, [commentTree, filter]);
+  }, [commentTree, filter, currentFrame]);
 
   const handleSubmitComment = (e: React.FormEvent) => {
     e.preventDefault();
@@ -510,6 +528,7 @@ const CommentsPane: React.FC<CommentsPaneProps> = ({ comments, currentFrame, onA
           <MessageSquare size={18}/> Comments
         </h2>
         <div className="mt-4 inline-flex items-center gap-2 bg-white/5 border border-white/10 rounded-full p-1">
+            <button onClick={() => setFilter('active')} className={`px-4 py-1.5 rounded-full text-xs font-semibold ${filter === 'active' ? 'bg-white text-black' : 'text-white/60 hover:bg-white/10'}`}>Active</button>
             <button onClick={() => setFilter('all')} className={`px-4 py-1.5 rounded-full text-xs font-semibold ${filter === 'all' ? 'bg-white text-black' : 'text-white/60 hover:bg-white/10'}`}>All</button>
             <button onClick={() => setFilter('open')} className={`px-4 py-1.5 rounded-full text-xs font-semibold ${filter === 'open' ? 'bg-white text-black' : 'text-white/60 hover:bg-white/10'}`}>Open</button>
             <button onClick={() => setFilter('resolved')} className={`px-4 py-1.5 rounded-full text-xs font-semibold ${filter === 'resolved' ? 'bg-white text-black' : 'text-white/60 hover:bg-white/10'}`}>Resolved</button>
