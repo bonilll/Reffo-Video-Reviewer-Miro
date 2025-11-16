@@ -598,24 +598,123 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
     if (!movingCommentState || !renderedRect) return;
     const pos = getPointerPosition(e);
     if (!pos) return;
-    if (!transformedComment) {
-      const DRAG_THRESHOLD = 3; // px
-      const startCanvasPos = geo.normalizedToCanvas(movingCommentState.startPoint, renderedRect);
-      const distSq = Math.pow(pos.canvas.x - startCanvasPos.x, 2) + Math.pow(pos.canvas.y - startCanvasPos.y, 2);
-      if (distSq > DRAG_THRESHOLD * DRAG_THRESHOLD) {
-        setTransformedComment(movingCommentState.comment);
-      }
-      return;
-    }
-    const dx = pos.normalized.x - movingCommentState.startPoint.x;
-    const dy = pos.normalized.y - movingCommentState.startPoint.y;
-    setTransformedComment({
-      ...transformedComment,
-      position: {
-        x: movingCommentState.comment.position.x + dx,
-        y: movingCommentState.comment.position.y + dy,
-      },
+    e.preventDefault();
+
+    // Always treat as dragging after threshold; compute canvas deltas
+    const startCanvas = geo.normalizedToCanvas(movingCommentState.startPoint, renderedRect);
+    const baseC = geo.normalizedToCanvas(movingCommentState.comment.position, renderedRect);
+    const deltaC = { x: pos.canvas.x - startCanvas.x, y: pos.canvas.y - startCanvas.y };
+    let nextCenterC = { x: baseC.x + deltaC.x, y: baseC.y + deltaC.y };
+
+    // Build alignment targets
+    const verticalTargets: Array<{ position: number; start: number; end: number }> = [];
+    const horizontalTargets: Array<{ position: number; start: number; end: number }> = [];
+
+    // Other comments (centers)
+    commentsOnFrame
+      .filter((c) => c.id !== movingCommentState.comment.id)
+      .forEach((c) => {
+        if (!c.position) return;
+        const pc = geo.normalizedToCanvas(c.position, renderedRect);
+        verticalTargets.push({ position: pc.x, start: renderedRect.y, end: renderedRect.y + renderedRect.height });
+        horizontalTargets.push({ position: pc.y, start: renderedRect.x, end: renderedRect.x + renderedRect.width });
+      });
+
+    // Annotation edges/centers
+    const scaleY = renderedRect.height > 0 ? renderedRect.height / renderedRect.height : 1;
+    annotationsForFrame.forEach((annotation) => {
+      const box = geo.getAnnotationBoundingBox(annotation, renderedRect, scaleY);
+      if (!box) return;
+      const metrics = {
+        left: box.start.x,
+        right: box.end.x,
+        centerX: (box.start.x + box.end.x) / 2,
+        top: box.start.y,
+        bottom: box.end.y,
+        centerY: (box.start.y + box.end.y) / 2,
+      };
+      verticalTargets.push({ position: metrics.left, start: box.start.y, end: box.end.y });
+      verticalTargets.push({ position: metrics.centerX, start: box.start.y, end: box.end.y });
+      verticalTargets.push({ position: metrics.right, start: box.start.y, end: box.end.y });
+      horizontalTargets.push({ position: metrics.top, start: box.start.x, end: box.end.x });
+      horizontalTargets.push({ position: metrics.centerY, start: box.start.x, end: box.end.x });
+      horizontalTargets.push({ position: metrics.bottom, start: box.start.x, end: box.end.x });
     });
+
+    // Container guides
+    verticalTargets.push({ position: renderedRect.x, start: renderedRect.y, end: renderedRect.y + renderedRect.height });
+    verticalTargets.push({ position: renderedRect.x + renderedRect.width / 2, start: renderedRect.y, end: renderedRect.y + renderedRect.height });
+    verticalTargets.push({ position: renderedRect.x + renderedRect.width, start: renderedRect.y, end: renderedRect.y + renderedRect.height });
+    horizontalTargets.push({ position: renderedRect.y, start: renderedRect.x, end: renderedRect.x + renderedRect.width });
+    horizontalTargets.push({ position: renderedRect.y + renderedRect.height / 2, start: renderedRect.x, end: renderedRect.x + renderedRect.width });
+    horizontalTargets.push({ position: renderedRect.y + renderedRect.height, start: renderedRect.x, end: renderedRect.x + renderedRect.width });
+
+    // Snap to nearest target
+    let bestVX: { diff: number; guide: AlignmentGuide } | null = null;
+    verticalTargets.forEach((t) => {
+      const diff = t.position - nextCenterC.x;
+      if (Math.abs(diff) <= SNAP_THRESHOLD && (!bestVX || Math.abs(diff) < Math.abs(bestVX.diff))) {
+        bestVX = { diff, guide: { orientation: 'vertical', position: t.position, start: t.start, end: t.end } };
+      }
+    });
+    let bestHY: { diff: number; guide: AlignmentGuide } | null = null;
+    horizontalTargets.forEach((t) => {
+      const diff = t.position - nextCenterC.y;
+      if (Math.abs(diff) <= SNAP_THRESHOLD && (!bestHY || Math.abs(diff) < Math.abs(bestHY.diff))) {
+        bestHY = { diff, guide: { orientation: 'horizontal', position: t.position, start: t.start, end: t.end } };
+      }
+    });
+
+    let guides: AlignmentGuide[] = [];
+    if (bestVX) { nextCenterC = { ...nextCenterC, x: nextCenterC.x + bestVX.diff }; guides.push(bestVX.guide); }
+    if (bestHY) { nextCenterC = { ...nextCenterC, y: nextCenterC.y + bestHY.diff }; guides.push(bestHY.guide); }
+
+    // Equal spacing: horizontal & vertical fra bubble
+    const Y_TOL = 10, X_TOL = 10;
+    const centers = commentsOnFrame
+      .filter((c) => c.id !== movingCommentState.comment.id && c.position)
+      .map((c) => geo.normalizedToCanvas(c.position!, renderedRect));
+
+    // Horizontal
+    const sortedX = centers.slice().sort((a, b) => a.x - b.x);
+    if (sortedX.length >= 2) {
+      const left = [...sortedX].filter((c) => c.x <= nextCenterC.x && Math.abs(c.y - nextCenterC.y) <= Y_TOL).pop();
+      const right = sortedX.find((c) => c.x >= nextCenterC.x && Math.abs(c.y - nextCenterC.y) <= Y_TOL);
+      if (left && right) {
+        const desiredX = (left.x + right.x) / 2;
+        const diff = desiredX - nextCenterC.x;
+        if (Math.abs(diff) <= SNAP_THRESHOLD) {
+          nextCenterC = { ...nextCenterC, x: desiredX };
+          const measureY = clamp(Math.min(left.y, nextCenterC.y) - 24, renderedRect.y + 6, renderedRect.y + renderedRect.height - 6);
+          guides.push({
+            orientation: 'vertical', position: desiredX, start: renderedRect.y, end: renderedRect.y + renderedRect.height,
+            spacing: { axis: 'horizontal', from: { x: left.x, y: measureY }, to: { x: nextCenterC.x, y: measureY }, label: `${Math.abs(Math.round(nextCenterC.x - left.x))} px` }
+          });
+        }
+      }
+    }
+    // Vertical
+    const sortedY = centers.slice().sort((a, b) => a.y - b.y);
+    if (sortedY.length >= 2) {
+      const top = [...sortedY].filter((c) => c.y <= nextCenterC.y && Math.abs(c.x - nextCenterC.x) <= X_TOL).pop();
+      const bottom = sortedY.find((c) => c.y >= nextCenterC.y && Math.abs(c.x - nextCenterC.x) <= X_TOL);
+      if (top && bottom) {
+        const desiredY = (top.y + bottom.y) / 2;
+        const diff = desiredY - nextCenterC.y;
+        if (Math.abs(diff) <= SNAP_THRESHOLD) {
+          nextCenterC = { ...nextCenterC, y: desiredY };
+          const measureX = clamp(nextCenterC.x + 24, renderedRect.x + 6, renderedRect.x + renderedRect.width - 6);
+          guides.push({
+            orientation: 'horizontal', position: desiredY, start: renderedRect.x, end: renderedRect.x + renderedRect.width,
+            spacing: { axis: 'vertical', from: { x: measureX, y: top.y }, to: { x: measureX, y: nextCenterC.y }, label: `${Math.abs(Math.round(nextCenterC.y - top.y))} px` }
+          });
+        }
+      }
+    }
+
+    setAlignmentGuides(guides);
+    const nextNorm = geo.canvasToNormalized(nextCenterC, renderedRect);
+    setTransformedComment({ ...(transformedComment ?? movingCommentState.comment), position: nextNorm });
   };
 
   const handleCommentMarkerPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
