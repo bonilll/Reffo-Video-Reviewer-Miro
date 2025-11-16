@@ -1857,39 +1857,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
                   </div>
                 </div>
               </div>
-              {/* Offset control */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between text-xs uppercase">
-                  <span className={`${isDark ? 'text-white/60' : 'text-gray-600'}`}>Offset (frames)</span>
-                  <span className={`${isDark ? 'text-white/80' : 'text-gray-800'}`}>
-                    {compareDraft.offsetFrames} f • ≈ {(compareDraft.offsetFrames / Math.max(1, effectiveFps)).toFixed(2)}s
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => handleDraftOffsetChange(Math.max(0, (compareDraft.offsetFrames || 0) - 1))}
-                    className={`${isDark ? 'bg-white/10 hover:bg-white/20 text-white' : 'bg-black/5 hover:bg-black/10 text-gray-800'} px-2 py-1 rounded-full text-[11px] font-semibold`}
-                  >
-                    −
-                  </button>
-                  <input
-                    type="number"
-                    min={0}
-                    step={1}
-                    value={compareDraft.offsetFrames}
-                    onChange={(e) => handleDraftOffsetChange(Math.max(0, Math.round(Number(e.target.value) || 0)))}
-                    className={`${isDark ? 'bg-white/10 text-white border-white/10' : 'bg-black/5 text-gray-900 border-gray-300'} w-24 rounded-md border px-2 py-1 text-[11px]`}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => handleDraftOffsetChange((compareDraft.offsetFrames || 0) + 1)}
-                    className={`${isDark ? 'bg-white/10 hover:bg-white/20 text-white' : 'bg-black/5 hover:bg-black/10 text-gray-800'} px-2 py-1 rounded-full text-[11px] font-semibold`}
-                  >
-                    +
-                  </button>
-                </div>
-              </div>
+              {/* (removed) Offset controls under timeline — offset is available only in floating compare panel */}
             </div>
           </div>
         </div>
