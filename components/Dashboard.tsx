@@ -745,6 +745,18 @@ const Dashboard: React.FC<DashboardProps> = ({
     return shareRecords.filter((share) => share.isActive);
   }, [shareRecords]);
 
+  // Quick lookups for labeling share links with human-friendly names
+  const videosById = useMemo(() => {
+    const map = new Map<string, Video>();
+    for (const v of videos) map.set(v.id, v);
+    return map;
+  }, [videos]);
+  const projectsById = useMemo(() => {
+    const map = new Map<string, Project>();
+    for (const p of projects) map.set(p.id, p);
+    return map;
+  }, [projects]);
+
   const getVideoShares = (videoId: string) =>
     activeShares.filter((share) => share.videoId === videoId);
 
@@ -1230,10 +1242,32 @@ const Dashboard: React.FC<DashboardProps> = ({
                     className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-white/5 px-4 py-3"
                   >
                     <div>
-                      <p className="font-semibold text-white">Link for {share.videoId ? 'review' : 'project'}</p>
-                      <p className="text-white/40">
-                        Token: {share.linkToken?.slice(0, 12)}… • {share.allowComments ? 'Comments allowed' : 'View only'}
-                      </p>
+                      {(() => {
+                        const v = share.videoId ? videosById.get(share.videoId) : undefined;
+                        const p = share.projectId ? projectsById.get(share.projectId) : (v?.projectId ? projectsById.get(v.projectId) : undefined);
+                        if (v) {
+                          return (
+                            <>
+                              <p className="font-semibold text-white">Link for review “{v.title}” {p ? <span className="text-white/60">• Project “{p.name}”</span> : null}</p>
+                              <p className="text-white/40">Token: {share.linkToken?.slice(0, 12)}… • {share.allowComments ? 'Comments allowed' : 'View only'}</p>
+                            </>
+                          );
+                        }
+                        if (p) {
+                          return (
+                            <>
+                              <p className="font-semibold text-white">Link for project “{p.name}”</p>
+                              <p className="text-white/40">Token: {share.linkToken?.slice(0, 12)}… • {share.allowComments ? 'Comments allowed' : 'View only'}</p>
+                            </>
+                          );
+                        }
+                        return (
+                          <>
+                            <p className="font-semibold text-white">Link</p>
+                            <p className="text-white/40">Token: {share.linkToken?.slice(0, 12)}… • {share.allowComments ? 'Comments allowed' : 'View only'}</p>
+                          </>
+                        );
+                      })()}
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
                       <button
@@ -1411,6 +1445,7 @@ const Dashboard: React.FC<DashboardProps> = ({
       {videoToShare && shareGroups && (
         <ShareModal
           video={videoToShare}
+          projectName={videoToShare.projectId ? (projects.find(p => p.id === videoToShare.projectId)?.name) : undefined}
           groups={shareGroups}
           existingShares={getVideoShares(videoToShare.id)}
           isDark={isDark}
@@ -1484,6 +1519,7 @@ const Dashboard: React.FC<DashboardProps> = ({
   {projectToShare && shareGroups && (
         <ShareModal
           project={projectToShare}
+          projectName={projectToShare.name}
           groups={shareGroups}
           // Show only project-level shares; ignore per‑video propagated entries
           existingShares={activeShares.filter((share) => share.projectId === projectToShare.id && !share.videoId)}
@@ -1772,6 +1808,7 @@ interface ShareModalProps {
   project?: Project;
   groups: ShareGroup[];
   existingShares: ContentShare[];
+  projectName?: string;
   isDark: boolean;
   onShareToGroup: (args: {
     groupId: string;
@@ -1796,6 +1833,7 @@ export const ShareModal: React.FC<ShareModalProps> = ({
   project,
   groups,
   existingShares,
+  projectName,
   isDark,
   onShareToGroup,
   onGenerateLink,
@@ -1866,6 +1904,15 @@ export const ShareModal: React.FC<ShareModalProps> = ({
                           <>
                             <p className="font-semibold text-white">Public link</p>
                             <p className="text-white/50">Token: {(share.linkToken ?? '').slice(0,12)}…</p>
+                            <p className="text-white/50">
+                              {video
+                                ? (<>
+                                    Review “{video.title}”{projectName ? <> • Project “{projectName}”</> : null}
+                                  </>)
+                                : project
+                                  ? (<>Project “{project.name}”</>)
+                                  : null}
+                            </p>
                           </>
                         )}
                       </div>
@@ -1972,7 +2019,18 @@ export const ShareModal: React.FC<ShareModalProps> = ({
               )}
             </div>
             {linkToken && (
-              <p className="mt-2 text-xs text-white/50">Token: {linkToken}</p>
+              <div className="mt-2 text-xs text-white/50 space-y-0.5">
+                <p>Token: {linkToken}</p>
+                <p>
+                  {video
+                    ? (<>
+                        Review “{video.title}”{projectName ? <> • Project “{projectName}”</> : null}
+                      </>)
+                    : project
+                      ? (<>Project “{project.name}”</>)
+                      : null}
+                </p>
+              </div>
             )}
           </section>
         </div>
