@@ -792,9 +792,47 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
         }
       });
 
-      const guides: AlignmentGuide[] = [];
+      let guides: AlignmentGuide[] = [];
       if (bestVX) { nextCenterC = { ...nextCenterC, x: nextCenterC.x + bestVX.diff }; guides.push(bestVX.guide); }
       if (bestHY) { nextCenterC = { ...nextCenterC, y: nextCenterC.y + bestHY.diff }; guides.push(bestHY.guide); }
+
+      // Equal spacing for comments (horizontal)
+      const Y_TOL = 10; // px tolerance to consider same row
+      const centers = commentsOnFrame
+        .filter((c) => c.id !== movingCommentState.comment.id)
+        .map((c) => geo.normalizedToCanvas(c.position!, renderedRect))
+        .sort((a, b) => a.x - b.x);
+      if (centers.length >= 2) {
+        // Find immediate left & right neighbors by x
+        const left = [...centers].filter((c) => c.x <= nextCenterC.x && Math.abs(c.y - nextCenterC.y) <= Y_TOL).pop();
+        const right = centers.find((c) => c.x >= nextCenterC.x && Math.abs(c.y - nextCenterC.y) <= Y_TOL);
+        if (left && right) {
+          const desiredX = (left.x + right.x) / 2;
+          const diff = desiredX - nextCenterC.x;
+          if (Math.abs(diff) <= SNAP_THRESHOLD) {
+            nextCenterC = { ...nextCenterC, x: desiredX };
+            guides.push({ orientation: 'vertical', position: desiredX, start: renderedRect.y, end: renderedRect.y + renderedRect.height });
+          }
+        }
+      }
+      // Equal spacing for comments (vertical)
+      const X_TOL = 10;
+      const centersY = commentsOnFrame
+        .filter((c) => c.id !== movingCommentState.comment.id)
+        .map((c) => geo.normalizedToCanvas(c.position!, renderedRect))
+        .sort((a, b) => a.y - b.y);
+      if (centersY.length >= 2) {
+        const top = [...centersY].filter((c) => c.y <= nextCenterC.y && Math.abs(c.x - nextCenterC.x) <= X_TOL).pop();
+        const bottom = centersY.find((c) => c.y >= nextCenterC.y && Math.abs(c.x - nextCenterC.x) <= X_TOL);
+        if (top && bottom) {
+          const desiredY = (top.y + bottom.y) / 2;
+          const diff = desiredY - nextCenterC.y;
+          if (Math.abs(diff) <= SNAP_THRESHOLD) {
+            nextCenterC = { ...nextCenterC, y: desiredY };
+            guides.push({ orientation: 'horizontal', position: desiredY, start: renderedRect.x, end: renderedRect.x + renderedRect.width });
+          }
+        }
+      }
       setAlignmentGuides(guides);
 
       const nextNorm = geo.canvasToNormalized(nextCenterC, renderedRect);
@@ -1161,7 +1199,7 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
         });
       });
 
-      const guides: AlignmentGuide[] = [];
+      let guides: AlignmentGuide[] = [];
       let dx = 0;
       let dy = 0;
 
@@ -1173,6 +1211,57 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
       if (bestHorizontalShift !== null && renderedRect.height > 0) {
         dy = bestHorizontalShift / renderedRect.height;
         if (bestHorizontalGuide) guides.push(bestHorizontalGuide);
+      }
+
+      // Equal spacing for annotations (horizontal)
+      if (movingBox) {
+        const othersBoxes = annotationsForFrame
+          .filter((a) => !selectedAnnotationIds.includes(a.id))
+          .map((a) => geo.getAnnotationBoundingBox(a, renderedRect, scaleY))
+          .filter((b): b is geo.BoundingBox => Boolean(b));
+
+        const overlapY = (b: geo.BoundingBox) => Math.min(movingBox.end.y, b.end.y) - Math.max(movingBox.start.y, b.start.y);
+        const minOverlapY = Math.max(0, (movingBox.end.y - movingBox.start.y) * 0.3);
+        const leftNeighbor = othersBoxes
+          .filter(b => b.end.x <= movingBox.start.x && overlapY(b) >= minOverlapY)
+          .sort((a, b) => b.end.x - a.end.x)[0];
+        const rightNeighbor = othersBoxes
+          .filter(b => b.start.x >= movingBox.end.x && overlapY(b) >= minOverlapY)
+          .sort((a, b) => a.start.x - b.start.x)[0];
+        if (leftNeighbor && rightNeighbor) {
+          const leftEdge = leftNeighbor.end.x;
+          const rightEdge = rightNeighbor.start.x;
+          const width = movingBox.end.x - movingBox.start.x;
+          const desiredLeft = leftEdge + (rightEdge - leftEdge - width) / 2;
+          const desiredCenterX = desiredLeft + width / 2;
+          const diffCanvasX = desiredCenterX - movingMetrics.centerX;
+          if (Math.abs(diffCanvasX) <= SNAP_THRESHOLD && renderedRect.width > 0) {
+            dx = diffCanvasX / renderedRect.width;
+            guides.push({ orientation: 'vertical', position: desiredCenterX, start: renderedRect.y, end: renderedRect.y + renderedRect.height });
+          }
+        }
+
+        // Equal spacing for annotations (vertical)
+        const overlapX = (b: geo.BoundingBox) => Math.min(movingBox.end.x, b.end.x) - Math.max(movingBox.start.x, b.start.x);
+        const minOverlapX = Math.max(0, (movingBox.end.x - movingBox.start.x) * 0.3);
+        const topNeighbor = othersBoxes
+          .filter(b => b.end.y <= movingBox.start.y && overlapX(b) >= minOverlapX)
+          .sort((a, b) => b.end.y - a.end.y)[0];
+        const bottomNeighbor = othersBoxes
+          .filter(b => b.start.y >= movingBox.end.y && overlapX(b) >= minOverlapX)
+          .sort((a, b) => a.start.y - b.start.y)[0];
+        if (topNeighbor && bottomNeighbor) {
+          const topEdge = topNeighbor.end.y;
+          const bottomEdge = bottomNeighbor.start.y;
+          const height = movingBox.end.y - movingBox.start.y;
+          const desiredTop = topEdge + (bottomEdge - topEdge - height) / 2;
+          const desiredCenterY = desiredTop + height / 2;
+          const diffCanvasY = desiredCenterY - movingMetrics.centerY;
+          if (Math.abs(diffCanvasY) <= SNAP_THRESHOLD && renderedRect.height > 0) {
+            dy = diffCanvasY / renderedRect.height;
+            guides.push({ orientation: 'horizontal', position: desiredCenterY, start: renderedRect.x, end: renderedRect.x + renderedRect.width });
+          }
+        }
       }
 
       return { dx, dy, guides };
