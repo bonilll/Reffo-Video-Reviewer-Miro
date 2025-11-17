@@ -3,6 +3,14 @@ import { useConsent } from '../../contexts/ConsentContext';
 
 export const CookieSettingsTrigger: React.FC<{ variant?: 'footer' | 'floating'; className?: string }> = ({ variant = 'floating', className }) => {
   const { text, openPreferences } = useConsent();
+  const isReviewRoute = (() => {
+    try {
+      if (typeof window === 'undefined') return false;
+      return /^\/review\//.test(window.location.pathname);
+    } catch {
+      return false;
+    }
+  })();
   if (variant === 'footer') {
     return (
       <button onClick={openPreferences} className={className ?? 'text-xs underline text-white/70 hover:text-white'}>
@@ -10,6 +18,7 @@ export const CookieSettingsTrigger: React.FC<{ variant?: 'footer' | 'floating'; 
       </button>
     );
   }
+  if (isReviewRoute) return null; // hide floating trigger on reviewer page
   return (
     <button
       onClick={openPreferences}

@@ -88,7 +88,9 @@ export const CookiePreferencesModal: React.FC = () => {
           </button>
           <button
             onClick={() => {
-              setDraft({ necessary: true, preferences: true, analytics: true, marketing: true });
+              // Marketing/profiling not used → keep false
+              setDraft({ necessary: true, preferences: true, analytics: true, marketing: false });
+              // acceptAll also keeps marketing disabled
               acceptAll();
             }}
             className="rounded-full border border-white/40 px-4 py-2 text-center text-white hover:bg-white/10"

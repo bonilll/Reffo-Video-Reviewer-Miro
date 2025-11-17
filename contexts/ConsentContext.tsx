@@ -79,7 +79,8 @@ export const ConsentProvider: React.FC<{ children: React.ReactNode }> = ({ child
       necessary: true,
       preferences: true,
       analytics: true,
-      marketing: true,
+      // Owner requested to remove marketing/profiling; keep false and unused
+      marketing: false,
     };
     void persistAndSync(categories, true);
     setBannerVisible(false);
@@ -98,9 +99,9 @@ export const ConsentProvider: React.FC<{ children: React.ReactNode }> = ({ child
       necessary: true,
       preferences: next.preferences,
       analytics: next.analytics,
-      marketing: next.marketing,
+      marketing: false,
     };
-    const consentGiven = categories.preferences || categories.analytics || categories.marketing;
+    const consentGiven = categories.preferences || categories.analytics;
     void persistAndSync(categories, consentGiven);
     setBannerVisible(false);
     setPreferencesOpen(false);

@@ -189,6 +189,11 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
   const [isMuted, setIsMuted] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [loopEnabled, setLoopEnabled] = useState(false);
+  // A–B loop state (seconds)
+  const [abLoopEnabled, setAbLoopEnabled] = useState(false);
+  const [abA, setAbA] = useState<number | null>(null);
+  const [abB, setAbB] = useState<number | null>(null);
+  const [loopMenuOpen, setLoopMenuOpen] = useState(false);
   const [videoWidthPx, setVideoWidthPx] = useState(0);
   // Preserve a stable controls width so the bottom control bar doesn't jump when compare is active
   const baseControlsWidthRef = useRef<number>(0);
@@ -779,14 +784,24 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
   const handleTimeUpdate = (time: number, frame: number) => {
     setCurrentTime(time);
     setCurrentFrame(frame);
+    // Enforce A–B loop if enabled and valid
+    const fpsCanonical = Math.max(1, Math.floor(video.fps || 24));
+    const epsilon = 1 / fpsCanonical;
+    if (abLoopEnabled && abA != null && abB != null && abB > abA + epsilon) {
+      if (time >= abB - epsilon) {
+        handleSeek(abA);
+        if (!isPlaying) setIsPlaying(true);
+        return;
+      }
+    }
     if (compareSource) {
       const els = compareElements();
       for (const el of els) syncCompareElement(el, time);
     }
     if (loopEnabled && duration > 0) {
       // Fallback epsilon equals one frame duration
-      const epsilon = 1 / Math.max(1, video.fps);
-      if (time >= duration - epsilon) {
+      const epsilon2 = 1 / Math.max(1, video.fps);
+      if (time >= duration - epsilon2) {
         handleSeek(0);
         if (!isPlaying) setIsPlaying(true);
       }
@@ -1815,19 +1830,82 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
                     video={video}
                     annotations={annotations}
                     comments={comments}
+                    abLoop={{ a: abA ?? undefined, b: abB ?? undefined }}
+                    onAbChange={(which, t) => {
+                      const clamped = Math.max(0, Math.min(duration, t));
+                      if (which === 'a') {
+                        setAbA(clamped);
+                        // If current time is before new A, jump inside loop when active
+                        if (abLoopEnabled && abB != null && clamped < (abB as number) && currentTime < clamped) {
+                          handleSeek(clamped);
+                        }
+                      } else {
+                        setAbB(clamped);
+                        const fpsCanonical = Math.max(1, Math.floor(video.fps || 24));
+                        const epsilon = 1 / fpsCanonical;
+                        if (abLoopEnabled && abA != null && clamped > (abA as number) && currentTime >= clamped - epsilon) {
+                          handleSeek(abA as number);
+                        }
+                      }
+                    }}
                     isDark={isDark}
                   />
                   {/* Removed resolution • fps row under the timeline as requested */}
                 </div>
                 <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-4">
                   {/* Left side: Loop toggle */}
-                  <div className="flex items-center gap-3 justify-start">
-                    <button
-                      onClick={() => setLoopEnabled((v) => !v)}
-                      className={`${loopEnabled ? (isDark ? 'bg-white text-black' : 'bg-transparent ring-2 ring-black text-gray-900') : (isDark ? 'bg-white/10 text-white hover:bg-white/20' : 'bg-black/5 text-gray-800 hover:bg-black/10')} px-3 py-1 rounded-full text-xs font-semibold`}
-                    >
-                      Loop {loopEnabled ? 'On' : 'Off'}
-                    </button>
+                  <div className="relative flex items-center gap-3 justify-start flex-wrap">
+                    <div className="group relative">
+                      <button
+                        onClick={() => setLoopMenuOpen((v) => !v)}
+                        className={`${isDark ? 'bg-white/10 text-white hover:bg-white/20' : 'bg-black/5 text-gray-800 hover:bg-black/10'} px-3 py-1 rounded-full text-xs font-semibold`}
+                      >
+                        Loop ▾
+                      </button>
+                      <div
+                        className={`absolute left-0 bottom-full mb-2 ${loopMenuOpen ? 'block' : 'hidden'} min-w-[220px] rounded-2xl border shadow-2xl z-30 backdrop-blur ${isDark ? 'bg-black/80 border-white/10 text-white' : 'bg-white border-gray-200 text-gray-900'}`}
+                        onMouseLeave={() => setLoopMenuOpen(false)}
+                      >
+                        <button
+                          onClick={() => setLoopEnabled((v) => !v)}
+                          className="block w-full px-3 py-2 text-left text-xs hover:bg-white/10"
+                        >
+                          Global loop: {loopEnabled ? 'On' : 'Off'}
+                        </button>
+                        <button
+                          onClick={() => setAbLoopEnabled((v) => !v)}
+                          className="block w-full px-3 py-2 text-left text-xs hover:bg-white/10"
+                        >
+                          A–B loop: {abLoopEnabled ? 'On' : 'Off'}
+                        </button>
+                        <div className={`my-1 h-px ${isDark ? 'bg-white/10' : 'bg-gray-200'}`} />
+                        <button
+                          onClick={() => setAbA(currentTime)}
+                          className="block w-full px-3 py-2 text-left text-xs hover:bg-white/10"
+                          title="Set point A at current time"
+                        >
+                          Set A at current time
+                        </button>
+                        <button
+                          onClick={() => setAbB(currentTime)}
+                          className="block w-full px-3 py-2 text-left text-xs hover:bg-white/10"
+                          title="Set point B at current time"
+                        >
+                          Set B at current time
+                        </button>
+                        <button
+                          onClick={() => { setAbA(null); setAbB(null); setAbLoopEnabled(false); }}
+                          className="block w-full px-3 py-2 text-left text-xs hover:bg-white/10"
+                        >
+                          Clear A and B
+                        </button>
+                        {(abA != null || abB != null) && (
+                          <div className="px-3 py-2 text-[11px] text-white/60">
+                            A: {formatClock(abA ?? 0)} {abB != null && '•'} {abB != null && `B: ${formatClock(abB)}`}
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   </div>
                   {/* Center cluster: prev mark | transport | next mark */}
                   <div className="flex items-center justify-center gap-3">

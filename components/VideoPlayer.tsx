@@ -36,6 +36,11 @@ const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
     const fpsRef = useRef(Math.max(1, Math.floor(video.fps || 24)));
     const hasReportedFpsRef = useRef(false);
     const lastSampleRef = useRef<{ frames: number; mediaTime: number; wall: number } | null>(null);
+    // Avoid stale closures inside the frame loop by referencing latest props
+    const onTimeUpdateRef = useRef(onTimeUpdate);
+    useEffect(() => { onTimeUpdateRef.current = onTimeUpdate; }, [onTimeUpdate]);
+    const onFpsRef = useRef(onFps);
+    useEffect(() => { onFpsRef.current = onFps; }, [onFps]);
 
     const formatTime = (timeInSeconds: number) => {
         const seconds = Math.floor(timeInSeconds % 60).toString().padStart(2, '0');
@@ -52,7 +57,7 @@ const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
       const time = videoRef.current.currentTime;
       const canonicalFps = Math.max(1, Math.floor(video.fps || 24));
       const frameForStorage = Math.round(time * canonicalFps);
-      onTimeUpdate(time, frameForStorage);
+      onTimeUpdateRef.current?.(time, frameForStorage);
       // FPS estimation using requestVideoFrameCallback metadata when available
       try {
         const presented = metadata?.presentedFrames;
@@ -78,10 +83,10 @@ const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
               if (!hasReportedFpsRef.current) {
                 fpsRef.current = next;
                 hasReportedFpsRef.current = true;
-                onFps?.(next);
+                onFpsRef.current?.(next);
               } else if (Math.abs(next - fpsRef.current) >= 1) {
                 fpsRef.current = next;
-                onFps?.(next);
+                onFpsRef.current?.(next);
               }
             }
           }
@@ -91,7 +96,7 @@ const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
       if ('requestVideoFrameCallback' in videoRef.current) {
         (videoRef.current as any).requestVideoFrameCallback(handleFrameUpdate);
       }
-    }, [onTimeUpdate, onFps, videoRef]);
+    }, [videoRef, video.fps]);
 
     useEffect(() => {
       const videoElement = videoRef.current;
@@ -118,7 +123,7 @@ const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
             if (!videoRef.current) return;
             const time = videoRef.current.currentTime;
             const canonicalFps = Math.max(1, Math.floor(video.fps || 24));
-            onTimeUpdate(time, Math.round(time * canonicalFps));
+            onTimeUpdateRef.current?.(time, Math.round(time * canonicalFps));
             // Try sampling frames via playback quality
             try {
               const q = (videoRef.current as any).getVideoPlaybackQuality?.();
@@ -135,10 +140,10 @@ const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
                     if (!hasReportedFpsRef.current) {
                       fpsRef.current = next;
                       hasReportedFpsRef.current = true;
-                      onFps?.(next);
+                      onFpsRef.current?.(next);
                     } else if (Math.abs(next - fpsRef.current) >= 1) {
                       fpsRef.current = next;
-                      onFps?.(next);
+                      onFpsRef.current?.(next);
                     }
                   }
                 }
@@ -153,7 +158,7 @@ const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
         videoElement.removeEventListener('error', handleError);
         if (intervalId) clearInterval(intervalId);
       };
-    }, [videoRef, handleFrameUpdate, onTimeUpdate, video.fps]);
+    }, [videoRef, handleFrameUpdate, video.fps]);
 
     // Reset readiness when source changes
     useEffect(() => {
