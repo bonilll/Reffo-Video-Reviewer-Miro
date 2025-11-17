@@ -554,7 +554,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
   // Smoothly synchronize the comparison element to the main video's time
   const syncCompareElement = useCallback((el: HTMLVideoElement, mainTime: number) => {
     if (!el) return;
-    const fps = Math.max(1, effectiveFps);
+    const fps = Math.max(1, Math.floor(video.fps || 24));
     const offsetSec = Math.max(0, compareOffsetFrames) / fps;
     const target = Math.max(0, mainTime - offsetSec);
 
@@ -582,7 +582,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
       el.playbackRate = Math.abs(diff) < RATE_EPSILON ? 1.0 : rate;
       if (isPlaying) { const p = el.play(); (p as any)?.catch?.(() => undefined); } else { try { el.pause(); } catch {} }
     }
-  }, [compareOffsetFrames, effectiveFps, isPlaying]);
+  }, [compareOffsetFrames, video.fps, isPlaying]);
 
   useEffect(() => {
     const els = compareElements();
@@ -606,7 +606,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
       }
     });
     // Also resync when layout/mode or offset changes so newly mounted element plays in sync
-  }, [compareSource, compareMode, compareOffsetFrames, effectiveFps, loopEnabled, isPlaying, compareElements, syncCompareElement]);
+  }, [compareSource, compareMode, compareOffsetFrames, video.fps, loopEnabled, isPlaying, compareElements, syncCompareElement]);
 
   useEffect(() => {
     const els = compareElements();
@@ -1326,10 +1326,10 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
 
   // Derived helpers for external controls
   const stepFrame = useCallback((deltaFrames: number) => {
-    const fps = Math.max(1, effectiveFps);
+    const fps = Math.max(1, Math.floor(video.fps || 24));
     const newTime = Math.max(0, Math.min(duration, (currentFrame + deltaFrames) / fps));
     handleSeek(newTime);
-  }, [currentFrame, duration, effectiveFps, handleSeek]);
+  }, [currentFrame, duration, video.fps, handleSeek]);
 
   const jumpFrames = useMemo(() => {
     const frames = new Set<number>();
@@ -1348,8 +1348,8 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
       targetFrame = reversed.find(f => f < currentFrame);
       if (targetFrame === undefined && jumpFrames.length) targetFrame = jumpFrames[jumpFrames.length - 1];
     }
-    if (targetFrame !== undefined) handleSeek(targetFrame / Math.max(1, effectiveFps));
-  }, [jumpFrames, currentFrame, handleSeek, effectiveFps]);
+    if (targetFrame !== undefined) handleSeek(targetFrame / Math.max(1, Math.floor(video.fps || 24)));
+  }, [jumpFrames, currentFrame, handleSeek, video.fps]);
 
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -1766,7 +1766,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
                   <label className={`flex items-center justify-between text-[11px] uppercase gap-3`}>
                     <span className={`${isDark ? 'text-white/60' : 'text-gray-600'}`}>Offset</span>
                     <span className={`${isDark ? 'text-white/80' : 'text-gray-800'}`}>
-                      {compareOffsetFrames} f • ≈ {(compareOffsetFrames / Math.max(1, effectiveFps)).toFixed(2)}s
+                      {compareOffsetFrames} f • ≈ {(compareOffsetFrames / Math.max(1, Math.floor(video.fps || 24))).toFixed(2)}s
                     </span>
                   </label>
                   <div className="mt-2 flex items-center gap-2">

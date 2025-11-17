@@ -50,8 +50,9 @@ const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
     const handleFrameUpdate = useCallback((now?: any, metadata?: any) => {
       if (!videoRef.current) return;
       const time = videoRef.current.currentTime;
-      const frame = Math.round(time * Math.max(1, fpsRef.current));
-      onTimeUpdate(time, frame);
+      const canonicalFps = Math.max(1, Math.floor(video.fps || 24));
+      const frameForStorage = Math.round(time * canonicalFps);
+      onTimeUpdate(time, frameForStorage);
       // FPS estimation using requestVideoFrameCallback metadata when available
       try {
         const presented = metadata?.presentedFrames;
@@ -116,7 +117,8 @@ const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
         intervalId = window.setInterval(() => {
             if (!videoRef.current) return;
             const time = videoRef.current.currentTime;
-            onTimeUpdate(time, Math.round(time * Math.max(1, fpsRef.current)));
+            const canonicalFps = Math.max(1, Math.floor(video.fps || 24));
+            onTimeUpdate(time, Math.round(time * canonicalFps));
             // Try sampling frames via playback quality
             try {
               const q = (videoRef.current as any).getVideoPlaybackQuality?.();
