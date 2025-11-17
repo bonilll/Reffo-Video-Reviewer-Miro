@@ -260,52 +260,46 @@ export const create = mutation({
 
     const author = await ctx.db.get(user._id);
 
-    // Mentions: parse @Name and notify
-    const mentionMatches = text.match(/@([A-Za-z0-9_\-\. ]{2,})/g) || [];
-    if (mentionMatches.length) {
-      const { video: mentionVideo, candidates } = await collectMentionCandidates(ctx, user._id, videoId);
-      const lookup = new Map<string, MentionCandidate>();
-      candidates.forEach((candidate) => {
-        const labelKey = candidate.label.trim().toLowerCase();
-        if (labelKey) lookup.set(labelKey, candidate);
-        const emailKey = normalizeEmail(candidate.email ?? null);
-        if (emailKey) lookup.set(emailKey, candidate);
+    // Mentions: robust parse using candidate labels with boundary checks
+    const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const { video: mentionVideo, candidates } = await collectMentionCandidates(ctx, user._id, videoId);
+    const notified = new Set<string>();
+    for (const cand of candidates) {
+      const label = (cand.label || '').trim();
+      if (!label) continue;
+      // Match "@Label" followed by end or boundary (space, punctuation, brackets)
+      const pattern = new RegExp(`@${escapeRegExp(label)}(?=$|[\\s.,!?;:)\\]\\}])`, 'i');
+      if (!pattern.test(text)) continue;
+      const targetId = cand.userId as Id<'users'> | null | undefined;
+      if (!targetId || targetId === user._id) continue;
+      if (notified.has(targetId)) continue;
+      notified.add(targetId);
+      await ctx.db.insert('notifications', {
+        userId: targetId,
+        type: 'mention',
+        message: mentionVideo?.title
+          ? `New mention in ${mentionVideo.title}`
+          : 'You were mentioned in a comment',
+        videoId,
+        projectId: mentionVideo?.projectId ?? undefined,
+        commentId,
+        frame: frame ?? undefined,
+        mentionText: `@${label}`,
+        fromUserId: user._id,
+        contextTitle: mentionVideo?.title ?? undefined,
+        previewUrl: (mentionVideo as any)?.thumbnailUrl ?? undefined,
+        createdAt: Date.now(),
+        readAt: undefined,
       });
-      const notified = new Set<string>();
-      for (const raw of mentionMatches) {
-        const normalized = raw.slice(1).trim().toLowerCase();
-        if (!normalized) continue;
-        const candidate = lookup.get(normalized);
-        if (!candidate || !candidate.userId || candidate.userId === user._id) continue;
-        if (notified.has(candidate.userId)) continue;
-        notified.add(candidate.userId);
-        await ctx.db.insert('notifications', {
-          userId: candidate.userId,
-          type: 'mention',
-          message: mentionVideo?.title
-            ? `New mention in ${mentionVideo.title}`
-            : 'You were mentioned in a comment',
+      // Fire Slack DM if the mentioned user connected Slack
+      try {
+        await ctx.scheduler.runAfter(0, internal.slack.notifyMention, {
+          toUserId: targetId,
           videoId,
-          projectId: mentionVideo?.projectId ?? undefined,
           commentId,
-          frame: frame ?? undefined,
-          mentionText: raw.trim(),
-          fromUserId: user._id,
-          contextTitle: mentionVideo?.title ?? undefined,
-          previewUrl: (mentionVideo as any)?.thumbnailUrl ?? undefined,
-          createdAt: Date.now(),
-          readAt: undefined,
         });
-        // Fire Slack DM if the mentioned user connected Slack
-        try {
-          await ctx.scheduler.runAfter(0, internal.slack.notifyMention, {
-            toUserId: candidate.userId as Id<'users'>,
-            videoId,
-            commentId,
-          });
-        } catch (_err) {
-          // ignore slack failures so they don't block comment creation
-        }
+      } catch (_err) {
+        // ignore slack failures so they don't block comment creation
       }
     }
 

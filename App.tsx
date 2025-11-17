@@ -13,6 +13,12 @@ import googleLogo from './assets/google.svg';
 import { useThemePreference, applyTheme, ThemePref } from './useTheme';
 import { Sun, Moon } from 'lucide-react';
 import { Bell } from 'lucide-react';
+import { useConsent } from './contexts/ConsentContext';
+import PrivacyPolicy from './components/legal/PrivacyPolicy';
+import CookiePolicy from './components/legal/CookiePolicy';
+import TermsOfUse from './components/legal/TermsOfUse';
+import { CookieSettingsTrigger } from './components/legal/CookieSettingsTrigger';
+import { LanguageSwitcher } from './components/legal/LanguageSwitcher';
 // Lottie assets as static URLs to ensure they are included in Vite build
 import lottieLoaderRaw from './assets/animations/Loader.json?raw';
 import lottieImageLoaderRaw from './assets/animations/imageloader.json?raw';
@@ -32,13 +38,16 @@ type UploadPayload = {
   thumbnailUrl?: string;
 };
 
+type LegalPage = 'privacy' | 'cookies' | 'terms';
+
 type Route =
   | { name: 'home' }
   | { name: 'dashboard' }
   | { name: 'profile' }
   | { name: 'project'; id: string }
   | { name: 'review'; id: string }
-  | { name: 'share'; token: string };
+  | { name: 'share'; token: string }
+  | { name: 'legal'; page: LegalPage };
 
 type NotificationRecord = {
   id: string;
@@ -88,6 +97,9 @@ function parseRoute(pathname: string): Route {
   if (pathname === '/' || pathname === '') return { name: 'home' };
   if (pathname === '/dashboard') return { name: 'dashboard' };
   if (pathname === '/profile') return { name: 'profile' };
+  if (pathname === '/privacy' || pathname === '/privacy-policy') return { name: 'legal', page: 'privacy' };
+  if (pathname === '/cookie-policy' || pathname === '/cookies') return { name: 'legal', page: 'cookies' };
+  if (pathname === '/terms' || pathname === '/terms-of-use') return { name: 'legal', page: 'terms' };
   const projectMatch = pathname.match(/^\/project\/([^\/?#]+)/);
   if (projectMatch) return { name: 'project', id: projectMatch[1] };
   const reviewMatch = pathname.match(/^\/review\/([^\/?#]+)/);
@@ -125,7 +137,8 @@ const getClerkErrorMessage = (error: unknown): string => {
 
 const App: React.FC = () => {
   const [route, setRoute] = useState<Route>(() => parseRoute(window.location.pathname));
-  const [view, setView] = useState<'dashboard' | 'reviewer' | 'profile' | 'project'>('dashboard');
+  const [view, setView] = useState<'dashboard' | 'reviewer' | 'profile' | 'project' | 'legal'>('dashboard');
+  const [legalPage, setLegalPage] = useState<LegalPage>('privacy');
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [sharedSelectedVideo, setSharedSelectedVideo] = useState<Video | null>(null);
   const [selectedVideoId, setSelectedVideoId] = useState<string | null>(null);
@@ -148,6 +161,8 @@ const App: React.FC = () => {
   const { signIn, isLoaded: isSignInLoaded } = useSignIn();
   const { signUp, isLoaded: isSignUpLoaded } = useSignUp();
   const { setActive } = useClerk();
+  const consent = useConsent();
+  const consentText = consent.text;
 
   const currentUser = useQuery(api.users.current, isSignedIn ? {} : undefined);
   const userSettings = useQuery(api.settings.getOrNull, currentUser ? {} : undefined);
@@ -739,6 +754,57 @@ const App: React.FC = () => {
     [updateVideoMetadata, getDownloadUrl, currentUser, navigate]
   );
 
+  const renderLegalPage = () => {
+    let Component: React.ReactNode = null;
+    if (legalPage === 'privacy') Component = <PrivacyPolicy />;
+    else if (legalPage === 'cookies') Component = <CookiePolicy />;
+    else Component = <TermsOfUse />;
+    const navItems: Array<{ label: string; page: LegalPage; path: string }> = [
+      { label: consentText.footer.privacy, page: 'privacy', path: '/privacy' },
+      { label: consentText.footer.cookies, page: 'cookies', path: '/cookie-policy' },
+      { label: consentText.footer.terms, page: 'terms', path: '/terms' },
+    ];
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-gray-900 via-gray-950 to-black text-white">
+        <div className="mx-auto max-w-6xl px-4 py-6">
+          <header className="flex flex-col gap-4 border-b border-white/10 pb-4 md:flex-row md:items-center md:justify-between">
+            <div>
+              <div className="flex items-center gap-2">
+                <img src={logo} alt="Reffo" className="h-7 w-auto" />
+                <span className="text-lg font-semibold">Reffo Review</span>
+              </div>
+              <p className="text-xs text-white/60">Legal documentation (draft – requires legal review)</p>
+            </div>
+            <nav className="flex flex-wrap items-center gap-2 text-xs">
+              {navItems.map((item) => (
+                <button
+                  key={item.page}
+                  onClick={() => navigate(item.path)}
+                  className={`rounded-full px-3 py-1.5 ${
+                    legalPage === item.page ? 'bg-white/20 text-white' : 'bg-white/5 text-white/70 hover:bg-white/10'
+                  }`}
+                >
+                  {item.label}
+                </button>
+              ))}
+              <LanguageSwitcher compact className="ml-2 flex items-center gap-2" />
+            </nav>
+          </header>
+          <div className="py-6">
+            {Component}
+            <div className="mt-8 text-center">
+              <CookieSettingsTrigger variant="footer" className="text-xs underline text-white/80 hover:text-white" />
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  if (view === 'legal') {
+    return renderLegalPage();
+  }
+
   // Route → internal state sync
   useEffect(() => {
     const onPop = () => setRoute(parseRoute(window.location.pathname));
@@ -780,6 +846,11 @@ const App: React.FC = () => {
     }
     if (route.name === 'share') {
       // handled below when shareResolution/shareVideo load
+      return;
+    }
+    if (route.name === 'legal') {
+      setLegalPage(route.page);
+      setView('legal');
       return;
     }
   }, [route]);
@@ -928,7 +999,17 @@ const App: React.FC = () => {
                 </button>
                 {renderEmailAuthSection(true)}
               </div>
-              <p className="mt-4 text-[11px] text-white/40">By continuing you agree to our Terms and Privacy Policy.</p>
+              <p className="mt-4 text-[11px] text-white/60">
+                By continuing you agree to our{' '}
+                <button onClick={() => navigate('/terms')} className="underline">
+                  {consentText.footer.terms}
+                </button>{' '}
+                and{' '}
+                <button onClick={() => navigate('/privacy')} className="underline">
+                  {consentText.footer.privacy}
+                </button>
+                .
+              </p>
             </div>
           </div>
         ) : (
@@ -952,7 +1033,17 @@ const App: React.FC = () => {
                   </button>
                   {renderEmailAuthSection()}
                 </div>
-                <p className="mt-4 text-center text-xs text-white/40">By continuing you agree to our Terms of Service and Privacy Policy.</p>
+                <p className="mt-4 text-center text-xs text-white/60">
+                  By continuing you agree to our{' '}
+                  <button onClick={() => navigate('/terms')} className="underline">
+                    {consentText.footer.terms}
+                  </button>{' '}
+                  and{' '}
+                  <button onClick={() => navigate('/privacy')} className="underline">
+                    {consentText.footer.privacy}
+                  </button>
+                  .
+                </p>
               </div>
               <div className="hidden md:grid md:grid-cols-2 md:gap-4">
                 <div className="rounded-2xl border border-white/10 bg-black/30 p-4 text-sm text-white/70">
@@ -964,6 +1055,14 @@ const App: React.FC = () => {
                   <p className="mt-1 text-white/80">Invite your crew in minutes and keep feedback in sync across every project.</p>
                 </div>
               </div>
+              <footer className="flex flex-col items-center gap-2 text-center text-xs text-white/60">
+                <button onClick={() => navigate('/privacy')} className="underline underline-offset-2">{consentText.footer.privacy}</button>
+                {' · '}
+                <button onClick={() => navigate('/cookie-policy')} className="underline underline-offset-2">{consentText.footer.cookies}</button>
+                {' · '}
+                <button onClick={() => navigate('/terms')} className="underline underline-offset-2">{consentText.footer.terms}</button>
+                <LanguageSwitcher compact />
+              </footer>
             </div>
           </div>
         )}
@@ -1095,6 +1194,32 @@ const App: React.FC = () => {
                 />
               )}
             </main>
+            <footer className={`border-t ${isDark ? 'border-white/10 bg-black/40 text-white/70' : 'border-gray-200 bg-white text-gray-600'} px-6 py-4 lg:px-12`}>
+              <div className="flex flex-wrap items-center justify-center gap-4 text-xs">
+                <button onClick={() => navigate('/privacy')} className="underline underline-offset-2">
+                  {consentText.footer.privacy}
+                </button>
+                <button onClick={() => navigate('/cookie-policy')} className="underline underline-offset-2">
+                  {consentText.footer.cookies}
+                </button>
+                <button onClick={() => navigate('/terms')} className="underline underline-offset-2">
+                  {consentText.footer.terms}
+                </button>
+                <CookieSettingsTrigger
+                  variant="footer"
+                  className={
+                    isDark
+                      ? 'text-xs underline text-white/70 hover:text-white'
+                      : 'text-xs underline text-gray-700 hover:text-gray-900'
+                  }
+                />
+                <LanguageSwitcher compact className={
+                  isDark
+                    ? 'flex items-center gap-2 text-white/70'
+                    : 'flex items-center gap-2 text-gray-700'
+                } />
+              </div>
+            </footer>
           </div>
         )}
       </SignedIn>

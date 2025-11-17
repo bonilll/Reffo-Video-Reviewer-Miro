@@ -99,12 +99,12 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
     if (!search) return;
     const params = new URLSearchParams(search);
     const code = params.get('code');
-    const state = params.get('state'); // currently unused
+    const state = params.get('state');
     const source = params.get('source');
     if (code && source === 'slack') {
       (async () => {
         try {
-          await exchangeSlackCode({ code, redirectUri: window.location.origin + '/profile?source=slack' });
+          await (exchangeSlackCode as any)({ code, redirectUri: window.location.origin + '/profile?source=slack', state: state || undefined });
           try {
             const s = await getSlackStatus({});
             setSlackStatus(Array.isArray(s) ? s : (s ? [s] : []));

@@ -4,6 +4,7 @@ import { action, internalAction } from "./_generated/server";
 import { ConvexError, v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import { api, internal } from "./_generated/api";
+import { randomBytes } from 'node:crypto';
 
 const env = (key: string) => {
   const value = process.env[key];
@@ -42,13 +43,18 @@ export const getAuthUrl = action({
       throw new ConvexError("NOT_AUTHENTICATED");
     }
     const userId = await ctx.runMutation("users:ensure" as any, {});
-    const baseRedirect = redirectUri ?? process.env.SLACK_REDIRECT_URI ?? `${PUBLIC_SITE_URL()}/profile`;
+    let baseRedirect = redirectUri ?? process.env.SLACK_REDIRECT_URI ?? `${PUBLIC_SITE_URL()}/profile`;
+    if (!/([?&])source=slack/.test(baseRedirect)) {
+      baseRedirect += (baseRedirect.includes('?') ? '&' : '?') + 'source=slack';
+    }
+    // Create and persist CSRF state
+    const nonce = randomBytes(16).toString('hex');
+    await ctx.runMutation(internal.slackData.createOauthState, { provider: 'slack', userId: userId as Id<'users'>, nonce });
     const params = new URLSearchParams({
       client_id: SLACK_CLIENT_ID(),
       scope: DEFAULT_SCOPES,
       redirect_uri: baseRedirect,
-      // For simplicity, we omit state verification here; production should persist & verify.
-      state: `${userId}`,
+      state: nonce,
     });
     return `https://slack.com/oauth/v2/authorize?${params.toString()}`;
   },
@@ -58,21 +64,32 @@ export const exchangeCode = action({
   args: {
     code: v.string(),
     redirectUri: v.optional(v.string()),
+    state: v.optional(v.string()),
   },
-  async handler(ctx, { code, redirectUri }) {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) {
-      throw new ConvexError("NOT_AUTHENTICATED");
+  async handler(ctx, { code, redirectUri, state }) {
+    // Validate state if present (preferred for public distribution)
+    let targetUserId: Id<'users'> | null = null;
+    if (state) {
+      const consumed = await ctx.runMutation(internal.slackData.consumeOauthState, { provider: 'slack', nonce: state });
+      if (consumed?.userId) targetUserId = consumed.userId as Id<'users'>;
+      if (!targetUserId) throw new ConvexError('INVALID_OAUTH_STATE');
+    } else {
+      // Fallback to current identity (still require auth in this flow)
+      const identity = await ctx.auth.getUserIdentity();
+      if (!identity) throw new ConvexError('NOT_AUTHENTICATED');
+      let userDoc = await ctx.runQuery(api.users.current, {});
+      if (!userDoc?._id) {
+        await ctx.runMutation(api.users.ensure, {});
+        userDoc = await ctx.runQuery(api.users.current, {});
+      }
+      if (!userDoc?._id) throw new ConvexError('NOT_PROVISIONED');
+      targetUserId = userDoc._id as Id<'users'>;
     }
-    // Prefer non-writing read; if missing, provision once
-    let userDoc = await ctx.runQuery(api.users.current, {});
-    if (!userDoc?._id) {
-      await ctx.runMutation(api.users.ensure, {});
-      userDoc = await ctx.runQuery(api.users.current, {});
+
+    let baseRedirect = redirectUri ?? process.env.SLACK_REDIRECT_URI ?? `${PUBLIC_SITE_URL()}/profile`;
+    if (!/([?&])source=slack/.test(baseRedirect)) {
+      baseRedirect += (baseRedirect.includes('?') ? '&' : '?') + 'source=slack';
     }
-    if (!userDoc?._id) throw new ConvexError("NOT_PROVISIONED");
-    const userId = userDoc._id as Id<"users">;
-    const baseRedirect = redirectUri ?? process.env.SLACK_REDIRECT_URI ?? `${PUBLIC_SITE_URL()}/profile`;
 
     const body = new URLSearchParams({
       code,
@@ -99,7 +116,7 @@ export const exchangeCode = action({
     }
 
     await ctx.runMutation(internal.slackData.upsertConnection, {
-      userId,
+      userId: targetUserId!,
       teamId: team.id,
       teamName: team.name ?? team.id,
       botUserId: botUserId || "bot",

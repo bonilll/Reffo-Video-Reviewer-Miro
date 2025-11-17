@@ -6,6 +6,11 @@ import { ClerkProvider, useAuth } from '@clerk/clerk-react';
 import { ConvexReactClient } from 'convex/react';
 import { ConvexProviderWithClerk } from 'convex/react-clerk';
 import './index.css';
+import { ConsentProvider } from './contexts/ConsentContext';
+import { CookieBanner } from './components/legal/CookieBanner';
+import { CookiePreferencesModal } from './components/legal/CookiePreferencesModal';
+import { CookieSettingsTrigger } from './components/legal/CookieSettingsTrigger';
+import { GoogleAnalytics } from './components/analytics/GoogleAnalytics';
 
 // Prefer self-hosted Convex URL if provided; fallback to legacy VITE_CONVEX_URL
 const convexUrl =
@@ -33,7 +38,13 @@ root.render(
   <React.StrictMode>
     <ClerkProvider publishableKey={clerkPublishableKey} afterSignOutUrl="/">
       <ConvexProviderWithClerk client={convex} useAuth={useAuth}>
-        <App />
+        <ConsentProvider>
+          <App />
+          <CookieBanner />
+          <CookiePreferencesModal />
+          <CookieSettingsTrigger />
+          <GoogleAnalytics />
+        </ConsentProvider>
       </ConvexProviderWithClerk>
     </ClerkProvider>
   </React.StrictMode>

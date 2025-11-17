@@ -112,3 +112,27 @@ export const buildMentionPayload = query({
   },
 });
 
+// OAuth state helpers (nonce creation & consumption)
+export const createOauthState = internalMutation({
+  args: { provider: v.string(), userId: v.id("users"), nonce: v.string() },
+  async handler(ctx, { provider, userId, nonce }) {
+    await ctx.db.insert('oauthStates', { provider, nonce, userId, createdAt: Date.now() });
+    return { ok: true };
+  },
+});
+
+export const consumeOauthState = internalMutation({
+  args: { provider: v.string(), nonce: v.string() },
+  async handler(ctx, { provider, nonce }) {
+    const row = await ctx.db.query('oauthStates').withIndex('byProviderAndNonce', (q) => q.eq('provider', provider).eq('nonce', nonce)).unique();
+    if (!row) return null;
+    // Expire states older than 15 minutes
+    const maxAgeMs = 15 * 60 * 1000;
+    if (Date.now() - row.createdAt > maxAgeMs) {
+      await ctx.db.delete(row._id);
+      return null;
+    }
+    await ctx.db.delete(row._id);
+    return { userId: row.userId as Id<'users'> };
+  },
+});

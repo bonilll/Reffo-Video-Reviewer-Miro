@@ -10,6 +10,7 @@
 
 import type * as annotations from "../annotations.js";
 import type * as comments from "../comments.js";
+import type * as compliance from "../compliance.js";
 import type * as friends from "../friends.js";
 import type * as maintenance from "../maintenance.js";
 import type * as notifications from "../notifications.js";
@@ -43,6 +44,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   annotations: typeof annotations;
   comments: typeof comments;
+  compliance: typeof compliance;
   friends: typeof friends;
   maintenance: typeof maintenance;
   notifications: typeof notifications;

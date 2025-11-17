@@ -185,4 +185,45 @@ export default defineSchema({
   })
     .index("byUser", ["userId"]) 
     .index("byUserAndTeam", ["userId", "teamId"]),
+
+  // Ephemeral OAuth state to validate Slack (and other providers) callbacks
+  oauthStates: defineTable({
+    provider: v.string(), // e.g. 'slack'
+    nonce: v.string(),
+    userId: v.id("users"),
+    createdAt: v.number(),
+  })
+    .index("byProviderAndNonce", ["provider", "nonce"]),
+
+  cookieConsents: defineTable({
+    userId: v.optional(v.id("users")),
+    visitorId: v.string(),
+    ipAddress: v.optional(v.string()),
+    userAgent: v.optional(v.string()),
+    locale: v.optional(v.string()),
+    consentGiven: v.boolean(),
+    categories: v.object({
+      necessary: v.boolean(),
+      preferences: v.boolean(),
+      analytics: v.boolean(),
+      marketing: v.boolean(),
+    }),
+    consentVersion: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("byVisitor", ["visitorId"])
+    .index("byUser", ["userId"]),
+
+  legalAcceptances: defineTable({
+    userId: v.optional(v.id("users")),
+    visitorId: v.optional(v.string()),
+    documentType: v.string(),
+    documentVersion: v.string(),
+    acceptedAt: v.number(),
+    ipAddress: v.optional(v.string()),
+    userAgent: v.optional(v.string()),
+  })
+    .index("byUserAndDoc", ["userId", "documentType"])
+    .index("byVisitorAndDoc", ["visitorId", "documentType"]),
 });
