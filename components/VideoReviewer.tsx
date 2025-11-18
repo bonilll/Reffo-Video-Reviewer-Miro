@@ -29,6 +29,7 @@ interface VideoReviewerProps {
   theme?: ThemePref;
   initialFocus?: ReviewFocusContext | null;
   onConsumeInitialFocus?: () => void;
+  onOpenEditor?: (compositionId: Id<'compositions'>) => void;
 }
 
 const DEFAULT_COMMENT_POSITION: Point = { x: 0.5, y: 0.5 };
@@ -100,7 +101,7 @@ const uploadBlobWithProgress = (url: string, blob: Blob, onProgress?: (percent: 
     xhr.send(blob);
   });
 
-const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBack, theme = 'system', initialFocus = null, onConsumeInitialFocus }) => {
+const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBack, theme = 'system', initialFocus = null, onConsumeInitialFocus, onOpenEditor }) => {
   const isDark = useThemePreference(theme);
   const { user: clerkUser } = useUser();
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
@@ -163,6 +164,8 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
   const deleteAnnotationsMutation = useMutation(api.annotations.removeMany);
 
   const createCommentMutation = useMutation(api.comments.create);
+  const createCompositionMutation = useMutation(api.edits.createComposition);
+  const attachEditedClipMutation = useMutation(api.edits.attachExportToReview);
   const toggleCommentResolvedMutation = useMutation(api.comments.toggleResolved);
   const deleteCommentMutation = useMutation(api.comments.remove);
   const updateCommentPositionMutation = useMutation(api.comments.updatePosition);
@@ -184,6 +187,29 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
   const pendingMentionReads = useRef<Set<string>>(new Set());
 
   const [playbackUrl, setPlaybackUrl] = useState<string | null>(null);
+  const [creatingEdit, setCreatingEdit] = useState(false);
+  const enableEditedExports = (() => {
+    try {
+      const raw = (import.meta as any)?.env?.VITE_ENABLE_EDIT_EXPORTS;
+      // Default ON if not provided; set to '0' explicitly to disable
+      if (raw === undefined || raw === '') return true;
+      return raw.toString() === '1';
+    } catch {
+      return true;
+    }
+  })();
+  const showInsertButton = enableEditedExports && Boolean(video.isOwnedByCurrentUser);
+  const showEditButton = showInsertButton; // same gating: only when feature enabled and owner
+  const [exportsForVideo, setExportsForVideo] = useState<Array<{ export: any; composition: any }> | undefined>(undefined);
+  const completedExports = (exportsForVideo ?? []).filter(
+    (item) => item.export.status === 'completed' && item.export.outputPublicUrl,
+  );
+  const hasAttachableExports = showInsertButton && completedExports.length > 0;
+  const [insertEditOpen, setInsertEditOpen] = useState(false);
+  const [selectedExportId, setSelectedExportId] = useState<string | null>(null);
+  const [insertFrame, setInsertFrame] = useState<number>(0);
+  const [attachLoading, setAttachLoading] = useState(false);
+  const [attachError, setAttachError] = useState<string | null>(null);
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(1);
   const [isMuted, setIsMuted] = useState(false);
@@ -1439,8 +1465,72 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
   
   const headerDuration = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : (duration || 0);
 
+  useEffect(() => {
+    if (insertEditOpen) {
+      setInsertFrame(currentFrame);
+    }
+  }, [insertEditOpen, currentFrame]);
+
+  const handleOpenEditor = useCallback(async () => {
+    if (!showEditButton) return;
+    if (creatingEdit) return;
+    try {
+      setCreatingEdit(true);
+      const safeTitle = (video.title || 'Untitled').trim();
+      const result = await createCompositionMutation({
+        title: `${safeTitle} edit`,
+        description: `Created from review ${safeTitle}`,
+        sourceVideoId: video.id as Id<'videos'>,
+        projectId: video.projectId ? (video.projectId as Id<'projects'>) : undefined,
+      });
+      if (result?.compositionId && onOpenEditor) {
+        onOpenEditor(result.compositionId as Id<'compositions'>);
+      }
+    } catch (err) {
+      console.error('Failed to create edit composition', err);
+    } finally {
+      setCreatingEdit(false);
+    }
+  }, [creatingEdit, createCompositionMutation, onOpenEditor, video, showEditButton]);
+
+  const handleInsertEditedClip = useCallback(() => {
+    if (!showInsertButton) return;
+    if (!exportsForVideo || exportsForVideo.length === 0) return;
+    setSelectedExportId(null);
+    setAttachError(null);
+    setInsertFrame(currentFrame);
+    setInsertEditOpen(true);
+  }, [exportsForVideo, currentFrame, showInsertButton]);
+
+  const handleAttachEditedClip = useCallback(async () => {
+    if (!selectedExportId) {
+      setAttachError('Seleziona prima un export.');
+      return;
+    }
+    setAttachError(null);
+    try {
+      setAttachLoading(true);
+      await attachEditedClipMutation({
+        exportId: selectedExportId as Id<'compositionExports'>,
+        videoId: video.id as Id<'videos'>,
+        frame: insertFrame,
+      });
+      setInsertEditOpen(false);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Impossibile inserire la clip.';
+      setAttachError(message);
+    } finally {
+      setAttachLoading(false);
+    }
+  }, [attachEditedClipMutation, insertFrame, selectedExportId, video.id]);
+
   return (
     <div className={"w-full h-full flex flex-col"}>
+      {showInsertButton && (
+        <EditedExportsErrorBoundary>
+          <EditedExportsQuery videoId={videoId} onData={setExportsForVideo} />
+        </EditedExportsErrorBoundary>
+      )}
       <header
         ref={headerEl}
         className={`flex-shrink-0 border-b px-4 md:px-8 py-3 md:py-4 grid grid-cols-[minmax(0,1fr)_360px] items-center z-20 backdrop-blur ${
@@ -1472,10 +1562,22 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
               {video.width}×{video.height} • {fpsDetected ? `${effectiveFps} fps` : '... fps'} • {formatClock(headerDuration)}
             </div>
           </div>
-          <div />
+          <div className="justify-self-end">
+            {showEditButton && (
+              <button
+                onClick={handleOpenEditor}
+                disabled={creatingEdit}
+                className={`${
+                  isDark ? 'bg-white/10 text-white hover:bg-white/20' : 'bg-black/5 text-gray-900 hover:bg-black/10'
+                } inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[11px] font-semibold uppercase transition disabled:opacity-50`}
+              >
+                {creatingEdit ? 'Preparing…' : 'Edit Mode (development)'}
+              </button>
+            )}
+          </div>
         </div>
-        {/* Right column (aligned with comments): 4-column grid matching comments width */}
-        <div className="grid grid-cols-4 items-center justify-items-center w-[360px] gap-2 md:gap-3">
+        {/* Right column (aligned with comments): controls + share + insert */}
+        <div className={showInsertButton ? 'grid grid-cols-5 items-center justify-items-center w-[420px] gap-2 md:gap-3' : 'grid grid-cols-4 items-center justify-items-center w-[360px] gap-2 md:gap-3'}>
           {/* Toggle comments panel */}
           <button
             onClick={() => setShowComments((v) => !v)}
@@ -1511,6 +1613,18 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
               <Share2 size={16} color="#000" />
             )}
           </button>
+          {showInsertButton && (
+            <button
+              onClick={handleInsertEditedClip}
+              disabled={!hasAttachableExports}
+              title={hasAttachableExports ? 'Insert edited clip' : 'Render an edit first'}
+              className={`${
+                isDark ? 'text-white/80 border border-white/20 hover:bg-white/10' : 'text-gray-800 border border-gray-300 hover:bg-gray-100'
+              } inline-flex items-center justify-center rounded-full px-3 py-1 text-[11px] font-semibold uppercase transition disabled:opacity-50`}
+            >
+              Insert edit
+            </button>
+          )}
           {clerkUser?.imageUrl ? (
             <img
               src={clerkUser.imageUrl}
@@ -2078,8 +2192,109 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
           </div>
         </div>
       )}
+      {showInsertButton && insertEditOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-2xl rounded-3xl border border-white/10 bg-gray-900/95 p-6 text-white shadow-2xl">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-xl font-semibold">Insert edited clip</h2>
+                <p className="text-sm text-white/70">Select a rendered edit and the frame where it should appear inside this review.</p>
+              </div>
+              <button onClick={() => setInsertEditOpen(false)} className="text-white/60 hover:text-white">✕</button>
+            </div>
+            <div className="mt-4 max-h-[320px] space-y-2 overflow-y-auto pr-2 text-sm">
+              {(exportsForVideo ?? []).length === 0 && (
+                <p className="text-xs text-white/60">No edits available yet. Render an edit in the editor first.</p>
+              )}
+              {(exportsForVideo ?? []).map((item) => {
+                const isCompleted = item.export.status === 'completed' && item.export.outputPublicUrl;
+                return (
+                  <label
+                    key={item.export._id as string}
+                    className={`flex cursor-pointer items-start gap-3 rounded-2xl border px-3 py-2 ${
+                      isCompleted ? 'border-white/15 hover:bg-white/5' : 'border-white/5 opacity-60'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="selectedExport"
+                      className="mt-1"
+                      disabled={!isCompleted}
+                      checked={selectedExportId === (item.export._id as string)}
+                      onChange={() => setSelectedExportId(item.export._id as string)}
+                    />
+                    <div className="flex-1">
+                      <div className="flex items-center justify-between text-xs uppercase tracking-wide text-white/60">
+                        <span>{item.composition.title}</span>
+                        <span>
+                          {item.export.status}
+                          {item.export.status === 'running' && ` • ${Math.round(item.export.progress)}%`}
+                        </span>
+                      </div>
+                      <div className="text-sm font-semibold text-white">{new Date(item.export.createdAt).toLocaleString()}</div>
+                      {!isCompleted && <div className="text-[11px] text-white/50">Only completed exports can be inserted.</div>}
+                    </div>
+                  </label>
+                );
+              })}
+            </div>
+            <div className="mt-4 flex flex-col gap-3 border-t border-white/10 pt-4 text-sm">
+              <label className="flex items-center gap-3">
+                <span className="text-white/70">Frame</span>
+                <input
+                  type="number"
+                  min={0}
+                  value={Math.round(insertFrame)}
+                  onChange={(e) => setInsertFrame(Math.max(0, Number(e.target.value) || 0))}
+                  className="w-32 rounded border border-white/20 bg-black/40 px-3 py-1 text-white"
+                />
+                <span className="text-white/50">(Current: {currentFrame})</span>
+              </label>
+              {attachError && <p className="text-sm text-red-400">{attachError}</p>}
+            </div>
+            <div className="mt-4 flex justify-end gap-3 text-sm">
+              <button
+                onClick={() => setInsertEditOpen(false)}
+                className="rounded-full border border-white/20 px-4 py-2 text-white/80 hover:bg-white/10"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAttachEditedClip}
+                disabled={attachLoading || !selectedExportId}
+                className="rounded-full bg-white px-4 py-2 font-semibold text-black hover:bg-white/90 disabled:opacity-50"
+              >
+                {attachLoading ? 'Inserting…' : 'Insert clip'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
 
 export default VideoReviewer;
+
+// Isolated child that queries edited exports; errors are handled by boundary so
+// missing backend functions don't crash the reviewer.
+const EditedExportsQuery: React.FC<{
+  videoId: Id<'videos'>;
+  onData: (rows: Array<{ export: any; composition: any }>) => void;
+}> = ({ videoId, onData }) => {
+  const rows = useQuery(api.edits.listExportsForVideo, { videoId }) as Array<{ export: any; composition: any }> | undefined;
+  useEffect(() => {
+    if (rows) onData(rows);
+  }, [rows, onData]);
+  return null;
+};
+
+class EditedExportsErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean }> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError() { return { hasError: true }; }
+  componentDidCatch(err: any) { console.warn('Edited exports suppressed error', err); }
+  render() { return this.state.hasError ? null : this.props.children; }
+}

@@ -11,10 +11,12 @@
 import type * as annotations from "../annotations.js";
 import type * as comments from "../comments.js";
 import type * as compliance from "../compliance.js";
+import type * as edits from "../edits.js";
 import type * as friends from "../friends.js";
 import type * as maintenance from "../maintenance.js";
 import type * as notifications from "../notifications.js";
 import type * as projects from "../projects.js";
+import type * as render from "../render.js";
 import type * as settings from "../settings.js";
 import type * as shareGroups from "../shareGroups.js";
 import type * as shares from "../shares.js";
@@ -45,10 +47,12 @@ declare const fullApi: ApiFromModules<{
   annotations: typeof annotations;
   comments: typeof comments;
   compliance: typeof compliance;
+  edits: typeof edits;
   friends: typeof friends;
   maintenance: typeof maintenance;
   notifications: typeof notifications;
   projects: typeof projects;
+  render: typeof render;
   settings: typeof settings;
   shareGroups: typeof shareGroups;
   shares: typeof shares;

@@ -5,6 +5,7 @@ import { api } from './convex/_generated/api';
 import VideoReviewer from './components/VideoReviewer';
 import Dashboard from './components/Dashboard';
 import ProfileSettings from './components/ProfileSettings';
+import EditorPage from './components/editor/EditorPage';
 import ProjectWorkspace from './components/ProjectWorkspace';
 import { Project, Video } from './types';
 import type { Id } from './convex/_generated/dataModel';
@@ -47,7 +48,8 @@ type Route =
   | { name: 'project'; id: string }
   | { name: 'review'; id: string }
   | { name: 'share'; token: string }
-  | { name: 'legal'; page: LegalPage };
+  | { name: 'legal'; page: LegalPage }
+  | { name: 'edit'; id: string };
 
 type NotificationRecord = {
   id: string;
@@ -100,6 +102,8 @@ function parseRoute(pathname: string): Route {
   if (pathname === '/privacy' || pathname === '/privacy-policy') return { name: 'legal', page: 'privacy' };
   if (pathname === '/cookie-policy' || pathname === '/cookies') return { name: 'legal', page: 'cookies' };
   if (pathname === '/terms' || pathname === '/terms-of-use') return { name: 'legal', page: 'terms' };
+  const editMatch = pathname.match(/^\/edit\/([^\/?#]+)/);
+  if (editMatch) return { name: 'edit', id: editMatch[1] };
   const projectMatch = pathname.match(/^\/project\/([^\/?#]+)/);
   if (projectMatch) return { name: 'project', id: projectMatch[1] };
   const reviewMatch = pathname.match(/^\/review\/([^\/?#]+)/);
@@ -137,12 +141,13 @@ const getClerkErrorMessage = (error: unknown): string => {
 
 const App: React.FC = () => {
   const [route, setRoute] = useState<Route>(() => parseRoute(window.location.pathname));
-  const [view, setView] = useState<'dashboard' | 'reviewer' | 'profile' | 'project' | 'legal'>('dashboard');
+  const [view, setView] = useState<'dashboard' | 'reviewer' | 'profile' | 'project' | 'legal' | 'editor'>('dashboard');
   const [legalPage, setLegalPage] = useState<LegalPage>('privacy');
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [sharedSelectedVideo, setSharedSelectedVideo] = useState<Video | null>(null);
   const [selectedVideoId, setSelectedVideoId] = useState<string | null>(null);
   const [reviewSourceUrl, setReviewSourceUrl] = useState<string | null>(null);
+  const [activeCompositionId, setActiveCompositionId] = useState<string | null>(null);
   const [pendingReviewFocus, setPendingReviewFocus] = useState<ReviewFocus | null>(null);
   const [pendingProjectFocus, setPendingProjectFocus] = useState<{ projectId: string; message?: string } | null>(null);
   const [isEnsuringUser, setIsEnsuringUser] = useState(false);
@@ -813,6 +818,7 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    setActiveCompositionId(null);
     // derive view + IDs from route
     if (route.name === 'home') {
       // If signed in, prefer dashboard URL; otherwise keep landing.
@@ -844,6 +850,11 @@ const App: React.FC = () => {
       setView('reviewer');
       return;
     }
+    if (route.name === 'edit') {
+      setActiveCompositionId(route.id);
+      setView('editor');
+      return;
+    }
     if (route.name === 'share') {
       // handled below when shareResolution/shareVideo load
       return;
@@ -853,6 +864,10 @@ const App: React.FC = () => {
       setView('legal');
       return;
     }
+    setView('dashboard');
+    setActiveProjectId(null);
+    setSelectedVideoId(null);
+    setActiveCompositionId(null);
   }, [route]);
 
   // If landing on /share/:token, open the linked review/project
@@ -1117,6 +1132,12 @@ const App: React.FC = () => {
                 return focus.videoId === currentVideo.id ? null : focus;
               });
             }}
+            onOpenEditor={(compositionId) => navigate(`/edit/${compositionId}`)}
+          />
+        ) : view === 'editor' && activeCompositionId ? (
+          <EditorPage
+            compositionId={activeCompositionId as Id<'compositions'>}
+            onExit={() => navigate('/dashboard')}
           />
         ) : (
           <div className="min-h-screen flex flex-col">

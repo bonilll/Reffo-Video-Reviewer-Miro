@@ -133,7 +133,7 @@ const Timeline: React.FC<TimelineProps> = ({ currentTime, duration, onSeek, vide
   }, [duration, video.fps]);
 
   return (
-    <div className="w-full group px-2">
+    <div className="w-full group px-2 select-none">
       <div 
         ref={timelineRef}
         className={`relative h-6 rounded-full cursor-pointer ${isDark ? 'bg-black/50' : 'bg-gray-200'}`} 

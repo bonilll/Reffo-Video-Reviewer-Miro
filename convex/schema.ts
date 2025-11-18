@@ -226,4 +226,91 @@ export default defineSchema({
   })
     .index("byUserAndDoc", ["userId", "documentType"])
     .index("byVisitorAndDoc", ["visitorId", "documentType"]),
+
+  compositions: defineTable({
+    ownerId: v.id("users"),
+    projectId: v.optional(v.id("projects")),
+    sourceVideoId: v.optional(v.id("videos")),
+    title: v.string(),
+    description: v.optional(v.string()),
+    settings: v.object({
+      width: v.number(),
+      height: v.number(),
+      fps: v.number(),
+      durationFrames: v.number(),
+      backgroundColor: v.optional(v.string()),
+    }),
+    version: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("byOwner", ["ownerId"])
+    .index("byProject", ["projectId"])
+    .index("bySourceVideo", ["sourceVideoId"]),
+
+  compositionClips: defineTable({
+    compositionId: v.id("compositions"),
+    sourceVideoId: v.id("videos"),
+    sourceInFrame: v.number(),
+    sourceOutFrame: v.number(),
+    timelineStartFrame: v.number(),
+    speed: v.number(),
+    opacity: v.optional(v.number()),
+    transformTrackId: v.optional(v.id("keyframeTracks")),
+    zIndex: v.number(),
+    label: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("byComposition", ["compositionId"])
+    .index("byCompositionAndZ", ["compositionId", "zIndex"]),
+
+  keyframeTracks: defineTable({
+    compositionId: v.id("compositions"),
+    clipId: v.optional(v.id("compositionClips")),
+    channel: v.string(),
+    keyframes: v.array(
+      v.object({
+        frame: v.number(),
+        value: v.any(),
+        interpolation: v.optional(v.string()),
+        easing: v.optional(v.string()),
+      })
+    ),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("byComposition", ["compositionId"])
+    .index("byClip", ["clipId"]),
+
+  compositionExports: defineTable({
+    compositionId: v.id("compositions"),
+    ownerId: v.id("users"),
+    status: v.string(),
+    format: v.string(),
+    renderJobId: v.optional(v.id("renderJobs")),
+    outputStorageKey: v.optional(v.string()),
+    outputPublicUrl: v.optional(v.string()),
+    progress: v.number(),
+    error: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("byComposition", ["compositionId"])
+    .index("byOwner", ["ownerId"]),
+
+  renderJobs: defineTable({
+    jobType: v.string(),
+    compositionId: v.optional(v.id("compositions")),
+    payload: v.any(),
+    status: v.string(),
+    progress: v.number(),
+    error: v.optional(v.string()),
+    startedAt: v.optional(v.number()),
+    completedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("byStatus", ["status"])
+    .index("byType", ["jobType"]),
 });
