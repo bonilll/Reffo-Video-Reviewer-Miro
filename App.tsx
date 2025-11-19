@@ -1226,14 +1226,16 @@ const App: React.FC = () => {
                 <button onClick={() => navigate('/terms')} className="underline underline-offset-2">
                   {consentText.footer.terms}
                 </button>
-                <CookieSettingsTrigger
-                  variant="footer"
-                  className={
-                    isDark
-                      ? 'text-xs underline text-white/70 hover:text-white'
-                      : 'text-xs underline text-gray-700 hover:text-gray-900'
-                  }
-                />
+                {view !== 'editor' && view !== 'reviewer' && (
+                  <CookieSettingsTrigger
+                    variant="footer"
+                    className={
+                      isDark
+                        ? 'text-xs underline text-white/70 hover:text-white'
+                        : 'text-xs underline text-gray-700 hover:text-gray-900'
+                    }
+                  />
+                )}
                 <LanguageSwitcher compact className={
                   isDark
                     ? 'flex items-center gap-2 text-white/70'

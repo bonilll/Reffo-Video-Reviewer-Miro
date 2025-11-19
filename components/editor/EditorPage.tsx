@@ -3,7 +3,7 @@ import { useAction, useMutation, useQuery } from 'convex/react';
 import { api } from '../../convex/_generated/api';
 import type { Id } from '../../convex/_generated/dataModel';
 import { EditorTimeline } from './EditorTimeline';
-import { Loader2, Pause, Play, RefreshCw } from 'lucide-react';
+import { Loader2, Pause, Play, RefreshCw, ChevronLeft, Info, Settings } from 'lucide-react';
 
 const formatSeconds = (seconds: number) => {
   const mins = Math.floor(seconds / 60)
@@ -134,7 +134,7 @@ const PreviewSurface: React.FC<{
   }
 
   return (
-    <div className="flex h-full w-full items-center justify-center rounded-3xl border border-white/10 bg-black/80 shadow-2xl">
+    <div className="flex h-full w-full items-center justify-center rounded-3xl border border-white/10 bg-black/80 shadow-2xl overflow-hidden">
       {!clip || !source || !src ? (
         <div className="text-sm text-white/60">Select a clip or add footage to preview.</div>
       ) : (
@@ -157,7 +157,7 @@ const MultiPreviewSurface: React.FC<{
   items: Array<{ clip: ClipDoc; source: SourceInfo; src: string; transform?: { x: number; y: number; scale: number; rotate: number }; trim?: { start: number; end: number } }>;
   playhead: number;
   playing: boolean;
-}> = ({ items, playhead, playing }) => {
+}> = ({ composition, items, playhead, playing }) => {
   const videoRefs = useRef<Record<string, HTMLVideoElement | null>>({});
 
   useEffect(() => {
@@ -204,7 +204,7 @@ const MultiPreviewSurface: React.FC<{
   }, [items, playhead, playing]);
 
   return (
-    <div className="relative h-full w-full">
+    <div className="relative h-full w-full overflow-hidden">
       {items
         .slice()
         .sort((a, b) => {
@@ -261,6 +261,65 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit })
   // Panels
   const [infoModalOpen, setInfoModalOpen] = useState(false);
   const [propertiesOpen, setPropertiesOpen] = useState(true);
+
+  // Local transform overrides for smooth, immediate UI feedback
+  const [localTransformOverrides, setLocalTransformOverrides] = useState<Map<string, { x?: number; y?: number; scale?: number; rotate?: number }>>(new Map());
+  const transformCommitTimers = useRef<Map<string, number>>(new Map());
+  const transformClearTimers = useRef<Map<string, number>>(new Map());
+  useEffect(() => {
+    return () => {
+      transformCommitTimers.current.forEach((t) => window.clearTimeout(t));
+      transformClearTimers.current.forEach((t) => window.clearTimeout(t));
+      transformCommitTimers.current.clear();
+      transformClearTimers.current.clear();
+    };
+  }, []);
+
+  const scheduleTransformUpdate = React.useCallback((clipId: Id<'compositionClips'>, patch: { x?: number; y?: number; scale?: number; rotate?: number }) => {
+    const id = clipId as unknown as string;
+    // Merge into local overrides for instant visual response
+    setLocalTransformOverrides((prev) => {
+      const next = new Map(prev);
+      const cur = next.get(id) ?? {};
+      next.set(id, { ...cur, ...patch });
+      return next;
+    });
+
+    // Debounce commit to server to avoid spamming mutations
+    const prevTimer = transformCommitTimers.current.get(id);
+    if (prevTimer) window.clearTimeout(prevTimer);
+    const commitTimer = window.setTimeout(async () => {
+      // Read the latest transform from server state to keep trackId
+      const t = (data?.tracks as any[])?.find?.((tr) => tr.clipId === clipId && tr.channel === 'transform');
+      const baseVal = t?.keyframes?.[0]?.value ?? { x: 0.5, y: 0.5, scale: 1, rotate: 0 };
+      const nextVal = { ...baseVal, ...(localTransformOverrides.get(id) ?? {}), ...patch } as any;
+      try {
+        await upsertTrack({
+          compositionId: (data?.composition?._id ?? compositionId) as Id<'compositions'>,
+          trackId: t?._id,
+          clipId: clipId as any,
+          channel: 'transform',
+          keyframes: [{ frame: 0, value: nextVal, interpolation: 'hold' }],
+        });
+      } catch (err) {
+        console.warn('Failed to commit transform', err);
+      }
+    }, 120);
+    transformCommitTimers.current.set(id, commitTimer as unknown as number);
+
+    // Clear local override slightly after commit to allow server state to reconcile
+    const prevClear = transformClearTimers.current.get(id);
+    if (prevClear) window.clearTimeout(prevClear);
+    const clearTimer = window.setTimeout(() => {
+      setLocalTransformOverrides((prev) => {
+        const next = new Map(prev);
+        next.delete(id);
+        return next;
+      });
+      transformClearTimers.current.delete(id);
+    }, 600);
+    transformClearTimers.current.set(id, clearTimer as unknown as number);
+  }, [data, compositionId, upsertTrack, localTransformOverrides]);
 
   useEffect(() => {
     setPlayhead(0);
@@ -451,6 +510,22 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit })
       } else if (e.key.toLowerCase() === 'r') {
         e.preventDefault();
         handleSeek(0);
+      } else if (e.key.toLowerCase() === 'i') {
+        e.preventDefault();
+        const base = selectedClipObj ?? activePrimaryClip;
+        if (!base) return;
+        const dur = Math.max(1, Math.round((base.sourceOutFrame - base.sourceInFrame) / Math.max(0.001, base.speed)));
+        const t = trimByClipId.get(base._id as string) ?? { start: 0, end: 0 };
+        const start = base.timelineStartFrame + Math.max(0, t.start);
+        handleSeek(Math.max(0, Math.min(maxFrames - 1, start)));
+      } else if (e.key.toLowerCase() === 'o') {
+        e.preventDefault();
+        const base = selectedClipObj ?? activePrimaryClip;
+        if (!base) return;
+        const dur = Math.max(1, Math.round((base.sourceOutFrame - base.sourceInFrame) / Math.max(0.001, base.speed)));
+        const t = trimByClipId.get(base._id as string) ?? { start: 0, end: 0 };
+        const end = base.timelineStartFrame + Math.max(1, dur - Math.max(0, t.end));
+        handleSeek(Math.max(0, Math.min(maxFrames - 1, end - 1)));
       } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'd') {
         e.preventDefault();
         void handleSplitAtPlayhead();
@@ -472,7 +547,7 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit })
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [playhead, data?.composition?.settings?.durationFrames, handleSplitAtPlayhead, handleDuplicateAtPlayhead, handleDeleteSelected]);
+  }, [playhead, data?.composition?.settings?.durationFrames, handleSplitAtPlayhead, handleDuplicateAtPlayhead, handleDeleteSelected, selectedClipObj, activePrimaryClip, trimByClipId]);
 
   
 
@@ -493,11 +568,15 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit })
   };
   const getTransformForClip = (clipId: Id<'compositionClips'>) => {
     const t = (data.tracks as any[]).find((tr) => tr.clipId === clipId && tr.channel === 'transform');
-    if (!t || !Array.isArray(t.keyframes) || t.keyframes.length === 0) {
-      return { x: 0.5, y: 0.5, scale: 1, rotate: 0, trackId: undefined } as any;
-    }
-    const k = (t.keyframes[0] as any)?.value ?? {};
-    return { x: k.x ?? 0.5, y: k.y ?? 0.5, scale: k.scale ?? 1, rotate: k.rotate ?? 0, trackId: t._id } as any;
+    const base = (() => {
+      if (!t || !Array.isArray(t.keyframes) || t.keyframes.length === 0) {
+        return { x: 0.5, y: 0.5, scale: 1, rotate: 0 } as any;
+      }
+      const k = (t.keyframes[0] as any)?.value ?? {};
+      return { x: k.x ?? 0.5, y: k.y ?? 0.5, scale: k.scale ?? 1, rotate: k.rotate ?? 0 } as any;
+    })();
+    const local = localTransformOverrides.get(clipId as unknown as string) ?? {};
+    return { ...base, ...local, trackId: t?._id } as any;
   };
 
   const handleSeek = (frame: number) => {
@@ -521,52 +600,38 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit })
 
   return (
     <div className="flex h-screen flex-col bg-gradient-to-b from-slate-950 via-black to-slate-950 text-white">
-      <header className="flex items-center justify-between border-b border-white/10 px-10 py-5">
-        <div>
+      <header className="flex items-center justify-between border-b border-white/10 px-6 py-3">
+        <div className="flex items-center gap-3 min-w-0">
           <button
-            className="rounded-full border border-white/20 px-3 py-1 text-xs text-white/80 hover:bg-white/10"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/20 text-white/80 hover:bg-white/10"
+            title="Back"
             onClick={onExit}
           >
-            ← Back
+            <ChevronLeft size={16} />
           </button>
-          <h1 className="mt-2 text-2xl font-semibold">{composition.title}</h1>
-          <p className="text-sm text-white/60">
-            {Math.round(composition.settings.width)}×{Math.round(composition.settings.height)} · {composition.settings.fps} fps · {Math.round(durationSeconds)}s
-          </p>
+          <h1 className="truncate text-lg font-semibold">{composition.title}</h1>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           <button
-            className="flex items-center gap-2 rounded-full border border-white/20 px-4 py-2 text-sm text-white/80 hover:bg-white/10"
-            onClick={() => setPlaying((prev) => !prev)}
-          >
-            {playing ? <Pause size={14} /> : <Play size={14} />}
-            {playing ? 'Pause' : 'Play'}
-          </button>
-          <button
-            className="flex items-center gap-2 rounded-full border border-white/20 px-4 py-2 text-sm text-white/80 hover:bg-white/10"
-            onClick={() => handleSeek(0)}
-          >
-            <RefreshCw size={14} />
-            Reset
-          </button>
-          <button
-            className="flex items-center gap-2 rounded-full border border-white/20 px-4 py-2 text-sm text-white/80 hover:bg-white/10"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/20 text-white/80 hover:bg-white/10"
+            title="Project info"
             onClick={() => setInfoModalOpen(true)}
           >
-            Project Info
+            <Info size={16} />
           </button>
           <button
-            className="flex items-center gap-2 rounded-full border border-white/20 px-4 py-2 text-sm text-white/80 hover:bg-white/10"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/20 text-white/80 hover:bg-white/10"
+            title={propertiesOpen ? 'Hide properties' : 'Show properties'}
             onClick={() => setPropertiesOpen((v) => !v)}
           >
-            {propertiesOpen ? 'Hide Properties' : 'Show Properties'}
+            <Settings size={16} />
           </button>
         </div>
       </header>
       <main className="flex-1 min-h-0 flex flex-col gap-6 overflow-hidden bg-gradient-to-b from-slate-950/60 via-black/20 to-slate-950/60 px-10 py-6">
         <div className="flex flex-1 min-h-0 gap-6">
           <section className={`flex min-h-0 flex-1 flex-col gap-4 ${propertiesOpen ? 'pr-2' : ''}`}>
-            <div className="flex-1 min-h-0 rounded-3xl border border-white/10 bg-black/80 shadow-2xl">
+            <div className="flex-1 min-h-0 rounded-3xl border border-white/10 bg-black/80 shadow-2xl overflow-hidden">
               <MultiPreviewSurface
                 composition={composition}
                 items={activeClipsWithTrim
@@ -588,120 +653,269 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit })
           </section>
           {/* Clip Properties Sidebar */}
           {propertiesOpen && (
-            <aside className="w-[340px] shrink-0 overflow-y-auto pr-2">
-              <div className="rounded-3xl border border-white/10 bg-white/5 p-4 text-white shadow-xl">
-                <div className="mb-2 flex items-center justify-between">
-                  <div className="text-sm font-semibold uppercase tracking-wide text-white/70">Clip Properties</div>
-                  <button className="text-white/60 hover:text-white" onClick={() => setPropertiesOpen(false)}>✕</button>
-                </div>
+            <aside className="w-[360px] shrink-0 border-l border-white/10 backdrop-blur pl-4 pr-3 py-3 overflow-y-auto">
+              <div className="text-white">
                 {!selectedClip ? (
                   <div className="text-xs text-white/60">Select a clip to edit its properties.</div>
                 ) : (
                   <div className="space-y-4 text-sm">
                     {/* Position (px) */}
-                    <div>
-                      <div className="mb-1 font-semibold text-white/80">Position (px)</div>
+                    <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
+                      <div className="mb-2 flex items-center justify-between">
+                        <div className="font-semibold text-white/80">Position</div>
+                        <div className="flex items-center gap-1">
+                          <button
+                            className="inline-flex h-6 px-2 items-center justify-center rounded-md border border-white/20 text-[11px] text-white/80 hover:bg-white/10"
+                            onClick={() => {
+                              scheduleTransformUpdate(selectedClip._id, { x: 0.5, y: 0.5 });
+                            }}
+                            title="Center"
+                          >Center</button>
+                        </div>
+                      </div>
                       {(() => {
                         const t = getTransformForClip(selectedClip._id);
                         const pxX = Math.round((t.x - 0.5) * composition.settings.width);
                         const pxY = Math.round((t.y - 0.5) * composition.settings.height);
+                        const step = 10;
                         return (
-                          <div className="grid grid-cols-2 gap-2">
-                            <label className="flex items-center gap-2">
-                              <span className="w-12 text-white/60">X</span>
-                              <input
-                                type="number"
-                                className="w-full rounded-lg border border-white/20 bg-black/40 px-3 py-2 text-white"
-                                value={pxX}
-                                onChange={async (e) => {
-                                  const nx = Number(e.target.value) || 0;
-                                  const base = getTransformForClip(selectedClip._id);
-                                  const value = { ...base, x: 0.5 + nx / Math.max(1, composition.settings.width) } as any;
-                                  await upsertTrack({ compositionId: composition._id, trackId: base.trackId, clipId: selectedClip._id as any, channel: 'transform', keyframes: [{ frame: 0, value, interpolation: 'hold' }] });
-                                }}
-                              />
-                            </label>
-                            <label className="flex items-center gap-2">
-                              <span className="w-12 text-white/60">Y</span>
-                              <input
-                                type="number"
-                                className="w-full rounded-lg border border-white/20 bg-black/40 px-3 py-2 text-white"
-                                value={pxY}
-                                onChange={async (e) => {
-                                  const ny = Number(e.target.value) || 0;
-                                  const base = getTransformForClip(selectedClip._id);
-                                  const value = { ...base, y: 0.5 + ny / Math.max(1, composition.settings.height) } as any;
-                                  await upsertTrack({ compositionId: composition._id, trackId: base.trackId, clipId: selectedClip._id as any, channel: 'transform', keyframes: [{ frame: 0, value, interpolation: 'hold' }] });
-                                }}
-                              />
-                            </label>
+                          <div className="grid grid-cols-1 gap-2">
+                            <div className="flex items-center gap-2">
+                              <span className="w-4 text-white/60">X</span>
+                              <div className="flex items-center gap-1">
+                                <button
+                                  className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-white/10 text-white/70 hover:bg-white/10"
+                                  onClick={async () => {
+                                    const nx = pxX - step;
+                                    scheduleTransformUpdate(selectedClip._id, { x: 0.5 + nx / Math.max(1, composition.settings.width) });
+                                  }}
+                                  title="-10px"
+                                >−</button>
+                                <input
+                                  type="number"
+                                  className="w-20 rounded-lg border border-white/20 bg-black/40 px-2 py-1 text-white"
+                                  value={pxX}
+                                  onChange={async (e) => {
+                                    const nx = Number(e.target.value) || 0;
+                                    scheduleTransformUpdate(selectedClip._id, { x: 0.5 + nx / Math.max(1, composition.settings.width) });
+                                  }}
+                                />
+                                <button
+                                  className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-white/10 text-white/70 hover:bg-white/10"
+                                  onClick={async () => {
+                                    const nx = pxX + step;
+                                    scheduleTransformUpdate(selectedClip._id, { x: 0.5 + nx / Math.max(1, composition.settings.width) });
+                                  }}
+                                  title="+10px"
+                                >+</button>
+                                <span className="text-[11px] text-white/50">px</span>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="w-4 text-white/60">Y</span>
+                              <div className="flex items-center gap-1">
+                                <button
+                                  className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-white/10 text-white/70 hover:bg-white/10"
+                                  onClick={async () => {
+                                    const ny = pxY - step;
+                                    scheduleTransformUpdate(selectedClip._id, { y: 0.5 + ny / Math.max(1, composition.settings.height) });
+                                  }}
+                                  title="-10px"
+                                >−</button>
+                                <input
+                                  type="number"
+                                  className="w-20 rounded-lg border border-white/20 bg-black/40 px-2 py-1 text-white"
+                                  value={pxY}
+                                  onChange={async (e) => {
+                                    const ny = Number(e.target.value) || 0;
+                                    scheduleTransformUpdate(selectedClip._id, { y: 0.5 + ny / Math.max(1, composition.settings.height) });
+                                  }}
+                                />
+                                <button
+                                  className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-white/10 text-white/70 hover:bg-white/10"
+                                  onClick={async () => {
+                                    const ny = pxY + step;
+                                    scheduleTransformUpdate(selectedClip._id, { y: 0.5 + ny / Math.max(1, composition.settings.height) });
+                                  }}
+                                  title="+10px"
+                                >+</button>
+                                <span className="text-[11px] text-white/50">px</span>
+                              </div>
+                            </div>
                           </div>
                         );
                       })()}
                     </div>
                     {/* Scale (%) */}
-                    <div>
-                      <div className="mb-1 font-semibold text-white/80">Scale (%)</div>
+                    <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
+                      <div className="mb-2 flex items-center justify-between">
+                        <div className="font-semibold text-white/80">Scale</div>
+                        {(() => {
+                          const t = getTransformForClip(selectedClip._id);
+                          const pct = Math.round((t.scale ?? 1) * 100);
+                          return <span className="text-xs text-white/60">{pct}%</span>;
+                        })()}
+                      </div>
                       {(() => {
                         const t = getTransformForClip(selectedClip._id);
                         const pct = Math.round((t.scale ?? 1) * 100);
+                        const step = 5;
                         return (
-                          <input
-                            type="range"
-                            min={10}
-                            max={500}
-                            value={pct}
-                            onChange={async (e) => {
-                              const val = Math.max(10, Math.min(500, Number(e.target.value) || 100));
-                              const base = getTransformForClip(selectedClip._id);
-                              const value = { ...base, scale: val / 100 } as any;
-                              await upsertTrack({ compositionId: composition._id, trackId: base.trackId, clipId: selectedClip._id as any, channel: 'transform', keyframes: [{ frame: 0, value, interpolation: 'hold' }] });
-                            }}
-                            className="w-full"
-                          />
+                          <div className="flex items-center gap-2">
+                            <button
+                              className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-white/10 text-white/70 hover:bg-white/10"
+                              onClick={async () => {
+                                const next = Math.max(10, pct - step);
+                                scheduleTransformUpdate(selectedClip._id, { scale: next / 100 });
+                              }}
+                              title="-5%"
+                            >−</button>
+                            <input
+                              type="range"
+                              min={10}
+                              max={500}
+                              value={pct}
+                              onChange={async (e) => {
+                                const val = Math.max(10, Math.min(500, Number(e.target.value) || 100));
+                                scheduleTransformUpdate(selectedClip._id, { scale: val / 100 });
+                              }}
+                              className="h-1.5 w-full appearance-none rounded-full bg-white/10 accent-white range-thumb-white"
+                            />
+                            <button
+                              className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-white/10 text-white/70 hover:bg-white/10"
+                              onClick={async () => {
+                                const next = Math.min(500, pct + step);
+                                scheduleTransformUpdate(selectedClip._id, { scale: next / 100 });
+                              }}
+                              title="+5%"
+                            >+</button>
+                            <button
+                              className="ml-1 inline-flex h-7 items-center justify-center rounded-md border border-white/10 px-2 text-[11px] text-white/80 hover:bg-white/10"
+                              onClick={async () => {
+                                scheduleTransformUpdate(selectedClip._id, { scale: 1 });
+                              }}
+                              title="Reset to 100%"
+                            >100%</button>
+                          </div>
                         );
                       })()}
                     </div>
                     {/* Rotation (deg) */}
-                    <div>
-                      <div className="mb-1 font-semibold text-white/80">Rotation (°)</div>
+                    <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
+                      <div className="mb-2 flex items-center justify-between">
+                        <div className="font-semibold text-white/80">Rotation</div>
+                        {(() => {
+                          const t = getTransformForClip(selectedClip._id);
+                          const deg = Math.round(t.rotate ?? 0);
+                          return <span className="text-xs text-white/60">{deg}°</span>;
+                        })()}
+                      </div>
                       {(() => {
                         const t = getTransformForClip(selectedClip._id);
                         const deg = Math.round(t.rotate ?? 0);
+                        const step = 5;
                         return (
-                          <input
-                            type="range"
-                            min={-180}
-                            max={180}
-                            value={deg}
-                            onChange={async (e) => {
-                              const val = Math.max(-180, Math.min(180, Number(e.target.value) || 0));
-                              const base = getTransformForClip(selectedClip._id);
-                              const value = { ...base, rotate: val } as any;
-                              await upsertTrack({ compositionId: composition._id, trackId: base.trackId, clipId: selectedClip._id as any, channel: 'transform', keyframes: [{ frame: 0, value, interpolation: 'hold' }] });
-                            }}
-                            className="w-full"
-                          />
+                          <div className="flex items-center gap-2">
+                            <button
+                              className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-white/10 text-white/70 hover:bg-white/10"
+                              onClick={async () => {
+                                const next = Math.max(-180, deg - step);
+                                scheduleTransformUpdate(selectedClip._id, { rotate: next });
+                              }}
+                              title="-5°"
+                            >−</button>
+                            <input
+                              type="range"
+                              min={-180}
+                              max={180}
+                              value={deg}
+                              onChange={async (e) => {
+                                const val = Math.max(-180, Math.min(180, Number(e.target.value) || 0));
+                                scheduleTransformUpdate(selectedClip._id, { rotate: val });
+                              }}
+                              className="h-1.5 w-full appearance-none rounded-full bg-white/10 accent-white range-thumb-white"
+                            />
+                            <button
+                              className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-white/10 text-white/70 hover:bg-white/10"
+                              onClick={async () => {
+                                const next = Math.min(180, deg + step);
+                                scheduleTransformUpdate(selectedClip._id, { rotate: next });
+                              }}
+                              title="+5°"
+                            >+</button>
+                            <button
+                              className="ml-1 inline-flex h-7 items-center justify-center rounded-md border border-white/10 px-2 text-[11px] text-white/80 hover:bg-white/10"
+                              onClick={async () => {
+                                scheduleTransformUpdate(selectedClip._id, { rotate: 0 });
+                              }}
+                              title="Reset to 0°"
+                            >0°</button>
+                          </div>
                         );
                       })()}
                     </div>
-                    {/* Speed (%) */}
-                    <div>
-                      <div className="mb-1 flex items-center justify-between font-semibold text-white/80">
-                        <span>Speed (%)</span>
-                        <span className="text-white/60">{Math.round((selectedClip.speed ?? 1) * 100)}%</span>
+                    {/* Opacity (%) */}
+                    <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
+                      <div className="mb-2 flex items-center justify-between">
+                        <div className="font-semibold text-white/80">Opacity</div>
+                        <span className="text-xs text-white/60">{Math.round(((selectedClip.opacity ?? 1) * 100))}%</span>
                       </div>
                       <input
                         type="range"
-                        min={10}
-                        max={300}
-                        value={Math.round((selectedClip.speed ?? 1) * 100)}
+                        min={0}
+                        max={100}
+                        value={Math.round((selectedClip.opacity ?? 1) * 100)}
                         onChange={async (e) => {
-                          const pct = Math.max(10, Math.min(300, Number(e.target.value) || 100));
-                          await updateClip({ clipId: selectedClip._id as any, patch: { speed: pct / 100 } });
+                          const pct = Math.max(0, Math.min(100, Number(e.target.value) || 100));
+                          await updateClip({ clipId: selectedClip._id as any, patch: { opacity: pct / 100 } });
                         }}
-                        className="w-full"
+                        className="h-1.5 w-full appearance-none rounded-full bg-white/10 accent-white range-thumb-white"
                       />
+                    </div>
+                    {/* Speed (%) */}
+                    <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
+                      <div className="mb-2 flex items-center justify-between">
+                        <div className="font-semibold text-white/80">Speed</div>
+                        <span className="text-xs text-white/60">{Math.round((selectedClip.speed ?? 1) * 100)}%</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-white/10 text-white/70 hover:bg-white/10"
+                          onClick={async () => {
+                            const cur = Math.round((selectedClip.speed ?? 1) * 100);
+                            const next = Math.max(10, cur - 10);
+                            await updateClip({ clipId: selectedClip._id as any, patch: { speed: next / 100 } });
+                          }}
+                          title="-10%"
+                        >−</button>
+                        <input
+                          type="range"
+                          min={10}
+                          max={300}
+                          value={Math.round((selectedClip.speed ?? 1) * 100)}
+                          onChange={async (e) => {
+                            const pct = Math.max(10, Math.min(300, Number(e.target.value) || 100));
+                            await updateClip({ clipId: selectedClip._id as any, patch: { speed: pct / 100 } });
+                          }}
+                          className="h-1.5 w-full appearance-none rounded-full bg-white/10 accent-white range-thumb-white"
+                        />
+                        <button
+                          className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-white/10 text-white/70 hover:bg-white/10"
+                          onClick={async () => {
+                            const cur = Math.round((selectedClip.speed ?? 1) * 100);
+                            const next = Math.min(300, cur + 10);
+                            await updateClip({ clipId: selectedClip._id as any, patch: { speed: next / 100 } });
+                          }}
+                          title="+10%"
+                        >+</button>
+                        <button
+                          className="ml-1 inline-flex h-7 items-center justify-center rounded-md border border-white/10 px-2 text-[11px] text-white/80 hover:bg-white/10"
+                          onClick={async () => {
+                            await updateClip({ clipId: selectedClip._id as any, patch: { speed: 1 } });
+                          }}
+                          title="Reset to 100%"
+                        >100%</button>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -736,21 +950,31 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit })
             playing={playing}
             onTogglePlay={() => setPlaying((p) => !p)}
             onReset={() => handleSeek(0)}
+            onRenameClip={(clipId, title) => {
+              void updateClip({ clipId: clipId as any, patch: { label: title } as any });
+            }}
           />
         </div>
       </main>
 
       {/* Project Info Modal */}
       {infoModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-6">
-          <div className="w-full max-w-3xl rounded-3xl border border-white/10 bg-slate-900/95 p-6 text-white shadow-2xl">
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-sm p-6">
+          <div className="w-full max-w-3xl rounded-3xl border border-white/10 bg-black/80 p-6 text-white shadow-2xl">
             <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-xl font-semibold">Project Info</h2>
-              <button className="text-white/60 hover:text-white" onClick={() => setInfoModalOpen(false)}>✕</button>
+              <h2 className="text-lg font-semibold text-white/90">Project Info</h2>
+              <button
+                className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/20 text-white/80 hover:bg-white/10"
+                onClick={() => setInfoModalOpen(false)}
+                aria-label="Close"
+                title="Close"
+              >
+                ✕
+              </button>
             </div>
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                <div className="text-sm font-semibold uppercase tracking-wide text-white/70">Composition</div>
+                <div className="text-xs font-semibold uppercase tracking-wide text-white/70">Composition</div>
                 <dl className="mt-3 space-y-2 text-sm text-white/80">
                   <div className="flex justify-between"><dt>Resolution</dt><dd>{composition.settings.width}×{composition.settings.height}</dd></div>
                   <div className="flex justify-between"><dt>Frame rate</dt><dd>{composition.settings.fps} fps</dd></div>
@@ -758,7 +982,7 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit })
                 </dl>
               </div>
               <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                <div className="text-sm font-semibold uppercase tracking-wide text-white/70">Sources</div>
+                <div className="text-xs font-semibold uppercase tracking-wide text-white/70">Sources</div>
                 <div className="mt-3 space-y-2 text-sm text-white/80 max-h-60 overflow-y-auto pr-2">
                   {Object.values(data.sources).map((source) => (
                     <div key={source._id} className="rounded-xl border border-white/10 bg-black/30 px-3 py-2">
@@ -772,7 +996,7 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit })
                 </div>
               </div>
               <div className="rounded-2xl border border-white/10 bg-white/5 p-4 md:col-span-2">
-                <div className="flex items-center justify-between text-sm font-semibold uppercase tracking-wide text-white/70">
+                <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-white/70">
                   <span>Exports</span>
                   <button
                     onClick={handleExport}

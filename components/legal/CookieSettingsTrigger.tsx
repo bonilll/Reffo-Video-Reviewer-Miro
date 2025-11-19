@@ -11,6 +11,14 @@ export const CookieSettingsTrigger: React.FC<{ variant?: 'footer' | 'floating'; 
       return false;
     }
   })();
+  const isEditRoute = (() => {
+    try {
+      if (typeof window === 'undefined') return false;
+      return /^\/edit\//.test(window.location.pathname);
+    } catch {
+      return false;
+    }
+  })();
   if (variant === 'footer') {
     return (
       <button onClick={openPreferences} className={className ?? 'text-xs underline text-white/70 hover:text-white'}>
@@ -18,7 +26,7 @@ export const CookieSettingsTrigger: React.FC<{ variant?: 'footer' | 'floating'; 
       </button>
     );
   }
-  if (isReviewRoute) return null; // hide floating trigger on reviewer page
+  if (isReviewRoute || isEditRoute) return null; // hide floating trigger on reviewer and editor pages
   return (
     <button
       onClick={openPreferences}
