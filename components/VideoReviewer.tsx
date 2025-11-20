@@ -4,7 +4,7 @@ import VideoPlayer from './VideoPlayer';
 import AnnotationCanvas from './AnnotationCanvas';
 import CommentsPane from './CommentsPane';
 import Toolbar from './Toolbar';
-import { ChevronLeft, Eye, EyeOff, Play, Pause, Volume2, VolumeX, SkipBack, SkipForward, Rewind, FastForward, Maximize, Minimize, Share2, MessageSquare } from 'lucide-react';
+import { ChevronLeft, Eye, EyeOff, Play, Pause, Volume2, VolumeX, SkipBack, SkipForward, Rewind, FastForward, Maximize, Minimize, Share2, MessageSquare, Settings } from 'lucide-react';
 import Timeline from './Timeline';
 import { useQuery, useMutation, useAction } from 'convex/react';
 import { api } from '../convex/_generated/api';
@@ -190,6 +190,13 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
   const [playbackKind, setPlaybackKind] = useState<'signed' | 'public' | 'provided'>('public');
   const [playbackAttempt, setPlaybackAttempt] = useState(0);
   const [creatingEdit, setCreatingEdit] = useState(false);
+  const [replaceOpen, setReplaceOpen] = useState(false);
+  const [replaceUploading, setReplaceUploading] = useState(false);
+  const [replaceProgress, setReplaceProgress] = useState(0);
+  const [replaceError, setReplaceError] = useState<string | null>(null);
+  const listRevisions = useQuery(api.videos.listRevisions as any, { videoId: video.id as any }) as Array<any> | undefined;
+  const replaceSource = useMutation(api.videos.replaceSource as any);
+  const generateVideoUploadUrl = useAction(api.storage.generateVideoUploadUrl);
   // Disable "Insert edit" feature entirely; keep Edit Mode available for owners
   const showInsertButton = false;
   const showEditButton = Boolean(video.isOwnedByCurrentUser);
@@ -1610,7 +1617,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
           </div>
         </div>
         {/* Right column (aligned with comments): controls + share (insert disabled) */}
-        <div className={'grid grid-cols-4 items-center justify-items-center w-[360px] gap-2 md:gap-3'}>
+        <div className={'grid grid-cols-5 items-center justify-items-center w-[420px] gap-2 md:gap-3'}>
           {/* Toggle comments panel */}
           <button
             onClick={() => setShowComments((v) => !v)}
@@ -1646,16 +1653,16 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
               <Share2 size={16} color="#000" />
             )}
           </button>
-          {showInsertButton && (
+          {video.isOwnedByCurrentUser && (
             <button
-              onClick={handleInsertEditedClip}
-              disabled={!hasAttachableExports}
-              title={hasAttachableExports ? 'Insert edited clip' : 'Render an edit first'}
+              onClick={() => setReplaceOpen(true)}
+              title="Settings"
+              aria-label="Settings"
               className={`${
-                isDark ? 'text-white/80 border border-white/20 hover:bg-white/10' : 'text-gray-800 border border-gray-300 hover:bg-gray-100'
-              } inline-flex items-center justify-center rounded-full px-3 py-1 text-[11px] font-semibold uppercase transition disabled:opacity-50`}
+                isDark ? 'text-white/70 hover:text-white hover:bg-white/10' : 'text-gray-700 hover:text-gray-900 hover:bg-gray-100'
+              } p-2 rounded-full transition-colors`}
             >
-              Insert edit
+              <Settings size={18} />
             </button>
           )}
           {clerkUser?.imageUrl ? (
@@ -1675,6 +1682,76 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
           )}
         </div>
       </header>
+      {replaceOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+          <div className={`${isDark ? 'bg-gray-900/95 text-white' : 'bg-white text-gray-900'} w-full max-w-2xl rounded-3xl border border-white/10 p-6 shadow-2xl`}>
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold">Replace base video</h2>
+              <button onClick={() => setReplaceOpen(false)} className={isDark ? 'text-white/60 hover:text-white' : 'text-gray-600 hover:text-gray-900'}>✕</button>
+            </div>
+            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+              <div className={`${isDark ? 'bg-white/5 border-white/10' : 'bg-gray-50 border-gray-200'} rounded-2xl border p-4`}>
+                <div className="font-semibold mb-2">Current</div>
+                <div className="space-y-1 text-xs opacity-80">
+                  <div>{video.width}×{video.height} • {video.fps} fps • {Math.round(video.duration)}s</div>
+                  <div>Uploaded {new Date(video.uploadedAt).toLocaleString()}</div>
+                </div>
+                <div className="mt-3">
+                  <label className={`${isDark ? 'bg-white/10 hover:bg-white/20' : 'bg-black/5 hover:bg-black/10'} inline-block cursor-pointer rounded-full px-3 py-1 text-xs font-semibold`}>
+                    Upload new version
+                    <input type="file" accept="video/*" className="hidden" onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      setReplaceError(null);
+                      setReplaceUploading(true);
+                      setReplaceProgress(0);
+                      try {
+                        const meta = await (async () => new Promise<{width:number;height:number;fps:number;duration:number}>((resolve, reject) => {
+                          const el = document.createElement('video');
+                          el.preload = 'metadata';
+                          el.onloadedmetadata = () => { resolve({ width: el.videoWidth, height: el.videoHeight, fps: Math.max(1, Math.floor(video.fps || 24)), duration: el.duration }); URL.revokeObjectURL(el.src); };
+                          el.onerror = () => { URL.revokeObjectURL(el.src); reject(new Error('Unable to read video metadata.')); };
+                          el.src = URL.createObjectURL(file);
+                        }))();
+                        const contentType = file.type || 'video/mp4';
+                        const creds = await generateVideoUploadUrl({ contentType, fileName: file.name });
+                        await new Promise<void>((resolve, reject) => {
+                          const xhr = new XMLHttpRequest();
+                          xhr.open('PUT', creds.uploadUrl, true);
+                          xhr.setRequestHeader('Content-Type', contentType);
+                          xhr.upload.onprogress = (ev) => { if (ev.lengthComputable) setReplaceProgress(Math.round((ev.loaded/ev.total)*100)); };
+                          xhr.onreadystatechange = () => { if (xhr.readyState === XMLHttpRequest.DONE) { if (xhr.status >= 200 && xhr.status < 300) resolve(); else reject(new Error(`Upload failed (${xhr.status})`)); } };
+                          xhr.onerror = () => reject(new Error('Network error during upload'));
+                          xhr.send(file);
+                        });
+                        await replaceSource({ videoId: video.id as any, storageKey: creds.storageKey, publicUrl: creds.publicUrl, width: Math.max(1, Math.floor(meta.width)), height: Math.max(1, Math.floor(meta.height)), fps: Math.max(1, Math.floor(meta.fps)), duration: Math.max(0, Math.round(meta.duration)) });
+                        setReplaceOpen(false);
+                      } catch (err:any) { setReplaceError(err?.message || 'Failed to replace video'); } finally { setReplaceUploading(false); }
+                    }} />
+                  </label>
+                </div>
+                {replaceUploading && (<div className="mt-2 text-xs opacity-80">Uploading… {replaceProgress}%</div>)}
+                {replaceError && (<div className="mt-2 text-xs text-red-400">{replaceError}</div>)}
+              </div>
+              <div className={`${isDark ? 'bg-white/5 border-white/10' : 'bg-gray-50 border-gray-200'} rounded-2xl border p-4`}>
+                <div className="font-semibold mb-2">History</div>
+                <div className="max-h-64 overflow-y-auto pr-2 space-y-2 text-xs">
+                  {!listRevisions?.length && <div className="opacity-60">No previous versions.</div>}
+                  {listRevisions?.map((rev) => (
+                    <div key={rev.id as string} className={`${isDark ? 'bg-black/30 border-white/10' : 'bg-white border-gray-200'} rounded-xl border p-2 flex items-center justify-between`}>
+                      <div>
+                        <div className="font-semibold">{rev.width}×{rev.height} • {rev.fps} fps • {Math.round(rev.duration)}s</div>
+                        <div className="opacity-60">{new Date(rev.createdAt).toLocaleString()}</div>
+                      </div>
+                      <button onClick={async () => { setReplaceError(null); try { await replaceSource({ videoId: video.id as any, storageKey: rev.storageKey, publicUrl: rev.publicUrl, width: rev.width, height: rev.height, fps: rev.fps, duration: rev.duration, thumbnailUrl: rev.thumbnailUrl ?? undefined }); setReplaceOpen(false); } catch(e:any) { setReplaceError(e?.message || 'Failed to switch version'); } }} className={`${isDark ? 'bg-white text-black hover:bg-white/90' : 'bg-black text-white hover:bg-black/90'} rounded-full px-3 py-1 font-semibold`}>Use</button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="w-full flex flex-1 overflow-hidden" ref={containerRef} style={availableHeight != null ? { height: availableHeight, maxHeight: availableHeight } : undefined}>
         <div className={`flex-1 flex flex-col relative ${isDark ? 'bg-black/60' : 'bg-white'}`}>
           <Toolbar 

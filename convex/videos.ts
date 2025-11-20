@@ -287,6 +287,73 @@ export const updateMetadata = mutation({
   },
 });
 
+export const listRevisions = query({
+  args: { videoId: v.id('videos') },
+  async handler(ctx, { videoId }) {
+    const user = await getCurrentUserOrThrow(ctx);
+    const video = await ctx.db.get(videoId);
+    if (!video || video.ownerId !== user._id) throw new ConvexError('NOT_FOUND');
+    const rows = await ctx.db.query('videoRevisions').withIndex('byVideo', q => q.eq('videoId', videoId)).collect();
+    rows.sort((a, b) => b.createdAt - a.createdAt);
+    return rows.map(r => ({
+      id: r._id,
+      storageKey: r.storageKey,
+      publicUrl: r.publicUrl,
+      width: r.width,
+      height: r.height,
+      fps: r.fps,
+      duration: r.duration,
+      thumbnailUrl: r.thumbnailUrl ?? null,
+      createdAt: r.createdAt,
+      label: r.label ?? null,
+    }));
+  }
+});
+
+export const replaceSource = mutation({
+  args: {
+    videoId: v.id('videos'),
+    storageKey: v.string(),
+    publicUrl: v.string(),
+    width: v.number(),
+    height: v.number(),
+    fps: v.number(),
+    duration: v.number(),
+    thumbnailUrl: v.optional(v.string()),
+    label: v.optional(v.string()),
+  },
+  async handler(ctx, args) {
+    const user = await getCurrentUserOrThrow(ctx);
+    const video = await ctx.db.get(args.videoId);
+    if (!video || video.ownerId !== user._id) throw new ConvexError('NOT_FOUND');
+    // Save current version as a revision before replacing
+    await ctx.db.insert('videoRevisions', {
+      videoId: args.videoId,
+      storageKey: video.storageKey,
+      publicUrl: video.src,
+      width: video.width,
+      height: video.height,
+      fps: video.fps,
+      duration: video.duration,
+      thumbnailUrl: video.thumbnailUrl,
+      createdAt: Date.now(),
+      label: 'Previous',
+    });
+    // Update base video
+    await ctx.db.patch(args.videoId, {
+      storageKey: args.storageKey,
+      src: args.publicUrl,
+      width: args.width,
+      height: args.height,
+      fps: args.fps,
+      duration: args.duration,
+      thumbnailUrl: args.thumbnailUrl ?? video.thumbnailUrl,
+      updatedAt: Date.now(),
+    } as any);
+    return { ok: true };
+  }
+});
+
 export const remove = mutation({
   args: {
     videoId: v.id("videos"),

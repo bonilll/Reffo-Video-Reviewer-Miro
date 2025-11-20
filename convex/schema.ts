@@ -48,6 +48,19 @@ export default defineSchema({
     .index("byProject", ["projectId"])
     .index("byOwnerAndProject", ["ownerId", "projectId"]),
 
+  videoRevisions: defineTable({
+    videoId: v.id("videos"),
+    storageKey: v.string(),
+    publicUrl: v.string(),
+    width: v.number(),
+    height: v.number(),
+    fps: v.number(),
+    duration: v.number(),
+    thumbnailUrl: v.optional(v.string()),
+    createdAt: v.number(),
+    label: v.optional(v.string()),
+  }).index("byVideo", ["videoId"]),
+
   annotations: defineTable({
     videoId: v.id("videos"),
     authorId: v.id("users"),
