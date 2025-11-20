@@ -1616,8 +1616,8 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
             )}
           </div>
         </div>
-        {/* Right column (aligned with comments): controls + share (insert disabled) */}
-        <div className={'grid grid-cols-5 items-center justify-items-center w-[420px] gap-2 md:gap-3'}>
+        {/* Right column (aligned with comments): controls + share */}
+        <div className={'grid grid-cols-4 items-center justify-items-center w-[360px] gap-2 md:gap-3'}>
           {/* Toggle comments panel */}
           <button
             onClick={() => setShowComments((v) => !v)}
@@ -1653,18 +1653,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
               <Share2 size={16} color="#000" />
             )}
           </button>
-          {video.isOwnedByCurrentUser && (
-            <button
-              onClick={() => setReplaceOpen(true)}
-              title="Settings"
-              aria-label="Settings"
-              className={`${
-                isDark ? 'text-white/70 hover:text-white hover:bg-white/10' : 'text-gray-700 hover:text-gray-900 hover:bg-gray-100'
-              } p-2 rounded-full transition-colors`}
-            >
-              <Settings size={18} />
-            </button>
-          )}
+          {/* Settings moved into Toolbar → More menu */}
           {clerkUser?.imageUrl ? (
             <img
               src={clerkUser.imageUrl}
@@ -1684,13 +1673,13 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
       </header>
       {replaceOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-          <div className={`${isDark ? 'bg-gray-900/95 text-white' : 'bg-white text-gray-900'} w-full max-w-2xl rounded-3xl border border-white/10 p-6 shadow-2xl`}>
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold">Replace base video</h2>
+          <div className={`${isDark ? 'bg-black/85 text-white' : 'bg-white text-gray-900'} w-full max-w-3xl rounded-3xl border ${isDark ? 'border-white/10' : 'border-gray-200'} p-0 shadow-2xl overflow-hidden`}>
+            <div className={`px-5 py-4 ${isDark ? 'bg-white/5 border-b border-white/10' : 'bg-gray-50 border-b border-gray-200'} flex items-center justify-between`}>
+              <h2 className="text-base font-semibold tracking-wide">Replace base video</h2>
               <button onClick={() => setReplaceOpen(false)} className={isDark ? 'text-white/60 hover:text-white' : 'text-gray-600 hover:text-gray-900'}>✕</button>
             </div>
-            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-              <div className={`${isDark ? 'bg-white/5 border-white/10' : 'bg-gray-50 border-gray-200'} rounded-2xl border p-4`}>
+            <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-5 text-sm">
+              <div className={`${isDark ? 'bg-white/5 border-white/10' : 'bg-gray-50 border-gray-200'} rounded-2xl border p-4 space-y-3`}>
                 <div className="font-semibold mb-2">Current</div>
                 <div className="space-y-1 text-xs opacity-80">
                   <div>{video.width}×{video.height} • {video.fps} fps • {Math.round(video.duration)}s</div>
@@ -1733,18 +1722,25 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
                 {replaceUploading && (<div className="mt-2 text-xs opacity-80">Uploading… {replaceProgress}%</div>)}
                 {replaceError && (<div className="mt-2 text-xs text-red-400">{replaceError}</div>)}
               </div>
-              <div className={`${isDark ? 'bg-white/5 border-white/10' : 'bg-gray-50 border-gray-200'} rounded-2xl border p-4`}>
-                <div className="font-semibold mb-2">History</div>
-                <div className="max-h-64 overflow-y-auto pr-2 space-y-2 text-xs">
-                  {!listRevisions?.length && <div className="opacity-60">No previous versions.</div>}
+              <div className={`${isDark ? 'bg-white/5 border-white/10' : 'bg-gray-50 border-gray-200'} rounded-2xl border p-0`}> 
+                <div className="p-4 font-semibold">History</div>
+                <div className="max-h-72 overflow-y-auto px-3 pb-3 space-y-2 text-sm">
+                  {!listRevisions?.length && <div className="opacity-60 text-xs px-2">No previous versions.</div>}
                   {listRevisions?.map((rev) => (
-                    <div key={rev.id as string} className={`${isDark ? 'bg-black/30 border-white/10' : 'bg-white border-gray-200'} rounded-xl border p-2 flex items-center justify-between`}>
-                      <div>
-                        <div className="font-semibold">{rev.width}×{rev.height} • {rev.fps} fps • {Math.round(rev.duration)}s</div>
-                        <div className="opacity-60">{new Date(rev.createdAt).toLocaleString()}</div>
+                    <details key={rev.id as string} className={`${isDark ? 'bg-black/30 border-white/10' : 'bg-white border-gray-200'} rounded-xl border`}>
+                      <summary className="px-3 py-2 cursor-pointer flex items-center justify-between">
+                        <span className="font-semibold text-sm">{new Date(rev.createdAt).toLocaleString()}</span>
+                        <span className="opacity-60 text-xs">{rev.width}×{rev.height} • {rev.fps} fps • {Math.round(rev.duration)}s</span>
+                      </summary>
+                      <div className="px-3 pb-3 pt-1 flex items-center justify-between text-xs opacity-90">
+                        <div className="space-y-1">
+                          <div>Resolution: {rev.width}×{rev.height}</div>
+                          <div>Frame rate: {rev.fps} fps</div>
+                          <div>Duration: {Math.round(rev.duration)}s</div>
+                        </div>
+                        <button onClick={async () => { setReplaceError(null); try { await replaceSource({ videoId: video.id as any, storageKey: rev.storageKey, publicUrl: rev.publicUrl, width: rev.width, height: rev.height, fps: rev.fps, duration: rev.duration, thumbnailUrl: rev.thumbnailUrl ?? undefined }); setReplaceOpen(false); } catch(e:any) { setReplaceError(e?.message || 'Failed to switch version'); } }} className={`${isDark ? 'bg-white text-black hover:bg-white/90' : 'bg-black text-white hover:bg-black/90'} rounded-full px-3 py-1 font-semibold`}>Use</button>
                       </div>
-                      <button onClick={async () => { setReplaceError(null); try { await replaceSource({ videoId: video.id as any, storageKey: rev.storageKey, publicUrl: rev.publicUrl, width: rev.width, height: rev.height, fps: rev.fps, duration: rev.duration, thumbnailUrl: rev.thumbnailUrl ?? undefined }); setReplaceOpen(false); } catch(e:any) { setReplaceError(e?.message || 'Failed to switch version'); } }} className={`${isDark ? 'bg-white text-black hover:bg-white/90' : 'bg-black text-white hover:bg-black/90'} rounded-full px-3 py-1 font-semibold`}>Use</button>
-                    </div>
+                    </details>
                   ))}
                 </div>
               </div>
@@ -1773,6 +1769,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
             canRedo={canRedo}
             isDark={isDark}
             onOpenCompare={openCompareModal}
+            onOpenReplace={video.isOwnedByCurrentUser ? () => setReplaceOpen(true) : undefined}
           />
           <div className="w-full flex-1 relative overflow-hidden">
             {compareSource && compareMode !== 'overlay' ? (

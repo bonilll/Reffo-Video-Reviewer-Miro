@@ -21,6 +21,7 @@ interface ToolbarProps {
   canRedo: boolean;
   isDark?: boolean;
   onOpenCompare?: () => void;
+  onOpenReplace?: () => void;
 }
 
 const tools = [
@@ -53,6 +54,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
   canRedo,
   isDark = true,
   onOpenCompare,
+  onOpenReplace,
 }) => {
   
   const isDrawingTool = [AnnotationTool.FREEHAND, AnnotationTool.RECTANGLE, AnnotationTool.ELLIPSE, AnnotationTool.ARROW].includes(activeTool);
@@ -214,13 +216,22 @@ const Toolbar: React.FC<ToolbarProps> = ({
 
       {openPanel === 'more' && (
         <div className={`absolute top-full mt-2 right-0 rounded-2xl border shadow-2xl ${isDark ? 'bg-black/85 border-white/10 text-white' : 'bg-white border-gray-200 text-gray-900'}`}>
-          <div className="p-2 min-w-[160px]">
+          <div className="p-2 min-w-[200px]">
             {onOpenCompare && (
               <button
                 onClick={() => { closePanels(); onOpenCompare?.(); }}
                 className={`w-full flex items-center gap-2 px-3 py-2 rounded-xl text-sm ${isDark ? 'hover:bg-white/10' : 'hover:bg-black/5'}`}
               >
                 <SquareStack size={16} /> Compare video
+              </button>
+            )}
+            {onOpenReplace && (
+              <button
+                onClick={() => { closePanels(); onOpenReplace?.(); }}
+                className={`w-full flex items-center gap-2 px-3 py-2 rounded-xl text-sm ${isDark ? 'hover:bg-white/10' : 'hover:bg-black/5'}`}
+                title="Replace base video"
+              >
+                Replace video
               </button>
             )}
           </div>
