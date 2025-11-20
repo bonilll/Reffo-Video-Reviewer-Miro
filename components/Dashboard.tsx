@@ -28,7 +28,7 @@ import {
 // Ensure saved animation is included in build output
 import lottieSavedRaw from '../assets/animations/saved.json?raw';
 const lottieSaved = `data:application/json;charset=utf-8,${encodeURIComponent(lottieSavedRaw as unknown as string)}`;
-import { useMutation, useQuery } from 'convex/react';
+import { useAction, useMutation, useQuery } from 'convex/react';
 import { api } from '../convex/_generated/api';
 import { Project, Video, ShareGroup, ContentShare } from '../types';
 import { useThemePreference } from '../useTheme';
@@ -553,6 +553,72 @@ const Dashboard: React.FC<DashboardProps> = ({
     }
   };
 
+  const resolveContentType = (file: File): string => {
+    const t = (file.type || '').toLowerCase();
+    if (t && t !== 'application/octet-stream') return t;
+    const name = file.name.toLowerCase();
+    if (name.endsWith('.mp4') || name.endsWith('.m4v')) return 'video/mp4';
+    if (name.endsWith('.webm')) return 'video/webm';
+    if (name.endsWith('.mov')) return 'video/quicktime';
+    if (name.endsWith('.jpg') || name.endsWith('.jpeg')) return 'image/jpeg';
+    if (name.endsWith('.png')) return 'image/png';
+    return 'application/octet-stream';
+  };
+
+  // Multipart upload helpers via Convex actions (cast to any to avoid typegen drift)
+  const createMultipart = useAction((api as any).storage.createMultipartUpload);
+  const getMultipartUrls = useAction((api as any).storage.getMultipartUploadUrls);
+  const completeMultipart = useAction((api as any).storage.completeMultipartUpload);
+  const abortMultipart = useAction((api as any).storage.abortMultipartUpload);
+
+  const uploadMultipart = async (file: File, contentType: string, onProgress: (p: number) => void) => {
+    const partSize = 16 * 1024 * 1024; // 16MB per part (Cloudflare-friendly)
+    const totalParts = Math.max(1, Math.ceil(file.size / partSize));
+    const { storageKey, uploadId, publicUrl } = await createMultipart({ contentType, fileName: file.name });
+    const partNumbers = Array.from({ length: totalParts }, (_, i) => i + 1);
+    const { urls } = await getMultipartUrls({ storageKey, uploadId, partNumbers, contentType });
+    const completed: Array<{ ETag: string; PartNumber: number }> = [];
+    let uploadedBytes = 0;
+    for (let idx = 0; idx < totalParts; idx++) {
+      const partNumber = partNumbers[idx];
+      const start = idx * partSize;
+      const end = Math.min(file.size, start + partSize);
+      const blob = file.slice(start, end);
+      const url = urls.find((u: any) => u.partNumber === partNumber)?.url;
+      if (!url) throw new Error('Missing presigned URL for part ' + partNumber);
+      const etag = await new Promise<string>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('PUT', url, true);
+        xhr.setRequestHeader('Content-Type', contentType);
+        xhr.timeout = 1000 * 60 * 15; // 15 minutes per part
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) {
+            const partProgress = e.loaded;
+            onProgress(Math.round(((uploadedBytes + partProgress) / file.size) * 100));
+          }
+        };
+        xhr.onreadystatechange = () => {
+          if (xhr.readyState === XMLHttpRequest.DONE) {
+            if (xhr.status >= 200 && xhr.status < 300) {
+              const raw = xhr.getResponseHeader('ETag') || '';
+              resolve(raw.replaceAll('"', ''));
+            } else {
+              reject(new Error(`Part ${partNumber} failed with status ${xhr.status} ${xhr.statusText || ''}`.trim()));
+            }
+          }
+        };
+        xhr.onerror = () => reject(new Error(`Network error on part ${partNumber}`));
+        xhr.ontimeout = () => reject(new Error(`Timeout on part ${partNumber}`));
+        xhr.send(blob);
+      });
+      uploadedBytes += blob.size;
+      onProgress(Math.round((uploadedBytes / file.size) * 100));
+      completed.push({ ETag: etag, PartNumber: partNumber });
+    }
+    await completeMultipart({ storageKey, uploadId, parts: completed });
+    return { storageKey, publicUrl } as { storageKey: string; publicUrl: string };
+  };
+
   const proceedUpload = async () => {
     if (!pendingUpload) return;
     if (!selectedProjectId) {
@@ -564,44 +630,46 @@ const Dashboard: React.FC<DashboardProps> = ({
     setUploadProgress(0);
 
     try {
-      const { storageKey, uploadUrl, publicUrl } = await onGenerateUploadUrl({
-        contentType: pendingUpload.file.type || 'application/octet-stream',
-        fileName: pendingUpload.file.name,
-      });
-
-      await new Promise<void>((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        xhr.open('PUT', uploadUrl, true);
-        xhr.setRequestHeader('Content-Type', pendingUpload.file.type || 'application/octet-stream');
-        xhr.timeout = 1000 * 60 * 45; // 45 minutes for large uploads
-        setUploadLogs((cur) => [...cur, 'Upload started…']);
-        xhr.upload.onprogress = (event) => {
-          if (event.lengthComputable) {
-            setUploadProgress(Math.round((event.loaded / event.total) * 100));
-          }
-        };
-        xhr.onreadystatechange = () => {
-          if (xhr.readyState === XMLHttpRequest.DONE) {
-            if (xhr.status >= 200 && xhr.status < 300) {
-              resolve();
-            } else {
-              const msg = xhr.responseText ? `: ${xhr.responseText.slice(0, 200)}` : '';
-              reject(new Error(`Upload failed with status ${xhr.status} ${xhr.statusText || ''}${msg}`.trim()));
+      const contentType = resolveContentType(pendingUpload.file);
+      const MULTIPART_THRESHOLD = 100 * 1024 * 1024; // 100MB
+      let uploadResult: { storageKey: string; publicUrl: string };
+      if (pendingUpload.file.size >= MULTIPART_THRESHOLD) {
+        setUploadLogs((cur) => [...cur, `Using multipart upload (${Math.ceil(pendingUpload.file.size / (16 * 1024 * 1024))} parts)…`] );
+        uploadResult = await uploadMultipart(pendingUpload.file, contentType, (p) => setUploadProgress(p));
+      } else {
+        const { storageKey, uploadUrl, publicUrl } = await onGenerateUploadUrl({ contentType, fileName: pendingUpload.file.name });
+        await new Promise<void>((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          xhr.open('PUT', uploadUrl, true);
+          xhr.setRequestHeader('Content-Type', contentType);
+          xhr.timeout = 1000 * 60 * 45; // 45 minutes for large uploads
+          setUploadLogs((cur) => [...cur, 'Upload started…']);
+          xhr.upload.onprogress = (event) => {
+            if (event.lengthComputable) setUploadProgress(Math.round((event.loaded / event.total) * 100));
+          };
+          xhr.onreadystatechange = () => {
+            if (xhr.readyState === XMLHttpRequest.DONE) {
+              if (xhr.status >= 200 && xhr.status < 300) resolve();
+              else {
+                const msg = xhr.responseText ? `: ${xhr.responseText.slice(0, 200)}` : '';
+                reject(new Error(`Upload failed with status ${xhr.status} ${xhr.statusText || ''}${msg}`.trim()));
+              }
             }
-          }
-        };
-        xhr.onerror = () => reject(new Error('Network error during video upload.'));
-        xhr.ontimeout = () => reject(new Error('Upload timed out (URL expired or network/proxy limit hit). Try a smaller file or faster connection.'));
-        xhr.send(pendingUpload.file);
-      });
+          };
+          xhr.onerror = () => reject(new Error('Network error during video upload.'));
+          xhr.ontimeout = () => reject(new Error('Upload timed out (URL expired or network/proxy limit hit). Try a smaller file or faster connection.'));
+          xhr.send(pendingUpload.file);
+        });
+        uploadResult = { storageKey, publicUrl };
+      }
 
       setUploadLogs((current) => [...current, 'Upload completed, saving review…']);
 
       const thumbnailUrl = await persistThumbnail(pendingUpload.thumbnailBlob ?? null, pendingUpload.file.name);
 
       const created = await onCompleteUpload({
-        storageKey,
-        publicUrl,
+        storageKey: uploadResult.storageKey,
+        publicUrl: uploadResult.publicUrl,
         title: pendingUpload.file.name,
         width: pendingUpload.metadata.width,
         height: pendingUpload.metadata.height,

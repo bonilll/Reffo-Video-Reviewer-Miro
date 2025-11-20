@@ -10,6 +10,10 @@ import {
   PutObjectCommand,
   GetObjectCommand,
   DeleteObjectCommand,
+  CreateMultipartUploadCommand,
+  UploadPartCommand,
+  CompleteMultipartUploadCommand,
+  AbortMultipartUploadCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { randomUUID } from "crypto";
@@ -137,6 +141,72 @@ export const generateVideoUploadUrl = action({
       uploadUrl,
       publicUrl: buildPublicUrl(storageKey),
     };
+  },
+});
+
+// Multipart upload lifecycle for large files (Cloudflare/proxy friendly)
+export const createMultipartUpload = action({
+  args: {
+    contentType: v.string(),
+    fileName: v.optional(v.string()),
+  },
+  async handler(ctx, { contentType, fileName }) {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new ConvexError("NOT_AUTHENTICATED");
+    const current = await ctx.runQuery(api.users.current, {});
+    if (!current?._id) throw new ConvexError("NOT_PROVISIONED");
+    const userId = current._id as string;
+    const storageKey = buildStorageKey(userId, fileName ?? undefined);
+    const cmd = new CreateMultipartUploadCommand({ Bucket: BUCKET, Key: storageKey, ContentType: contentType });
+    const res = await s3Client.send(cmd);
+    if (!res.UploadId) throw new ConvexError('FAILED_TO_CREATE_MULTIPART');
+    return { storageKey, uploadId: res.UploadId, publicUrl: buildPublicUrl(storageKey) };
+  },
+});
+
+export const getMultipartUploadUrls = action({
+  args: {
+    storageKey: v.string(),
+    uploadId: v.string(),
+    partNumbers: v.array(v.number()),
+    contentType: v.string(),
+  },
+  async handler(_ctx, { storageKey, uploadId, partNumbers, contentType }) {
+    const urls = await Promise.all(
+      partNumbers.map(async (n) => {
+        const cmd = new UploadPartCommand({ Bucket: BUCKET, Key: storageKey, UploadId: uploadId, PartNumber: n, ContentMD5: undefined, Body: undefined, ContentLength: undefined, ChecksumAlgorithm: undefined, ChecksumCRC32: undefined, ChecksumCRC32C: undefined, ChecksumSHA1: undefined, ChecksumSHA256: undefined, SSECustomerAlgorithm: undefined, SSECustomerKey: undefined, SSECustomerKeyMD5: undefined, RequestPayer: undefined, ExpectedBucketOwner: undefined });
+        const url = await getSignedUrl(s3Client, cmd, { expiresIn: UPLOAD_TTL_SECONDS });
+        return { partNumber: n, url };
+      })
+    );
+    return { urls };
+  },
+});
+
+export const completeMultipartUpload = action({
+  args: {
+    storageKey: v.string(),
+    uploadId: v.string(),
+    parts: v.array(v.object({ ETag: v.string(), PartNumber: v.number() })),
+  },
+  async handler(_ctx, { storageKey, uploadId, parts }) {
+    const cmd = new CompleteMultipartUploadCommand({
+      Bucket: BUCKET,
+      Key: storageKey,
+      UploadId: uploadId,
+      MultipartUpload: { Parts: parts.map((p) => ({ ETag: p.ETag, PartNumber: p.PartNumber })) },
+    });
+    await s3Client.send(cmd);
+    return { publicUrl: buildPublicUrl(storageKey) };
+  },
+});
+
+export const abortMultipartUpload = action({
+  args: { storageKey: v.string(), uploadId: v.string() },
+  async handler(_ctx, { storageKey, uploadId }) {
+    const cmd = new AbortMultipartUploadCommand({ Bucket: BUCKET, Key: storageKey, UploadId: uploadId });
+    await s3Client.send(cmd);
+    return { aborted: true };
   },
 });
 

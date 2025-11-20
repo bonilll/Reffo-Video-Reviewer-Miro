@@ -187,6 +187,8 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
   const pendingMentionReads = useRef<Set<string>>(new Set());
 
   const [playbackUrl, setPlaybackUrl] = useState<string | null>(null);
+  const [playbackKind, setPlaybackKind] = useState<'signed' | 'public' | 'provided'>('public');
+  const [playbackAttempt, setPlaybackAttempt] = useState(0);
   const [creatingEdit, setCreatingEdit] = useState(false);
   const enableEditedExports = (() => {
     try {
@@ -553,16 +555,16 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
     const setup = async () => {
       try {
         if (sourceUrl) {
-          if (!cancelled) setPlaybackUrl(sourceUrl);
+          if (!cancelled) { setPlaybackUrl(sourceUrl); setPlaybackKind('provided'); setPlaybackAttempt(0); }
         } else if (video.storageKey) {
           const url = await getDownloadUrlAction({ storageKey: video.storageKey });
-          if (!cancelled) setPlaybackUrl(url);
+          if (!cancelled) { setPlaybackUrl(url); setPlaybackKind('signed'); setPlaybackAttempt(0); }
         } else {
-          if (!cancelled) setPlaybackUrl(video.src);
+          if (!cancelled) { setPlaybackUrl(video.src); setPlaybackKind('public'); setPlaybackAttempt(0); }
         }
       } catch (e) {
         console.error('Failed to get playback URL, falling back to video.src', e);
-        if (!cancelled) setPlaybackUrl(video.src);
+        if (!cancelled) { setPlaybackUrl(video.src); setPlaybackKind('public'); setPlaybackAttempt(0); }
       }
     };
     setup();
@@ -570,6 +572,46 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
     setTimeout(updateVideoWidth, 50);
     return () => { cancelled = true; };
   }, [video.id, video.storageKey, video.src, sourceUrl, getDownloadUrlAction, updateVideoWidth]);
+
+  // Fallback if the main video fails to become playable
+  useEffect(() => {
+    const el = videoRef.current;
+    if (!el) return;
+    let timer: number | undefined;
+    const tryFallback = async (reason: string) => {
+      if (playbackAttempt > 0) return; // single fallback
+      setPlaybackAttempt(1);
+      console.warn('Playback fallback due to', reason, 'from', playbackKind);
+      try {
+        if (playbackKind !== 'public' && video.src) {
+          setPlaybackUrl(video.src);
+          setPlaybackKind('public');
+          return;
+        }
+        if (playbackKind !== 'signed' && video.storageKey) {
+          const url = await getDownloadUrlAction({ storageKey: video.storageKey });
+          setPlaybackUrl(url);
+          setPlaybackKind('signed');
+          return;
+        }
+      } catch (e) {
+        console.error('Fallback failed', e);
+      }
+    };
+    const onCanPlay = () => { if (timer) window.clearTimeout(timer); };
+    const onError = () => tryFallback('error');
+    const onStalled = () => { if (!el.readyState || el.readyState < 3) tryFallback('stalled'); };
+    el.addEventListener('canplay', onCanPlay);
+    el.addEventListener('error', onError);
+    el.addEventListener('stalled', onStalled);
+    timer = window.setTimeout(() => { if (!el.readyState || el.readyState < 3) tryFallback('timeout'); }, 10000);
+    return () => {
+      el.removeEventListener('canplay', onCanPlay);
+      el.removeEventListener('error', onError);
+      el.removeEventListener('stalled', onStalled);
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [playbackUrl, playbackKind, playbackAttempt, video.storageKey, video.src, getDownloadUrlAction]);
 
   useEffect(() => {
     setTimeout(updateVideoWidth, 60);
