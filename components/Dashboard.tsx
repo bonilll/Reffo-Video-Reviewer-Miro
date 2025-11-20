@@ -531,16 +531,18 @@ const Dashboard: React.FC<DashboardProps> = ({
         const xhr = new XMLHttpRequest();
         xhr.open('PUT', thumbMeta.uploadUrl, true);
         xhr.setRequestHeader('Content-Type', 'image/jpeg');
+        xhr.timeout = 1000 * 60 * 10; // 10 minutes for thumbnail
         xhr.onreadystatechange = () => {
           if (xhr.readyState === XMLHttpRequest.DONE) {
             if (xhr.status >= 200 && xhr.status < 300) {
               resolve();
             } else {
-              reject(new Error(`Thumbnail upload failed with status ${xhr.status}`));
+              reject(new Error(`Thumbnail upload failed with status ${xhr.status} ${xhr.statusText || ''}`.trim()));
             }
           }
         };
         xhr.onerror = () => reject(new Error('Network error while uploading thumbnail.'));
+        xhr.ontimeout = () => reject(new Error('Thumbnail upload timed out.'));
         xhr.send(blob);
       });
       return thumbMeta.publicUrl;
@@ -571,6 +573,8 @@ const Dashboard: React.FC<DashboardProps> = ({
         const xhr = new XMLHttpRequest();
         xhr.open('PUT', uploadUrl, true);
         xhr.setRequestHeader('Content-Type', pendingUpload.file.type || 'application/octet-stream');
+        xhr.timeout = 1000 * 60 * 45; // 45 minutes for large uploads
+        setUploadLogs((cur) => [...cur, 'Upload started…']);
         xhr.upload.onprogress = (event) => {
           if (event.lengthComputable) {
             setUploadProgress(Math.round((event.loaded / event.total) * 100));
@@ -581,11 +585,13 @@ const Dashboard: React.FC<DashboardProps> = ({
             if (xhr.status >= 200 && xhr.status < 300) {
               resolve();
             } else {
-              reject(new Error(`Upload failed with status ${xhr.status}`));
+              const msg = xhr.responseText ? `: ${xhr.responseText.slice(0, 200)}` : '';
+              reject(new Error(`Upload failed with status ${xhr.status} ${xhr.statusText || ''}${msg}`.trim()));
             }
           }
         };
         xhr.onerror = () => reject(new Error('Network error during video upload.'));
+        xhr.ontimeout = () => reject(new Error('Upload timed out (URL expired or network/proxy limit hit). Try a smaller file or faster connection.'));
         xhr.send(pendingUpload.file);
       });
 

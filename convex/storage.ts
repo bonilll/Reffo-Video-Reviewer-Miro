@@ -41,6 +41,15 @@ const s3Client = new S3Client({
   },
 });
 
+// Configure how long pre-signed PUT/GET URLs remain valid.
+// Longer TTL helps slow connections and large files avoid mid-upload expiry.
+// Override with MINIO_UPLOAD_TTL_SECONDS in Convex env (default 3600s = 1h).
+const UPLOAD_TTL_SECONDS = (() => {
+  const raw = process.env.MINIO_UPLOAD_TTL_SECONDS;
+  const n = raw ? Number(raw) : 3600;
+  return Number.isFinite(n) && n > 0 ? n : 3600;
+})();
+
 const buildStorageKey = (userId: string, fileName?: string) => {
   const safeFileName = fileName?.replace(/[^a-zA-Z0-9_.-]/g, "");
   const extension = safeFileName?.includes(".")
@@ -113,15 +122,15 @@ export const generateVideoUploadUrl = action({
     const userId = current._id as string;
     const storageKey = buildStorageKey(userId, fileName ?? undefined);
 
-    const command = new PutObjectCommand({
-      Bucket: BUCKET,
-      Key: storageKey,
-      ContentType: contentType,
-    });
+  const command = new PutObjectCommand({
+    Bucket: BUCKET,
+    Key: storageKey,
+    ContentType: contentType,
+  });
 
-    const uploadUrl = await getSignedUrl(s3Client, command, {
-      expiresIn: 60 * 5,
-    });
+  const uploadUrl = await getSignedUrl(s3Client, command, {
+    expiresIn: UPLOAD_TTL_SECONDS,
+  });
 
     return {
       storageKey,
@@ -156,7 +165,7 @@ export const generateProfileImageUploadUrl = action({
       ACL: undefined,
     });
 
-    const uploadUrl = await getSignedUrl(s3Client, command, { expiresIn: 60 * 5 });
+  const uploadUrl = await getSignedUrl(s3Client, command, { expiresIn: UPLOAD_TTL_SECONDS });
     return { storageKey, uploadUrl, publicUrl: buildPublicUrl(storageKey) };
   },
 });
@@ -187,9 +196,9 @@ export const generateAnnotationAssetUploadUrl = action({
       ContentType: contentType,
     });
 
-    const uploadUrl = await getSignedUrl(s3Client, command, {
-      expiresIn: 60 * 5,
-    });
+  const uploadUrl = await getSignedUrl(s3Client, command, {
+    expiresIn: UPLOAD_TTL_SECONDS,
+  });
 
     return {
       storageKey,
