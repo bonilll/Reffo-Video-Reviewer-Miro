@@ -109,16 +109,21 @@ const PreviewSurface: React.FC<{
     const offset = playhead - clip.timelineStartFrame;
     const sourceFrame = clip.sourceInFrame + offset * clip.speed;
     const seconds = sourceFrame / Math.max(1, source.fps);
-    if (!Number.isNaN(seconds) && Math.abs(video.currentTime - seconds) > 0.02) {
+    const frameSec = 1 / Math.max(1, source.fps);
+    if (!Number.isNaN(seconds) && Math.abs(video.currentTime - seconds) > frameSec * 0.75) {
       try {
-        video.currentTime = seconds;
+        if (typeof (video as any).fastSeek === 'function') {
+          (video as any).fastSeek(seconds);
+        } else {
+          video.currentTime = seconds;
+        }
       } catch (err) {
         console.warn('Failed to seek preview', err);
       }
     }
     if (playing) {
-      void video.play().catch(() => undefined);
-    } else {
+      if (video.paused) void video.play().catch(() => undefined);
+    } else if (!video.paused) {
       video.pause();
     }
   }, [clip, source, src, playhead, playing]);
@@ -157,7 +162,9 @@ const MultiPreviewSurface: React.FC<{
   items: Array<{ clip: ClipDoc; source: SourceInfo; src: string; transform?: { x: number; y: number; scale: number; rotate: number }; trim?: { start: number; end: number } }>;
   playhead: number;
   playing: boolean;
-}> = ({ composition, items, playhead, playing }) => {
+  primaryClipId?: string | null;
+  onPrimaryTime?: (timeSec: number) => void;
+}> = ({ composition, items, playhead, playing, primaryClipId, onPrimaryTime }) => {
   const videoRefs = useRef<Record<string, HTMLVideoElement | null>>({});
 
   useEffect(() => {
@@ -190,18 +197,50 @@ const MultiPreviewSurface: React.FC<{
       const offset = playhead - visibleStart;
       const sourceFrame = it.clip.sourceInFrame + offset * it.clip.speed;
       const seconds = sourceFrame / Math.max(1, it.source.fps);
-      if (!Number.isNaN(seconds) && Math.abs(video.currentTime - seconds) > 0.02) {
+      const frameSec = 1 / Math.max(1, it.source.fps);
+      if (!Number.isNaN(seconds) && Math.abs(video.currentTime - seconds) > frameSec * 0.75) {
         try {
-          video.currentTime = seconds;
+          if (typeof (video as any).fastSeek === 'function') {
+            (video as any).fastSeek(seconds);
+          } else {
+            video.currentTime = seconds;
+          }
         } catch {}
       }
       if (playing) {
-        void video.play().catch(() => undefined);
-      } else {
+        if (video.paused) void video.play().catch(() => undefined);
+      } else if (!video.paused) {
         video.pause();
       }
     });
   }, [items, playhead, playing]);
+
+  // Drive playhead from the primary video's clock if requested
+  useEffect(() => {
+    if (!playing || !primaryClipId || !onPrimaryTime) return;
+    const el = videoRefs.current[primaryClipId as string];
+    if (!el) return;
+    let rafId: number | null = null;
+    let stopped = false;
+    const tick = (now?: any, metadata?: any) => {
+      if (stopped) return;
+      try { onPrimaryTime(el.currentTime || 0); } catch {}
+      if ('requestVideoFrameCallback' in el) {
+        (el as any).requestVideoFrameCallback(tick);
+      } else {
+        rafId = requestAnimationFrame(() => tick());
+      }
+    };
+    if ('requestVideoFrameCallback' in el) {
+      (el as any).requestVideoFrameCallback(tick);
+    } else {
+      rafId = requestAnimationFrame(() => tick());
+    }
+    return () => {
+      stopped = true;
+      if (rafId) cancelAnimationFrame(rafId);
+    };
+  }, [primaryClipId, onPrimaryTime, playing]);
 
   return (
     <div className="relative h-full w-full overflow-hidden">
@@ -646,6 +685,17 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit })
                   .filter(Boolean) as any}
                 playhead={playhead}
                 playing={playing}
+                primaryClipId={(activePrimaryClip?._id as string) ?? null}
+                onPrimaryTime={(sec) => {
+                  if (!data || !activePrimaryClip) return;
+                  const srcInfo = data.sources[activePrimaryClip.sourceVideoId];
+                  if (!srcInfo) return;
+                  const sFps = Math.max(1, srcInfo.fps);
+                  const sourceFrame = sec * sFps;
+                  const compFrame = activePrimaryClip.timelineStartFrame + (sourceFrame - activePrimaryClip.sourceInFrame) / Math.max(0.001, activePrimaryClip.speed);
+                  const clamped = Math.max(0, Math.min((data.composition.settings.durationFrames - 1), compFrame));
+                  setPlayhead(clamped);
+                }}
               />
             </div>
             {/* Transport panel removed; controls moved to timeline with keyboard shortcuts */}
