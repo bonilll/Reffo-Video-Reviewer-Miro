@@ -190,18 +190,9 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
   const [playbackKind, setPlaybackKind] = useState<'signed' | 'public' | 'provided'>('public');
   const [playbackAttempt, setPlaybackAttempt] = useState(0);
   const [creatingEdit, setCreatingEdit] = useState(false);
-  const enableEditedExports = (() => {
-    try {
-      const raw = (import.meta as any)?.env?.VITE_ENABLE_EDIT_EXPORTS;
-      // Default ON if not provided; set to '0' explicitly to disable
-      if (raw === undefined || raw === '') return true;
-      return raw.toString() === '1';
-    } catch {
-      return true;
-    }
-  })();
-  const showInsertButton = enableEditedExports && Boolean(video.isOwnedByCurrentUser);
-  const showEditButton = showInsertButton; // same gating: only when feature enabled and owner
+  // Disable "Insert edit" feature entirely; keep Edit Mode available for owners
+  const showInsertButton = false;
+  const showEditButton = Boolean(video.isOwnedByCurrentUser);
   const [exportsForVideo, setExportsForVideo] = useState<Array<{ export: any; composition: any }> | undefined>(undefined);
   const completedExports = (exportsForVideo ?? []).filter(
     (item) => item.export.status === 'completed' && item.export.outputPublicUrl,
@@ -1618,8 +1609,8 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
             )}
           </div>
         </div>
-        {/* Right column (aligned with comments): controls + share + insert */}
-        <div className={showInsertButton ? 'grid grid-cols-5 items-center justify-items-center w-[420px] gap-2 md:gap-3' : 'grid grid-cols-4 items-center justify-items-center w-[360px] gap-2 md:gap-3'}>
+        {/* Right column (aligned with comments): controls + share (insert disabled) */}
+        <div className={'grid grid-cols-4 items-center justify-items-center w-[360px] gap-2 md:gap-3'}>
           {/* Toggle comments panel */}
           <button
             onClick={() => setShowComments((v) => !v)}
