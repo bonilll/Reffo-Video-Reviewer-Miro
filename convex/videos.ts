@@ -337,8 +337,10 @@ export const replaceSource = mutation({
     const targetExists = revisions.some((r) => (r as any).storageKey === args.storageKey);
     const currentAlreadyRecorded = revisions.some((r) => (r as any).storageKey === video.storageKey);
     const isChanging = args.storageKey !== video.storageKey;
-    const isNewUpload = isChanging && !targetExists;
-    if (isNewUpload && !currentAlreadyRecorded) {
+    // Always preserve the previous current version when changing source
+    // (both for new uploads and for switching back to an existing revision),
+    // but avoid duplicates if it's already recorded.
+    if (isChanging && !currentAlreadyRecorded) {
       await ctx.db.insert('videoRevisions', {
         videoId: args.videoId,
         storageKey: video.storageKey,

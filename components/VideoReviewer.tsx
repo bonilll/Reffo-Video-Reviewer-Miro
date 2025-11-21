@@ -1830,6 +1830,10 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
                           result = { storageKey: creds.storageKey, publicUrl: creds.publicUrl };
                         }
                         await replaceSource({ videoId: video.id as any, storageKey: result.storageKey, publicUrl: result.publicUrl, width: Math.max(1, Math.floor(meta.width)), height: Math.max(1, Math.floor(meta.height)), fps: Math.max(1, Math.floor(meta.fps)), duration: Math.max(0, Math.round(meta.duration)), newTitle: file.name });
+                        // Immediately use the new public URL to avoid long loading while queries refresh
+                        setPlaybackUrl(result.publicUrl);
+                        setPlaybackKind('public');
+                        setPlaybackAttempt(0);
                         setReplaceOpen(false);
                       } catch (err:any) { setReplaceError(err?.message || 'Failed to replace video'); } finally { setReplaceUploading(false); }
                     }} />
@@ -1857,9 +1861,26 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
                       <span className="opacity-60">In use</span>
                     </div>
                   </details>
-                  {/* Previous revisions */}
-                  {!listRevisions?.length && <div className="opacity-60 text-xs px-2">No previous versions.</div>}
-                  {listRevisions?.map((rev) => (
+                  {/* All uploads including current */}
+                  {(() => {
+                    const uploads: Array<any> = [];
+                    const currentUpload = {
+                      id: 'current',
+                      storageKey: video.storageKey,
+                      publicUrl: video.src,
+                      width: video.width,
+                      height: video.height,
+                      fps: video.fps,
+                      duration: video.duration,
+                      createdAt: Date.parse(video.uploadedAt),
+                      fileName: video.title,
+                    };
+                    uploads.push(currentUpload);
+                    (listRevisions ?? []).forEach((r) => {
+                      if (!uploads.find((u) => u.storageKey === r.storageKey)) uploads.push(r);
+                    });
+                    if (uploads.length === 0) return <div className="opacity-60 text-xs px-2">No previous versions.</div>;
+                    return uploads.map((rev, idx) => (
                     <details key={rev.id as string} className={`${isDark ? 'bg-black/30 border-white/10' : 'bg-white border-gray-200'} rounded-xl border`}>
                       <summary className="px-3 py-2 cursor-pointer flex items-center justify-between">
                         <span className="font-semibold text-sm">{rev.fileName || new URL(rev.publicUrl, window.location.href).pathname.split('/').pop()}</span>
@@ -1872,12 +1893,30 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
                           <div>Duration: {Math.round(rev.duration)}s</div>
                         </div>
                         <div className="flex items-center gap-2">
-                          <button onClick={async () => { setReplaceError(null); try { await replaceSource({ videoId: video.id as any, storageKey: rev.storageKey, publicUrl: rev.publicUrl, width: rev.width, height: rev.height, fps: rev.fps, duration: rev.duration, thumbnailUrl: rev.thumbnailUrl ?? undefined, newTitle: rev.fileName || video.title }); setReplaceOpen(false); } catch(e:any) { setReplaceError(e?.message || 'Failed to switch version'); } }} className={`${isDark ? 'bg-white text-black hover:bg-white/90' : 'bg-black text-white hover:bg-black/90'} rounded-full px-3 py-1 font-semibold`}>Use</button>
-                          <button onClick={() => { setReplaceError(null); setConfirmDeleteRevision(rev); }} className={`${isDark ? 'bg-white/10 hover:bg-white/20 text-white' : 'bg-gray-100 hover:bg-gray-200 text-gray-800'} rounded-full px-3 py-1 font-semibold`}>Delete</button>
+                          <button
+                            onClick={async () => {
+                              setReplaceError(null);
+                              try {
+                                await replaceSource({ videoId: video.id as any, storageKey: rev.storageKey, publicUrl: rev.publicUrl, width: rev.width, height: rev.height, fps: rev.fps, duration: rev.duration, thumbnailUrl: (rev as any).thumbnailUrl ?? undefined, newTitle: rev.fileName || video.title });
+                                setPlaybackUrl(rev.publicUrl);
+                                setPlaybackKind('public');
+                                setPlaybackAttempt(0);
+                                setReplaceOpen(false);
+                              } catch (e:any) { setReplaceError(e?.message || 'Failed to switch version'); }
+                            }}
+                            disabled={rev.storageKey === video.storageKey}
+                            className={`${rev.storageKey === video.storageKey ? 'opacity-50 cursor-not-allowed' : ''} ${isDark ? 'bg-white text-black hover:bg-white/90' : 'bg-black text-white hover:bg-black/90'} rounded-full px-3 py-1 font-semibold`}
+                          >Use</button>
+                          <button
+                            onClick={() => { setReplaceError(null); setConfirmDeleteRevision(rev); }}
+                            disabled={rev.storageKey === video.storageKey}
+                            className={`${rev.storageKey === video.storageKey ? 'opacity-50 cursor-not-allowed' : ''} ${isDark ? 'bg-white/10 hover:bg-white/20 text-white' : 'bg-gray-100 hover:bg-gray-200 text-gray-800'} rounded-full px-3 py-1 font-semibold`}
+                          >Delete</button>
                         </div>
                       </div>
                     </details>
-                  ))}
+                    ));
+                  })()}
                 </div>
               </div>
             </div>
