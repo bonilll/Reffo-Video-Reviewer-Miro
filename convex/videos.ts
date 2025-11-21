@@ -328,20 +328,31 @@ export const replaceSource = mutation({
     const user = await getCurrentUserOrThrow(ctx);
     const video = await ctx.db.get(args.videoId);
     if (!video || video.ownerId !== user._id) throw new ConvexError('NOT_FOUND');
-    // Save current version as a revision before replacing
-    await ctx.db.insert('videoRevisions', {
-      videoId: args.videoId,
-      storageKey: video.storageKey,
-      publicUrl: video.src,
-      width: video.width,
-      height: video.height,
-      fps: video.fps,
-      duration: video.duration,
-      thumbnailUrl: video.thumbnailUrl,
-      createdAt: Date.now(),
-      label: 'Previous',
-      fileName: video.title,
-    });
+    // Only record revisions for newly uploaded sources.
+    // If the target storageKey already exists in history (reuse), skip inserting a new revision.
+    const revisions = await ctx.db
+      .query('videoRevisions')
+      .withIndex('byVideo', (q) => q.eq('videoId', args.videoId))
+      .collect();
+    const targetExists = revisions.some((r) => (r as any).storageKey === args.storageKey);
+    const currentAlreadyRecorded = revisions.some((r) => (r as any).storageKey === video.storageKey);
+    const isChanging = args.storageKey !== video.storageKey;
+    const isNewUpload = isChanging && !targetExists;
+    if (isNewUpload && !currentAlreadyRecorded) {
+      await ctx.db.insert('videoRevisions', {
+        videoId: args.videoId,
+        storageKey: video.storageKey,
+        publicUrl: video.src,
+        width: video.width,
+        height: video.height,
+        fps: video.fps,
+        duration: video.duration,
+        thumbnailUrl: video.thumbnailUrl,
+        createdAt: Date.now(),
+        label: 'Previous',
+        fileName: video.title,
+      });
+    }
     // Update base video
     await ctx.db.patch(args.videoId, {
       storageKey: args.storageKey,
@@ -367,9 +378,9 @@ export const deleteRevision = mutation({
     if (!video || video.ownerId !== user._id) throw new ConvexError('FORBIDDEN');
     // Best-effort delete of the object in storage
     try {
-      await ctx.runAction(internal.storage.deleteObject, { storageKey: rev.storageKey as string });
+      await ctx.scheduler.runAfter(0, internal.storage.deleteObject, { storageKey: rev.storageKey as string });
     } catch (_) {
-      // ignore storage deletion errors
+      // ignore scheduling errors
     }
     await ctx.db.delete(revisionId);
     return { ok: true };

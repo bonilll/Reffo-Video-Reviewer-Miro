@@ -194,6 +194,8 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
   const [replaceUploading, setReplaceUploading] = useState(false);
   const [replaceProgress, setReplaceProgress] = useState(0);
   const [replaceError, setReplaceError] = useState<string | null>(null);
+  const [confirmDeleteRevision, setConfirmDeleteRevision] = useState<any | null>(null);
+  const [deletingRevision, setDeletingRevision] = useState(false);
   const listRevisions = useQuery(api.videos.listRevisions as any, { videoId: video.id as any }) as Array<any> | undefined;
   const replaceSource = useMutation(api.videos.replaceSource as any);
   const deleteRevision = useMutation(api.videos.deleteRevision as any);
@@ -1637,6 +1639,45 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
           <EditedExportsQuery videoId={videoId} onData={setExportsForVideo} />
         </EditedExportsErrorBoundary>
       )}
+      {confirmDeleteRevision && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 p-4">
+          <div className={`${isDark ? 'bg-black/85 text-white' : 'bg-white text-gray-900'} w-full max-w-md rounded-2xl border ${isDark ? 'border-white/10' : 'border-gray-200'} shadow-2xl`}>
+            <div className={`px-4 py-3 ${isDark ? 'bg-white/5 border-b border-white/10' : 'bg-gray-50 border-b border-gray-200'} flex items-center justify-between`}>
+              <h3 className="text-sm font-semibold">Delete version</h3>
+              <button className={isDark ? 'text-white/60 hover:text-white' : 'text-gray-600 hover:text-gray-900'} onClick={() => setConfirmDeleteRevision(null)}>✕</button>
+            </div>
+            <div className="p-4 text-sm space-y-3">
+              <p className="opacity-90">Are you sure you want to delete this uploaded version? This action cannot be undone.</p>
+              <div className={`${isDark ? 'bg-white/5 border-white/10' : 'bg-gray-50 border-gray-200'} rounded-xl border p-3 text-xs grid grid-cols-2 gap-2`}>
+                <div className="opacity-70">Filename</div>
+                <div className="truncate">{confirmDeleteRevision.fileName || new URL(confirmDeleteRevision.publicUrl, window.location.href).pathname.split('/').pop()}</div>
+                <div className="opacity-70">Uploaded</div>
+                <div>{new Date(confirmDeleteRevision.createdAt).toLocaleString()}</div>
+                <div className="opacity-70">Resolution</div>
+                <div>{confirmDeleteRevision.width}×{confirmDeleteRevision.height}</div>
+                <div className="opacity-70">Duration</div>
+                <div>{Math.round(confirmDeleteRevision.duration)}s</div>
+              </div>
+              {replaceError && <div className="text-xs text-red-400">{replaceError}</div>}
+              <div className="pt-1 flex justify-end gap-2">
+                <button className={`${isDark ? 'bg-white/10 hover:bg-white/20 text-white' : 'bg-gray-100 hover:bg-gray-200 text-gray-800'} rounded-full px-3 py-1.5 text-sm font-semibold`} onClick={() => setConfirmDeleteRevision(null)} disabled={deletingRevision}>Cancel</button>
+                <button className={`${isDark ? 'bg-white text-black hover:bg-white/90' : 'bg-black text-white hover:bg-black/90'} rounded-full px-3 py-1.5 text-sm font-semibold disabled:opacity-50`} onClick={async () => {
+                  setReplaceError(null);
+                  setDeletingRevision(true);
+                  try {
+                    await deleteRevision({ revisionId: confirmDeleteRevision.id as any });
+                    setConfirmDeleteRevision(null);
+                  } catch (e:any) {
+                    setReplaceError(e?.message || 'Failed to delete');
+                  } finally {
+                    setDeletingRevision(false);
+                  }
+                }} disabled={deletingRevision}>{deletingRevision ? 'Deleting…' : 'Delete'}</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       <header
         ref={headerEl}
         className={`flex-shrink-0 border-b px-4 md:px-8 py-3 md:py-4 grid grid-cols-[minmax(0,1fr)_360px] items-center z-20 backdrop-blur ${
@@ -1832,7 +1873,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
                         </div>
                         <div className="flex items-center gap-2">
                           <button onClick={async () => { setReplaceError(null); try { await replaceSource({ videoId: video.id as any, storageKey: rev.storageKey, publicUrl: rev.publicUrl, width: rev.width, height: rev.height, fps: rev.fps, duration: rev.duration, thumbnailUrl: rev.thumbnailUrl ?? undefined, newTitle: rev.fileName || video.title }); setReplaceOpen(false); } catch(e:any) { setReplaceError(e?.message || 'Failed to switch version'); } }} className={`${isDark ? 'bg-white text-black hover:bg-white/90' : 'bg-black text-white hover:bg-black/90'} rounded-full px-3 py-1 font-semibold`}>Use</button>
-                          <button onClick={async () => { if (!window.confirm('Delete this uploaded version? This cannot be undone.')) return; setReplaceError(null); try { await deleteRevision({ revisionId: rev.id as any }); } catch (e:any) { setReplaceError(e?.message || 'Failed to delete'); } }} className={`${isDark ? 'bg-white/10 hover:bg-white/20 text-white' : 'bg-gray-100 hover:bg-gray-200 text-gray-800'} rounded-full px-3 py-1 font-semibold`}>Delete</button>
+                          <button onClick={() => { setReplaceError(null); setConfirmDeleteRevision(rev); }} className={`${isDark ? 'bg-white/10 hover:bg-white/20 text-white' : 'bg-gray-100 hover:bg-gray-200 text-gray-800'} rounded-full px-3 py-1 font-semibold`}>Delete</button>
                         </div>
                       </div>
                     </details>
