@@ -197,6 +197,71 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
   const listRevisions = useQuery(api.videos.listRevisions as any, { videoId: video.id as any }) as Array<any> | undefined;
   const replaceSource = useMutation(api.videos.replaceSource as any);
   const generateVideoUploadUrl = useAction(api.storage.generateVideoUploadUrl);
+  // Multipart upload actions for large replacements (align with Dashboard)
+  const createMultipart = useAction((api as any).storage.createMultipartUpload);
+  const getMultipartUrls = useAction((api as any).storage.getMultipartUploadUrls);
+  const completeMultipart = useAction((api as any).storage.completeMultipartUpload);
+  const abortMultipart = useAction((api as any).storage.abortMultipartUpload);
+
+  const resolveContentType = (file: File): string => {
+    const t = (file.type || '').toLowerCase();
+    if (t && t !== 'application/octet-stream') return t;
+    const name = file.name.toLowerCase();
+    if (name.endsWith('.mp4') || name.endsWith('.m4v')) return 'video/mp4';
+    if (name.endsWith('.webm')) return 'video/webm';
+    if (name.endsWith('.mov')) return 'video/quicktime';
+    if (name.endsWith('.jpg') || name.endsWith('.jpeg')) return 'image/jpeg';
+    if (name.endsWith('.png')) return 'image/png';
+    return 'application/octet-stream';
+  };
+
+  const uploadMultipart = async (file: File, contentType: string, onProgress: (p: number) => void) => {
+    const partSize = 16 * 1024 * 1024; // 16MB parts
+    const totalParts = Math.max(1, Math.ceil(file.size / partSize));
+    const { storageKey, uploadId, publicUrl } = await createMultipart({ contentType, fileName: file.name });
+    const partNumbers = Array.from({ length: totalParts }, (_, i) => i + 1);
+    const { urls } = await getMultipartUrls({ storageKey, uploadId, partNumbers, contentType });
+    const completed: Array<{ ETag: string; PartNumber: number }> = [];
+    let uploadedBytes = 0;
+    for (let idx = 0; idx < totalParts; idx++) {
+      const partNumber = partNumbers[idx];
+      const start = idx * partSize;
+      const end = Math.min(file.size, start + partSize);
+      const blob = file.slice(start, end);
+      const url = urls.find((u: any) => u.partNumber === partNumber)?.url;
+      if (!url) throw new Error('Missing presigned URL for part ' + partNumber);
+      const etag = await new Promise<string>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('PUT', url, true);
+        xhr.setRequestHeader('Content-Type', contentType);
+        xhr.timeout = 1000 * 60 * 15; // 15 min per part
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) {
+            const partProgress = e.loaded;
+            onProgress(Math.round(((uploadedBytes + partProgress) / file.size) * 100));
+          }
+        };
+        xhr.onreadystatechange = () => {
+          if (xhr.readyState === XMLHttpRequest.DONE) {
+            if (xhr.status >= 200 && xhr.status < 300) {
+              const raw = xhr.getResponseHeader('ETag') || '';
+              resolve(raw.replaceAll('"', ''));
+            } else {
+              reject(new Error(`Part ${partNumber} failed with status ${xhr.status} ${xhr.statusText || ''}`.trim()));
+            }
+          }
+        };
+        xhr.onerror = () => reject(new Error(`Network error on part ${partNumber}`));
+        xhr.ontimeout = () => reject(new Error(`Timeout on part ${partNumber}`));
+        xhr.send(blob);
+      });
+      uploadedBytes += blob.size;
+      onProgress(Math.round((uploadedBytes / file.size) * 100));
+      completed.push({ ETag: etag, PartNumber: partNumber });
+    }
+    await completeMultipart({ storageKey, uploadId, parts: completed });
+    return { storageKey, publicUrl } as { storageKey: string; publicUrl: string };
+  };
   // Disable "Insert edit" feature entirely; keep Edit Mode available for owners
   const showInsertButton = false;
   const showEditButton = Boolean(video.isOwnedByCurrentUser);
@@ -1702,18 +1767,27 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
                           el.onerror = () => { URL.revokeObjectURL(el.src); reject(new Error('Unable to read video metadata.')); };
                           el.src = URL.createObjectURL(file);
                         }))();
-                        const contentType = file.type || 'video/mp4';
-                        const creds = await generateVideoUploadUrl({ contentType, fileName: file.name });
-                        await new Promise<void>((resolve, reject) => {
-                          const xhr = new XMLHttpRequest();
-                          xhr.open('PUT', creds.uploadUrl, true);
-                          xhr.setRequestHeader('Content-Type', contentType);
-                          xhr.upload.onprogress = (ev) => { if (ev.lengthComputable) setReplaceProgress(Math.round((ev.loaded/ev.total)*100)); };
-                          xhr.onreadystatechange = () => { if (xhr.readyState === XMLHttpRequest.DONE) { if (xhr.status >= 200 && xhr.status < 300) resolve(); else reject(new Error(`Upload failed (${xhr.status})`)); } };
-                          xhr.onerror = () => reject(new Error('Network error during upload'));
-                          xhr.send(file);
-                        });
-                        await replaceSource({ videoId: video.id as any, storageKey: creds.storageKey, publicUrl: creds.publicUrl, width: Math.max(1, Math.floor(meta.width)), height: Math.max(1, Math.floor(meta.height)), fps: Math.max(1, Math.floor(meta.fps)), duration: Math.max(0, Math.round(meta.duration)) });
+                        const contentType = resolveContentType(file);
+                        const MULTIPART_THRESHOLD = 100 * 1024 * 1024; // 100MB, align with Dashboard
+                        let result: { storageKey: string; publicUrl: string };
+                        if (file.size >= MULTIPART_THRESHOLD) {
+                          result = await uploadMultipart(file, contentType, (p) => setReplaceProgress(p));
+                        } else {
+                          const creds = await generateVideoUploadUrl({ contentType, fileName: file.name });
+                          await new Promise<void>((resolve, reject) => {
+                            const xhr = new XMLHttpRequest();
+                            xhr.open('PUT', creds.uploadUrl, true);
+                            xhr.setRequestHeader('Content-Type', contentType);
+                            xhr.timeout = 1000 * 60 * 45; // 45 min
+                            xhr.upload.onprogress = (ev) => { if (ev.lengthComputable) setReplaceProgress(Math.round((ev.loaded/ev.total)*100)); };
+                            xhr.onreadystatechange = () => { if (xhr.readyState === XMLHttpRequest.DONE) { if (xhr.status >= 200 && xhr.status < 300) resolve(); else reject(new Error(`Upload failed (${xhr.status})`)); } };
+                            xhr.onerror = () => reject(new Error('Network error during upload'));
+                            xhr.ontimeout = () => reject(new Error('Upload timed out'));
+                            xhr.send(file);
+                          });
+                          result = { storageKey: creds.storageKey, publicUrl: creds.publicUrl };
+                        }
+                        await replaceSource({ videoId: video.id as any, storageKey: result.storageKey, publicUrl: result.publicUrl, width: Math.max(1, Math.floor(meta.width)), height: Math.max(1, Math.floor(meta.height)), fps: Math.max(1, Math.floor(meta.fps)), duration: Math.max(0, Math.round(meta.duration)) });
                         setReplaceOpen(false);
                       } catch (err:any) { setReplaceError(err?.message || 'Failed to replace video'); } finally { setReplaceUploading(false); }
                     }} />
