@@ -348,7 +348,6 @@ export const replaceSource = mutation({
       fps: args.fps,
       duration: args.duration,
       thumbnailUrl: args.thumbnailUrl ?? video.thumbnailUrl,
-      updatedAt: Date.now(),
     } as any);
     return { ok: true };
   }
