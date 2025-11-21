@@ -196,6 +196,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
   const [replaceError, setReplaceError] = useState<string | null>(null);
   const listRevisions = useQuery(api.videos.listRevisions as any, { videoId: video.id as any }) as Array<any> | undefined;
   const replaceSource = useMutation(api.videos.replaceSource as any);
+  const deleteRevision = useMutation(api.videos.deleteRevision as any);
   const generateVideoUploadUrl = useAction(api.storage.generateVideoUploadUrl);
   // Multipart upload actions for large replacements (align with Dashboard)
   const createMultipart = useAction((api as any).storage.createMultipartUpload);
@@ -1787,7 +1788,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
                           });
                           result = { storageKey: creds.storageKey, publicUrl: creds.publicUrl };
                         }
-                        await replaceSource({ videoId: video.id as any, storageKey: result.storageKey, publicUrl: result.publicUrl, width: Math.max(1, Math.floor(meta.width)), height: Math.max(1, Math.floor(meta.height)), fps: Math.max(1, Math.floor(meta.fps)), duration: Math.max(0, Math.round(meta.duration)) });
+                        await replaceSource({ videoId: video.id as any, storageKey: result.storageKey, publicUrl: result.publicUrl, width: Math.max(1, Math.floor(meta.width)), height: Math.max(1, Math.floor(meta.height)), fps: Math.max(1, Math.floor(meta.fps)), duration: Math.max(0, Math.round(meta.duration)), newTitle: file.name });
                         setReplaceOpen(false);
                       } catch (err:any) { setReplaceError(err?.message || 'Failed to replace video'); } finally { setReplaceUploading(false); }
                     }} />
@@ -1829,7 +1830,10 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
                           <div>Frame rate: {rev.fps} fps</div>
                           <div>Duration: {Math.round(rev.duration)}s</div>
                         </div>
-                        <button onClick={async () => { setReplaceError(null); try { await replaceSource({ videoId: video.id as any, storageKey: rev.storageKey, publicUrl: rev.publicUrl, width: rev.width, height: rev.height, fps: rev.fps, duration: rev.duration, thumbnailUrl: rev.thumbnailUrl ?? undefined }); setReplaceOpen(false); } catch(e:any) { setReplaceError(e?.message || 'Failed to switch version'); } }} className={`${isDark ? 'bg-white text-black hover:bg-white/90' : 'bg-black text-white hover:bg-black/90'} rounded-full px-3 py-1 font-semibold`}>Use</button>
+                        <div className="flex items-center gap-2">
+                          <button onClick={async () => { setReplaceError(null); try { await replaceSource({ videoId: video.id as any, storageKey: rev.storageKey, publicUrl: rev.publicUrl, width: rev.width, height: rev.height, fps: rev.fps, duration: rev.duration, thumbnailUrl: rev.thumbnailUrl ?? undefined, newTitle: rev.fileName || video.title }); setReplaceOpen(false); } catch(e:any) { setReplaceError(e?.message || 'Failed to switch version'); } }} className={`${isDark ? 'bg-white text-black hover:bg-white/90' : 'bg-black text-white hover:bg-black/90'} rounded-full px-3 py-1 font-semibold`}>Use</button>
+                          <button onClick={async () => { if (!window.confirm('Delete this uploaded version? This cannot be undone.')) return; setReplaceError(null); try { await deleteRevision({ revisionId: rev.id as any }); } catch (e:any) { setReplaceError(e?.message || 'Failed to delete'); } }} className={`${isDark ? 'bg-white/10 hover:bg-white/20 text-white' : 'bg-gray-100 hover:bg-gray-200 text-gray-800'} rounded-full px-3 py-1 font-semibold`}>Delete</button>
+                        </div>
                       </div>
                     </details>
                   ))}

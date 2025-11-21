@@ -322,6 +322,7 @@ export const replaceSource = mutation({
     duration: v.number(),
     thumbnailUrl: v.optional(v.string()),
     label: v.optional(v.string()),
+    newTitle: v.optional(v.string()),
   },
   async handler(ctx, args) {
     const user = await getCurrentUserOrThrow(ctx);
@@ -350,7 +351,27 @@ export const replaceSource = mutation({
       fps: args.fps,
       duration: args.duration,
       thumbnailUrl: args.thumbnailUrl ?? video.thumbnailUrl,
+      ...(args.newTitle ? { title: args.newTitle } : {}),
     } as any);
+    return { ok: true };
+  }
+});
+
+export const deleteRevision = mutation({
+  args: { revisionId: v.id('videoRevisions') },
+  async handler(ctx, { revisionId }) {
+    const user = await getCurrentUserOrThrow(ctx);
+    const rev = await ctx.db.get(revisionId);
+    if (!rev) throw new ConvexError('NOT_FOUND');
+    const video = await ctx.db.get(rev.videoId as Id<'videos'>);
+    if (!video || video.ownerId !== user._id) throw new ConvexError('FORBIDDEN');
+    // Best-effort delete of the object in storage
+    try {
+      await ctx.runAction(internal.storage.deleteObject, { storageKey: rev.storageKey as string });
+    } catch (_) {
+      // ignore storage deletion errors
+    }
+    await ctx.db.delete(revisionId);
     return { ok: true };
   }
 });
