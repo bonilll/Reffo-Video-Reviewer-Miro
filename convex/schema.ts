@@ -59,6 +59,7 @@ export default defineSchema({
     thumbnailUrl: v.optional(v.string()),
     createdAt: v.number(),
     label: v.optional(v.string()),
+    fileName: v.optional(v.string()),
   }).index("byVideo", ["videoId"]),
 
   annotations: defineTable({

@@ -306,6 +306,7 @@ export const listRevisions = query({
       thumbnailUrl: r.thumbnailUrl ?? null,
       createdAt: r.createdAt,
       label: r.label ?? null,
+      fileName: (r as any).fileName ?? null,
     }));
   }
 });
@@ -338,6 +339,7 @@ export const replaceSource = mutation({
       thumbnailUrl: video.thumbnailUrl,
       createdAt: Date.now(),
       label: 'Previous',
+      fileName: video.title,
     });
     // Update base video
     await ctx.db.patch(args.videoId, {

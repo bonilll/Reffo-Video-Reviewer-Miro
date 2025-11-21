@@ -1799,12 +1799,29 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
               <div className={`${isDark ? 'bg-white/5 border-white/10' : 'bg-gray-50 border-gray-200'} rounded-2xl border p-0`}> 
                 <div className="p-4 font-semibold">History</div>
                 <div className="max-h-72 overflow-y-auto px-3 pb-3 space-y-2 text-sm">
+                  {/* Current entry */}
+                  <details open className={`${isDark ? 'bg-black/30 border-white/10' : 'bg-white border-gray-200'} rounded-xl border`}>
+                    <summary className="px-3 py-2 cursor-pointer flex items-center justify-between">
+                      <span className="font-semibold text-sm">Current</span>
+                      <span className="opacity-60 text-xs">{video.title}</span>
+                    </summary>
+                    <div className="px-3 pb-3 pt-1 flex items-center justify-between text-xs opacity-90">
+                      <div className="space-y-1">
+                        <div>Resolution: {video.width}×{video.height}</div>
+                        <div>Frame rate: {video.fps} fps</div>
+                        <div>Duration: {Math.round(video.duration)}s</div>
+                        <div>Uploaded: {new Date(video.uploadedAt).toLocaleString()}</div>
+                      </div>
+                      <span className="opacity-60">In use</span>
+                    </div>
+                  </details>
+                  {/* Previous revisions */}
                   {!listRevisions?.length && <div className="opacity-60 text-xs px-2">No previous versions.</div>}
                   {listRevisions?.map((rev) => (
                     <details key={rev.id as string} className={`${isDark ? 'bg-black/30 border-white/10' : 'bg-white border-gray-200'} rounded-xl border`}>
                       <summary className="px-3 py-2 cursor-pointer flex items-center justify-between">
-                        <span className="font-semibold text-sm">{new Date(rev.createdAt).toLocaleString()}</span>
-                        <span className="opacity-60 text-xs">{rev.width}×{rev.height} • {rev.fps} fps • {Math.round(rev.duration)}s</span>
+                        <span className="font-semibold text-sm">{rev.fileName || new URL(rev.publicUrl, window.location.href).pathname.split('/').pop()}</span>
+                        <span className="opacity-60 text-xs">{new Date(rev.createdAt).toLocaleString()}</span>
                       </summary>
                       <div className="px-3 pb-3 pt-1 flex items-center justify-between text-xs opacity-90">
                         <div className="space-y-1">
