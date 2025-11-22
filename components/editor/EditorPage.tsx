@@ -349,12 +349,17 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit, o
   const [propertiesOpen, setPropertiesOpen] = useState(true);
   const [savesOpen, setSavesOpen] = useState(false);
   const [saveName, setSaveName] = useState('');
+  const [confirmDelete, setConfirmDelete] = useState<{ id: string; name?: string } | null>(null);
   const [dirty, setDirty] = useState(false);
   const [masterVolume, setMasterVolume] = useState(1);
   const [addClipOpen, setAddClipOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  // Ensure there is an active save to target
+  const [ensureSaveOpen, setEnsureSaveOpen] = useState(false);
+  const [ensureSaveName, setEnsureSaveName] = useState('');
+  const ensureSaveShown = useRef(false);
 
   const resolveContentType = (file: File): string => {
     const t = (file.type || '').toLowerCase();
@@ -708,6 +713,18 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit, o
     return () => cancelAnimationFrame(frame);
   }, [playing, data, activePrimaryClip]);
 
+  // On enter: ensure there is a current save to target. If missing, prompt to create one.
+  useEffect(() => {
+    if (!data || !getSaveState) return;
+    if (ensureSaveShown.current) return;
+    if (!getSaveState.currentSaveId) {
+      const baseName = (data.composition?.title ? `${data.composition.title} — Save` : 'New Save');
+      setEnsureSaveName(baseName);
+      setEnsureSaveOpen(true);
+      ensureSaveShown.current = true;
+    }
+  }, [data?.composition?._id, getSaveState?.currentSaveId]);
+
   // Editing actions: split (cut), duplicate, delete — define before guard to keep hook order stable
   const handleSplitAtPlayhead = React.useCallback(async () => {
     setDirty(true);
@@ -790,15 +807,19 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit, o
     const maxFrames = data?.composition?.settings?.durationFrames ?? 1;
     const onKey = (e: KeyboardEvent) => {
       // Block global shortcuts while modals are open
-      if (savesOpen || infoModalOpen) return;
+      if (savesOpen || infoModalOpen || ensureSaveOpen) return;
       // Quick save: Cmd/Ctrl+S
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
         e.preventDefault();
-        const videoId = (data as any)?.composition?.sourceVideoId as Id<'videos'> | undefined;
-        if (videoId) {
-          setDirty(false);
-          void saveSnapshotMut({ compositionId: (data as any).composition._id as any, videoId: videoId as any, name: `Quick Save ${new Date().toLocaleTimeString()}` });
+        if (!getSaveState?.currentSaveId) {
+          const baseName = (data as any)?.composition?.title ? `${(data as any).composition.title} — Save` : 'New Save';
+          setEnsureSaveName(baseName);
+          setEnsureSaveOpen(true);
+          return;
         }
+        void saveIntoCurrentMut({ compositionId: (data as any).composition._id as any })
+          .then(() => { setDirty(false); })
+          .catch((err: any) => { console.error('Save failed', err); });
         return;
       }
       if (e.key === ' ') {
@@ -844,7 +865,7 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit, o
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [playhead, data?.composition?.settings?.durationFrames, handleSplitAtPlayhead, handleDuplicateAtPlayhead, handleDeleteSelected, selectedClipObj, activePrimaryClip, trimByClipId, savesOpen, infoModalOpen]);
+  }, [playhead, data?.composition?.settings?.durationFrames, handleSplitAtPlayhead, handleDuplicateAtPlayhead, handleDeleteSelected, selectedClipObj, activePrimaryClip, trimByClipId, savesOpen, infoModalOpen, ensureSaveOpen, getSaveState?.currentSaveId]);
 
   
 
@@ -922,7 +943,16 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit, o
           <button
             className="ml-2 inline-flex h-8 items-center gap-1 rounded-full border border-white/20 px-3 text-xs text-white/80 hover:bg-white/10"
             title="Save (Cmd/Ctrl+S)"
-            onClick={() => { void saveIntoCurrentMut({ compositionId: composition._id as any }); setDirty(false); }}
+            onClick={() => {
+              if (!getSaveState?.currentSaveId) {
+                const baseName = composition?.title ? `${composition.title} — Save` : 'New Save';
+                setEnsureSaveName(baseName);
+                setEnsureSaveOpen(true);
+                return;
+              }
+              void saveIntoCurrentMut({ compositionId: composition._id as any });
+              setDirty(false);
+            }}
           >
             <Save size={14} />
             Save
@@ -997,8 +1027,13 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit, o
                   const compFps = Math.max(1, data.composition.settings.fps);
                   const endThreshold = visibleEnd - (1 / compFps) * 0.5; // half-frame tolerance
                   if (compFrame >= endThreshold) {
-                    // Jump exactly to end of the visible window so next frame drops primary
-                    const to = Math.min(data.composition.settings.durationFrames - 1, visibleEnd);
+                    // Nudge just beyond this clip's end so we immediately hand off
+                    // to the composition clock or the next clip (no freeze at boundary).
+                    const epsilon = 0.001;
+                    const to = Math.min(
+                      data.composition.settings.durationFrames - 1,
+                      visibleEnd + epsilon,
+                    );
                     setPlayhead(to);
                     return;
                   }
@@ -1614,7 +1649,49 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit, o
                 </div>
                 {!currentSaveName && (
                   <span className="text-[12px] text-amber-300">Tip: select a save with “Use” to enable autosave target.</span>
-                )}
+      )}
+
+      {/* Ensure Active Save Modal */}
+      {ensureSaveOpen && (
+        <div className="fixed inset-0 z-[100000] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" onClick={() => setEnsureSaveOpen(false)}>
+          <div className="w-full max-w-md rounded-2xl border border-white/10 bg-black/85 p-5 text-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-base font-semibold">Create a save</h2>
+              <button className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/20 text-white/80 hover:bg-white/10" onClick={() => setEnsureSaveOpen(false)} title="Close">×</button>
+            </div>
+            <p className="mb-3 text-sm text-white/70">You need an active save to store your edits. Create one now and we’ll enable autosave.</p>
+            <div className="mb-4 flex items-center gap-2">
+              <input
+                value={ensureSaveName}
+                onChange={(e) => setEnsureSaveName(e.target.value)}
+                placeholder="Name this save…"
+                className="min-w-0 flex-1 rounded-lg border border-white/20 bg-black/40 px-3 py-2 text-sm text-white placeholder-white/40 outline-none"
+              />
+              <button
+                className="inline-flex items-center gap-1 rounded-full bg-white px-4 py-2 text-sm font-semibold text-black hover:bg-white/90"
+                onClick={async () => {
+                  try {
+                    const videoId = (data as any)?.composition?.sourceVideoId as Id<'videos'> | undefined;
+                    if (!videoId) throw new Error('Missing source video');
+                    const res = await saveSnapshotMut({ compositionId: (data as any).composition._id as any, videoId: videoId as any, name: ensureSaveName || undefined });
+                    const newId = (res as any)?.id || (res as any)?.saveId;
+                    if (newId) {
+                      await setCurrentSaveMut({ compositionId: (data as any).composition._id as any, saveId: newId });
+                      await setAutosaveMut({ compositionId: (data as any).composition._id as any, enabled: true, intervalMs: getSaveState?.autosaveIntervalMs ?? 300000 });
+                    }
+                    setEnsureSaveOpen(false);
+                  } catch (e) {
+                    console.error(e);
+                  }
+                }}
+              >
+                <Save size={14} />
+                Create
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
               </div>
             </div>
             <div className="max-h-[50vh] overflow-auto rounded-xl border border-white/10 bg-white/5">
@@ -1665,9 +1742,8 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit, o
                         </button>
                         <button
                           className="inline-flex items-center gap-1 rounded-full border border-white/20 px-3 py-1 text-xs text-white/80 hover:bg-white/10"
-                          onClick={async () => {
-                            if (!window.confirm('Delete this save?')) return;
-                            try { await deleteSaveMut({ saveId: s.id }); } catch (e) { console.error(e); }
+                          onClick={() => {
+                            setConfirmDelete({ id: s.id as string, name: s.name as string });
                           }}
                         >
                           <Trash2 size={12} /> Delete
@@ -1679,10 +1755,46 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit, o
                   )}
                 </tbody>
               </table>
-            </div>
           </div>
         </div>
-      )}
+        {/* Delete Save Confirmation */}
+        {confirmDelete && (
+          <div className="fixed inset-0 z-[10050] flex items-center justify-center" onClick={() => setConfirmDelete(null)}>
+            <div className="absolute inset-0 bg-black/70" />
+            <div
+              className="relative w-[min(92vw,420px)] rounded-2xl border border-white/10 bg-black/90 p-5 text-white shadow-xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="mb-2 text-lg font-semibold">Delete save?</div>
+              <div className="mb-4 text-sm text-white/70">
+                You are about to delete
+                {confirmDelete.name ? (
+                  <> "<span className="text-white/90 font-medium">{confirmDelete.name}</span>"</>
+                ) : null}
+                . This action cannot be undone.
+              </div>
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  className="inline-flex items-center justify-center rounded-md border border-white/20 px-3 py-1.5 text-sm text-white/80 hover:bg-white/10"
+                  onClick={() => setConfirmDelete(null)}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="inline-flex items-center justify-center rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-500"
+                  onClick={async () => {
+                    try { await deleteSaveMut({ saveId: confirmDelete.id as any }); } catch (e) { console.error(e); }
+                    setConfirmDelete(null);
+                  }}
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    )}
     </div>
   );
 };

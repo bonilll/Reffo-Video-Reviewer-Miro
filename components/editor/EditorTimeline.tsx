@@ -3,6 +3,41 @@ import { createPortal } from 'react-dom';
 import { Play, Pause, ChevronLeft, ChevronRight, SkipBack, SkipForward, Volume2, VolumeX } from 'lucide-react';
 import type { Id } from '../../convex/_generated/dataModel';
 
+function EditableTitle({ id, title, onRename }) {
+  const [editing, setEditing] = React.useState(false);
+  const [draft, setDraft] = React.useState(title);
+  React.useEffect(() => {
+    setDraft(title);
+  }, [title]);
+  const commit = React.useCallback(() => {
+    const next = draft.trim();
+    setEditing(false);
+    if (next && next !== title) {
+      onRename?.(id, next);
+    }
+  }, [draft, title, id, onRename]);
+  if (!editing) {
+    return (
+      <div className="font-semibold truncate" title={title} onDoubleClick={() => setEditing(true)}>
+        {title}
+      </div>
+    );
+  }
+  return (
+    <input
+      autoFocus
+      className="w-full rounded bg-white/80 px-2 py-0.5 text-[11px] font-semibold text-black outline-none"
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') commit();
+        if (e.key === 'Escape') setEditing(false);
+      }}
+    />
+  );
+}
+
 type ClipDoc = {
   _id: Id<'compositionClips'>;
   compositionId: Id<'compositions'>;
@@ -451,7 +486,7 @@ export const EditorTimeline: React.FC<TimelineProps> = ({ clips, durationFrames,
             </button>
           </div>
         </div>
-        <div className="h-12 grid grid-cols-[1fr_auto] items-center gap-6">
+      <div className="h-12 grid grid-cols-[1fr_auto] items-center gap-6">
           {/* Transport controls (center) */}
           <div className="flex items-center justify-center gap-2">
             <button onClick={(e) => { e.stopPropagation(); onSeek(Math.max(0, playhead - 1)); }} className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white/80" title="Prev frame (←)"><ChevronLeft size={18} /></button>
@@ -464,33 +499,34 @@ export const EditorTimeline: React.FC<TimelineProps> = ({ clips, durationFrames,
           </div>
           {/* Zoom controls (right) */}
           <div className="flex items-center justify-end gap-2">
-            <span className="text-xs uppercase tracking-wide text-white/60">Zoom</span>
-            <button
-              className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-white/20 text-white/80 hover:bg-white/10"
-              onClick={() => onZoomChange(Math.max(0.1, Number((zoom - 0.1).toFixed(2))))}
-              title="Zoom out"
-            >
-              −
-            </button>
-            <input
-              type="range"
-              min={0.1}
-              max={4}
-              step={0.1}
-              value={zoom}
-              onChange={(e) => onZoomChange(Number(e.target.value))}
-              className="h-1.5 w-40 appearance-none rounded-full bg-white/10 accent-white range-thumb-white"
-            />
-            <button
-              className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-white/20 text-white/80 hover:bg-white/10"
-              onClick={() => onZoomChange(Math.min(4, Number((zoom + 0.1).toFixed(2))))}
-              title="Zoom in"
-            >
-              +
-            </button>
-            <span className="w-10 text-right text-xs text-white/60">{zoom.toFixed(1)}×</span>
-          </div>
-        
+          <span className="text-xs uppercase tracking-wide text-white/60">Zoom</span>
+          <button
+            className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-white/20 text-white/80 hover:bg-white/10"
+            onClick={() => onZoomChange(Math.max(0.1, Number((zoom - 0.1).toFixed(2))))}
+            title="Zoom out"
+          >
+            −
+          </button>
+          <input
+            type="range"
+            min={0.1}
+            max={4}
+            step={0.1}
+            value={zoom}
+            onChange={(e) => onZoomChange(Number(e.target.value))}
+            className="h-1.5 w-40 appearance-none rounded-full bg-white/10 accent-white range-thumb-white"
+          />
+          <button
+            className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-white/20 text-white/80 hover:bg-white/10"
+            onClick={() => onZoomChange(Math.min(4, Number((zoom + 0.1).toFixed(2))))}
+            title="Zoom in"
+          >
+            +
+          </button>
+          <span className="w-10 text-right text-xs text-white/60">{zoom.toFixed(1)}×</span>
+        </div>
+      </div>
+
       {helpOpen && createPortal(
         <div className="fixed inset-0 z-[2147483647] flex items-center justify-center" onClick={() => setHelpOpen(false)}>
           <div className="absolute inset-0 bg-black/60" />
@@ -503,6 +539,7 @@ export const EditorTimeline: React.FC<TimelineProps> = ({ clips, durationFrames,
         </div>,
         document.body,
       )}
+      </div>
       <div
         className="overflow-x-auto overflow-y-auto max-h-64 rounded-2xl border border-white/10 bg-black/40 select-none"
         ref={containerRef}
@@ -708,34 +745,5 @@ export const EditorTimeline: React.FC<TimelineProps> = ({ clips, durationFrames,
         </div>
       </div>
     </div>
-  );
-};
-
-const EditableTitle: React.FC<{ id: string; title: string; onRename?: (id: string, title: string) => void }>
-  = ({ id, title, onRename }) => {
-  const [editing, setEditing] = React.useState(false);
-  const [draft, setDraft] = React.useState(title);
-  React.useEffect(() => { setDraft(title); }, [title]);
-  const commit = React.useCallback(() => {
-    const next = draft.trim();
-    setEditing(false);
-    if (next && next !== title) onRename?.(id, next);
-  }, [draft, title, id, onRename]);
-  if (!editing) {
-    return (
-      <div className="font-semibold truncate" title={title} onDoubleClick={() => setEditing(true)}>
-        {title}
-      </div>
-    );
-  }
-  return (
-    <input
-      autoFocus
-      className="w-full rounded bg-white/80 px-2 py-0.5 text-[11px] font-semibold text-black outline-none"
-      value={draft}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={commit}
-      onKeyDown={(e) => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') setEditing(false); }}
-    />
   );
 };
