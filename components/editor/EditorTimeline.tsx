@@ -414,7 +414,7 @@ export const EditorTimeline: React.FC<TimelineProps> = ({ clips, durationFrames,
 
   return (
     <div className="w-full select-none">
-      <div className="mb-3 grid grid-cols-[48px_1fr] gap-3 text-xs text-white/60">
+      <div className="mb-3 grid grid-cols-[56px_1fr] gap-3 text-xs text-white/60">
         <div className="flex flex-col items-center gap-2">
           <button
             className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-white/20 text-white/80 hover:bg-white/10"
@@ -423,7 +423,7 @@ export const EditorTimeline: React.FC<TimelineProps> = ({ clips, durationFrames,
           >
             +
           </button>
-          <div className="w-9">
+          <div className="w-10">
             <input
               type="range"
               min={0}
@@ -434,41 +434,25 @@ export const EditorTimeline: React.FC<TimelineProps> = ({ clips, durationFrames,
               title={`Volume ${Math.round(masterVolume * 100)}%`}
             />
           </div>
+          <div className="flex items-center gap-1">
+            <button
+              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-white/20 text-white/80 hover:bg-white/10"
+              title={masterVolume > 0 ? 'Mute all' : 'Unmute all'}
+              onClick={() => { if (onChangeVolume) onChangeVolume(masterVolume > 0 ? 0 : 1); }}
+            >
+              {masterVolume > 0 ? <Volume2 size={14} /> : <VolumeX size={14} />}
+            </button>
+            <button
+              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-white/20 text-white/80 hover:bg-white/10"
+              title="Shortcuts"
+              onClick={() => setHelpOpen((v) => !v)}
+            >
+              ?
+            </button>
+          </div>
         </div>
         <div className="relative h-12">
-        {/* Left controls */}
-        <div className="absolute left-0 top-1/2 -translate-y-1/2 flex items-center gap-2">
-          <button
-            className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-white/20 text-[11px] text-white/80 hover:bg-white/10"
-            onClick={() => setHelpOpen((v) => !v)}
-            title="Shortcuts"
-          >
-            ?
-          </button>
-          <button
-            className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-white/20 text-[11px] text-white/80 hover:bg-white/10"
-            title="Add clip"
-            onClick={(e) => { e.stopPropagation(); (onAddClip as any)?.(); }}
-          >
-            +
-          </button>
-          <button
-            className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-white/20 text-[11px] text-white/80 hover:bg-white/10"
-            title={masterVolume > 0 ? 'Mute all' : 'Unmute all'}
-            onClick={() => { if (onChangeVolume) onChangeVolume(masterVolume > 0 ? 0 : 1); }}
-          >
-            {masterVolume > 0 ? <Volume2 size={12} /> : <VolumeX size={12} />}
-          </button>
-          <input
-            type="range"
-            min={0}
-            max={100}
-            value={Math.round(masterVolume * 100)}
-            onChange={(e) => onChangeVolume?.(Math.max(0, Math.min(100, Number(e.target.value))) / 100)}
-            className="h-1 w-24 appearance-none rounded-full bg-white/10 accent-white range-thumb-white"
-            title={`Volume ${Math.round(masterVolume * 100)}%`}
-          />
-        </div>
+        {/* Header center controls (no left duplicates) */}
         {helpOpen && createPortal(
           <div
             className="fixed inset-0 z-[2147483647] flex items-center justify-center"
