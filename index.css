@@ -67,10 +67,12 @@
 
   body.theme-light .bg-white\/5 { background-color: rgba(15, 23, 42, 0.05) !important; }
   body.theme-light .bg-white\/10 { background-color: rgba(15, 23, 42, 0.08) !important; }
-  body.theme-light .bg-black\/40 { background-color: rgba(15, 23, 42, 0.12) !important; }
-  body.theme-light .bg-black\/30 { background-color: rgba(15, 23, 42, 0.1) !important; }
   body.theme-light .bg-black\/20 { background-color: rgba(15, 23, 42, 0.06) !important; }
+  body.theme-light .bg-black\/30 { background-color: rgba(15, 23, 42, 0.10) !important; }
+  body.theme-light .bg-black\/40 { background-color: rgba(15, 23, 42, 0.12) !important; }
+  body.theme-light .bg-black\/50 { background-color: rgba(15, 23, 42, 0.14) !important; }
   body.theme-light .bg-black\/70 { background-color: rgba(15, 23, 42, 0.18) !important; }
+  body.theme-light .bg-black\/80 { background-color: rgba(15, 23, 42, 0.22) !important; }
 
   body.theme-light .border-white\/10 { border-color: rgba(15, 23, 42, 0.1) !important; }
   body.theme-light .border-white\/20 { border-color: rgba(15, 23, 42, 0.2) !important; }

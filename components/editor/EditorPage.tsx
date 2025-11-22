@@ -3,7 +3,7 @@ import { useAction, useMutation, useQuery } from 'convex/react';
 import { api } from '../../convex/_generated/api';
 import type { Id } from '../../convex/_generated/dataModel';
 import { EditorTimeline } from './EditorTimeline';
-import { Loader2, Pause, Play, RefreshCw, ChevronLeft, Info, Settings } from 'lucide-react';
+import { Loader2, Pause, Play, RefreshCw, ChevronLeft, Info, Settings, Save, FolderOpen, Trash2, Edit3 } from 'lucide-react';
 
 const formatSeconds = (seconds: number) => {
   const mins = Math.floor(seconds / 60)
@@ -77,6 +77,8 @@ type CompositionResponse = {
 type EditorPageProps = {
   compositionId: Id<'compositions'>;
   onExit: () => void;
+  onOpenComposition?: (id: Id<'compositions'>) => void;
+  onExitToReview?: (videoId: Id<'videos'>) => void;
 };
 
 const PreviewSurface: React.FC<{
@@ -190,12 +192,17 @@ const MultiPreviewSurface: React.FC<{
       const trimEnd = Math.max(0, (it.trim?.end ?? 0));
       const visibleStart = it.clip.timelineStartFrame + trimStart;
       const visibleEnd = it.clip.timelineStartFrame + Math.max(1, slotLen - trimEnd);
-      if (playhead < visibleStart || playhead >= visibleEnd) {
+      const compStart = 0;
+      const compEnd = composition.settings.durationFrames;
+      const gateStart = Math.max(compStart, visibleStart);
+      const gateEnd = Math.min(compEnd, visibleEnd);
+      // Only render/seek when the item is actually visible at the playhead and inside composition window
+      if (playhead < gateStart || playhead >= gateEnd) {
         video.pause();
         return;
       }
       const offset = playhead - visibleStart;
-      const sourceFrame = it.clip.sourceInFrame + offset * it.clip.speed;
+      const sourceFrame = it.clip.sourceInFrame + trimStart * it.clip.speed + offset * it.clip.speed;
       const seconds = sourceFrame / Math.max(1, it.source.fps);
       const frameSec = 1 / Math.max(1, it.source.fps);
       if (!Number.isNaN(seconds) && Math.abs(video.currentTime - seconds) > frameSec * 0.75) {
@@ -258,6 +265,17 @@ const MultiPreviewSurface: React.FC<{
           const sc = t.scale ?? 1;
           const rot = t.rotate ?? 0;
           const z = (it as any).renderZ ?? (it.clip.zIndex as unknown as number) ?? 0;
+          const speed = Math.max(0.001, it.clip.speed);
+          const slotLen = Math.max(1, Math.round((it.clip.sourceOutFrame - it.clip.sourceInFrame) / speed));
+          const trimStart = Math.max(0, (it as any).trim?.start ?? 0);
+          const trimEnd = Math.max(0, (it as any).trim?.end ?? 0);
+          const visibleStart = it.clip.timelineStartFrame + trimStart;
+          const visibleEnd = it.clip.timelineStartFrame + Math.max(1, slotLen - trimEnd);
+          const compStart = 0;
+          const compEnd = composition.settings.durationFrames;
+          const gateStart = Math.max(compStart, visibleStart);
+          const gateEnd = Math.min(compEnd, visibleEnd);
+          const isVisibleNow = playhead >= gateStart && playhead < gateEnd;
           const style: React.CSSProperties = {
             position: 'absolute',
             top: '50%',
@@ -266,6 +284,7 @@ const MultiPreviewSurface: React.FC<{
             transformOrigin: '50% 50%',
             zIndex: z,
             opacity: typeof it.clip.opacity === 'number' ? Math.max(0, Math.min(1, it.clip.opacity!)) : 1,
+            display: isVisibleNow ? 'block' : 'none',
           };
           return (
             <video
@@ -283,7 +302,7 @@ const MultiPreviewSurface: React.FC<{
   );
 };
 
-export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit }) => {
+export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit, onOpenComposition, onExitToReview }) => {
   const data = useQuery(api.edits.getComposition, { compositionId }) as CompositionResponse | undefined;
   const [playhead, setPlayhead] = useState(0);
   const [playing, setPlaying] = useState(false);
@@ -296,10 +315,52 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit })
   const addClip = useMutation(api.edits.addClip);
   const removeClip = useMutation(api.edits.removeClip);
   const upsertTrack = useMutation(api.edits.upsertKeyframeTrack);
+  // Save/load API
+  const saveSnapshotMut = useMutation((api as any).edits.saveSnapshot);
+  const loadSnapshotMut = useMutation((api as any).edits.loadSnapshot);
+  const renameSaveMut = useMutation((api as any).edits.renameSave);
+  const deleteSaveMut = useMutation((api as any).edits.deleteSave);
+  const upsertAutosaveMut = useMutation((api as any).edits.upsertAutosave);
+  const getSaveState = useQuery((api as any).edits.getSaveState, { compositionId } as any) as { currentSaveId: string | null; autosaveEnabled: boolean; autosaveIntervalMs: number; persisted?: boolean } | undefined;
+  const setCurrentSaveMut = useMutation((api as any).edits.setCurrentSave);
+  const setAutosaveMut = useMutation((api as any).edits.setAutosave);
+  const saveIntoCurrentMut = useMutation((api as any).edits.saveIntoCurrent);
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
+  const saves = useQuery((api as any).edits.listSavesByVideo, (data as any)?.composition?.sourceVideoId ? { videoId: (data as any).composition.sourceVideoId } : undefined) as Array<any> | undefined;
   // Panels
   const [infoModalOpen, setInfoModalOpen] = useState(false);
   const [propertiesOpen, setPropertiesOpen] = useState(true);
+  const [savesOpen, setSavesOpen] = useState(false);
+  const [saveName, setSaveName] = useState('');
+  const [dirty, setDirty] = useState(false);
+  const autosaveTimer = useRef<number | null>(null);
+  const autosaveInterval = useRef<number | null>(null);
+
+  // Preview stage sizing: keep a hard crop matching composition aspect
+  const previewOuterRef = useRef<HTMLDivElement>(null);
+  const [stageSize, setStageSize] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
+  useEffect(() => {
+    const el = previewOuterRef.current;
+    if (!el) return;
+    const ratio = Math.max(0.0001, (data?.composition.settings.width ?? 1920) / Math.max(1, (data?.composition.settings.height ?? 1080)));
+    const compute = () => {
+      const cw = el.clientWidth;
+      const ch = el.clientHeight;
+      if (cw <= 0 || ch <= 0) { setStageSize({ w: 0, h: 0 }); return; }
+      // Fit by width first; if too tall, fit by height
+      let w = Math.min(cw, ch * ratio);
+      let h = w / ratio;
+      if (h > ch) {
+        h = ch;
+        w = h * ratio;
+      }
+      setStageSize({ w, h });
+    };
+    const ro = new ResizeObserver(compute);
+    ro.observe(el);
+    compute();
+    return () => ro.disconnect();
+  }, [data?.composition.settings.width, data?.composition.settings.height]);
 
   // Local transform overrides for smooth, immediate UI feedback
   const [localTransformOverrides, setLocalTransformOverrides] = useState<Map<string, { x?: number; y?: number; scale?: number; rotate?: number }>>(new Map());
@@ -314,7 +375,89 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit })
     };
   }, []);
 
+  // Debounced autosave scheduler
+  const queueAutosave = useRef<() => void>(() => {});
+  queueAutosave.current = () => {
+    if (!data?.composition?.sourceVideoId) return;
+    if (!getSaveState?.autosaveEnabled) return;
+    if (autosaveTimer.current) window.clearTimeout(autosaveTimer.current);
+    autosaveTimer.current = window.setTimeout(async () => {
+      try {
+        await saveIntoCurrentMut({ compositionId: data.composition._id as any });
+        setDirty(false);
+      } catch (e) {
+        console.error('Autosave failed', e);
+      }
+    }, 1500) as unknown as number;
+  };
+
+  // Periodic autosave guard
+  useEffect(() => {
+    if (autosaveInterval.current) window.clearInterval(autosaveInterval.current);
+    autosaveInterval.current = window.setInterval(() => {
+      if (dirty && getSaveState?.autosaveEnabled) queueAutosave.current();
+    }, Math.max(5000, getSaveState?.autosaveIntervalMs ?? 300000)) as unknown as number;
+    return () => {
+      if (autosaveInterval.current) window.clearInterval(autosaveInterval.current);
+    };
+  }, [dirty, data?.composition?._id, getSaveState?.autosaveEnabled, getSaveState?.autosaveIntervalMs]);
+
+  // Auto-load the current or latest save when entering Edit Mode
+  const autoLoadedRef = useRef(false);
+  useEffect(() => {
+    if (!data) return;
+    if (autoLoadedRef.current) return;
+    const vid = (data as any)?.composition?.sourceVideoId as string | undefined;
+    if (!vid) return;
+    // Only auto-load if there is any save available
+    if ((saves?.length ?? 0) === 0) return;
+    const targetSaveId = (getSaveState?.currentSaveId ?? saves?.[0]?.id) as string | undefined;
+    if (!targetSaveId) return;
+    autoLoadedRef.current = true;
+    // Load snapshot into a new composition and navigate
+    void (async () => {
+      try {
+        const res = await loadSnapshotMut({ saveId: targetSaveId });
+        const id = (res as any)?.compositionId as string | undefined;
+        if (id) {
+          if (onOpenComposition) onOpenComposition(id as any);
+          else window.location.assign(`/edit/${id}`);
+        }
+      } catch (e) {
+        console.error('Auto-load save failed', e);
+      }
+    })();
+  }, [data?.composition?._id, getSaveState?.currentSaveId, saves?.length]);
+
+  // If save state was inherited (persisted === false), persist it for this composition once
+  const adoptedRef = useRef(false);
+  useEffect(() => {
+    if (!data || !getSaveState) return;
+    if (adoptedRef.current) return;
+    if (getSaveState.persisted === false) {
+      adoptedRef.current = true;
+      void (async () => {
+        try {
+          await setAutosaveMut({ compositionId: data.composition._id as any, enabled: !!getSaveState.autosaveEnabled, intervalMs: getSaveState.autosaveIntervalMs });
+          if (getSaveState.currentSaveId) {
+            await setCurrentSaveMut({ compositionId: data.composition._id as any, saveId: getSaveState.currentSaveId as any });
+          }
+        } catch (e) {
+          console.error('Persisting inherited save state failed', e);
+        }
+      })();
+    }
+  }, [data?.composition?._id, getSaveState?.persisted]);
+
+  const currentSaveName = useMemo(() => {
+    if (!saves || !getSaveState?.currentSaveId) return null;
+    const found = saves.find((s) => s.id === getSaveState.currentSaveId);
+    return found?.name ?? null;
+  }, [saves, getSaveState?.currentSaveId]);
+
   const scheduleTransformUpdate = React.useCallback((clipId: Id<'compositionClips'>, patch: { x?: number; y?: number; scale?: number; rotate?: number }) => {
+    setDirty(true);
+    queueAutosave.current();
     const id = clipId as unknown as string;
     // Merge into local overrides for instant visual response
     setLocalTransformOverrides((prev) => {
@@ -372,12 +515,22 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit })
       for (const [videoId, source] of Object.entries(data.sources)) {
         if (videoUrls[videoId]) continue;
         try {
-          const url = await getDownloadUrl({ storageKey: source.storageKey });
-          if (!cancelled) {
-            setVideoUrls((prev) => ({ ...prev, [videoId]: url }));
+          if (source.storageKey) {
+            const url = await getDownloadUrl({ storageKey: source.storageKey });
+            if (!cancelled && url) {
+              setVideoUrls((prev) => ({ ...prev, [videoId]: url }));
+              continue;
+            }
+          }
+          // Fallback to public src if no storageKey or action fails
+          if (!cancelled && source.src) {
+            setVideoUrls((prev) => ({ ...prev, [videoId]: source.src }));
           }
         } catch (err) {
-          console.error('Failed to load source', err);
+          console.warn('Get download URL failed, falling back to public src', err);
+          if (!cancelled && source.src) {
+            setVideoUrls((prev) => ({ ...prev, [videoId]: source.src }));
+          }
         }
       }
     })();
@@ -386,26 +539,7 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit })
     };
   }, [data?.sources, getDownloadUrl, videoUrls]);
 
-  useEffect(() => {
-    if (!playing || !data) return;
-    let frame: number;
-    let last = performance.now();
-    const run = (now: number) => {
-      const delta = now - last;
-      last = now;
-      setPlayhead((prev) => {
-        const increment = (delta / 1000) * data.composition.settings.fps;
-        const next = prev + increment;
-        if (next >= data.composition.settings.durationFrames) {
-          return 0;
-        }
-        return next;
-      });
-      frame = requestAnimationFrame(run);
-    };
-    frame = requestAnimationFrame(run);
-    return () => cancelAnimationFrame(frame);
-  }, [playing, data]);
+  // moved below, after activePrimaryClip is defined
 
   const activeClips = useMemo(() => {
     if (!data) return [] as ClipDoc[];
@@ -414,49 +548,15 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit })
     return data.clips.filter(() => true);
   }, [data]);
 
-  // Compute lane-based render Z for preview (unconditional hook; tolerates missing data)
+  // Use clip.zIndex directly for preview stacking: higher lane (higher zIndex) renders above
   const renderZByClipId = useMemo(() => {
-    if (!data) return new Map<string, number>();
-    type S = { id: string; start: number; end: number };
-    const getDur = (c: ClipDoc) => Math.max(1, Math.round((c.sourceOutFrame - c.sourceInFrame) / Math.max(0.001, c.speed)));
-    const all: S[] = data.clips.map((c) => ({ id: c._id as string, start: c.timelineStartFrame, end: c.timelineStartFrame + getDur(c) }));
-    const lanes: Array<S[]> = [];
-    const byId = new Map<string, number>();
-    const canPlace = (lane: S[] | undefined, clip: S) => !lane || lane.every((x) => x.end <= clip.start || x.start >= clip.end);
-    const sorted = all.slice().sort((a, b) => a.start - b.start || a.end - b.end);
-    for (const c of sorted) {
-      let placed = false;
-      for (let i = 0; i < lanes.length; i++) {
-        if (canPlace(lanes[i], c)) {
-          lanes[i].push(c);
-          byId.set(c.id, i);
-          placed = true;
-          break;
-        }
-      }
-      if (!placed) {
-        lanes.push([c]);
-        byId.set(c.id, lanes.length - 1);
-      }
-    }
     const out = new Map<string, number>();
-    for (const [id, lane] of byId.entries()) out.set(id, 1000 - lane);
+    if (!data) return out;
+    data.clips.forEach((c) => {
+      out.set(c._id as string, (c.zIndex as unknown as number) ?? 0);
+    });
     return out;
   }, [data]);
-
-  // Determine the primary clip under the playhead (unconditional hook)
-  const activePrimaryClip = useMemo(() => {
-    if (!data) return null as ClipDoc | null;
-    const selected = selectedClipId ? data.clips.find((c) => (c._id as string) === selectedClipId) ?? null : null;
-    const contains = (clip: ClipDoc) => {
-      const clipDuration = Math.max(1, Math.round((clip.sourceOutFrame - clip.sourceInFrame) / Math.max(0.001, clip.speed)));
-      return playhead >= clip.timelineStartFrame && playhead < clip.timelineStartFrame + clipDuration;
-    };
-    if (selected && contains(selected)) return selected;
-    const candidates = data.clips.filter(contains);
-    if (candidates.length === 0) return null;
-    return candidates.sort((a, b) => (b.zIndex ?? 0) - (a.zIndex ?? 0))[0];
-  }, [data, selectedClipId, playhead]);
 
   // Trims per clip via keyframe track 'trim' (value: { start, end })
   const trimByClipId = useMemo(() => {
@@ -473,6 +573,24 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit })
     }
     return map;
   }, [data?.tracks]);
+
+  // Determine the primary clip under the playhead (considering trims)
+  const activePrimaryClip = useMemo(() => {
+    if (!data) return null as ClipDoc | null;
+    const containsVisible = (clip: ClipDoc) => {
+      const speed = Math.max(0.001, clip.speed);
+      const slot = Math.max(1, Math.round((clip.sourceOutFrame - clip.sourceInFrame) / speed));
+      const t = trimByClipId.get(clip._id as string) ?? { start: 0, end: 0 };
+      const start = clip.timelineStartFrame + Math.max(0, t.start);
+      const end = clip.timelineStartFrame + Math.max(1, slot - Math.max(0, t.end));
+      return playhead >= start && playhead < end;
+    };
+    const selected = selectedClipId ? data.clips.find((c) => (c._id as string) === selectedClipId) ?? null : null;
+    if (selected && containsVisible(selected)) return selected;
+    const candidates = data.clips.filter(containsVisible);
+    if (candidates.length === 0) return null;
+    return candidates.sort((a, b) => (b.zIndex ?? 0) - (a.zIndex ?? 0))[0];
+  }, [data, selectedClipId, playhead, trimByClipId]);
 
   // Recompute active clips considering trims
   const activeClipsWithTrim = useMemo(() => {
@@ -493,28 +611,80 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit })
     return data.clips.find((c) => (c._id as string) === selectedClipId) ?? null;
   }, [data, selectedClipId]);
 
+  // Composition clock when no primary clip is under the playhead
+  useEffect(() => {
+    if (!playing || !data) return;
+    if (activePrimaryClip) return; // primary video drives the playhead
+    let frame: number;
+    let last = performance.now();
+    const run = (now: number) => {
+      const delta = now - last;
+      last = now;
+      setPlayhead((prev) => {
+        const increment = (delta / 1000) * data.composition.settings.fps;
+        const next = prev + increment;
+        if (next >= data.composition.settings.durationFrames) {
+          return 0;
+        }
+        return next;
+      });
+      frame = requestAnimationFrame(run);
+    };
+    frame = requestAnimationFrame(run);
+    return () => cancelAnimationFrame(frame);
+  }, [playing, data, activePrimaryClip]);
+
   // Editing actions: split (cut), duplicate, delete — define before guard to keep hook order stable
   const handleSplitAtPlayhead = React.useCallback(async () => {
+    setDirty(true);
+    queueAutosave.current();
     if (!data || !activePrimaryClip) return;
-    const offset = Math.round(playhead - activePrimaryClip.timelineStartFrame);
-    if (offset <= 0) return;
-    const cutSourceFrame = activePrimaryClip.sourceInFrame + Math.round(offset * Math.max(0.001, activePrimaryClip.speed));
-    if (cutSourceFrame <= activePrimaryClip.sourceInFrame || cutSourceFrame >= activePrimaryClip.sourceOutFrame) return;
-    await updateClip({ clipId: activePrimaryClip._id as any, patch: { sourceOutFrame: cutSourceFrame } });
-    await addClip({
+    const speed = Math.max(0.001, activePrimaryClip.speed);
+    const L = Math.max(1, Math.round((activePrimaryClip.sourceOutFrame - activePrimaryClip.sourceInFrame) / speed));
+    const rel = Math.round(playhead - activePrimaryClip.timelineStartFrame);
+    if (rel <= 0 || rel >= L) return;
+    const t = trimByClipId.get(activePrimaryClip._id as string) ?? { start: 0, end: 0 };
+    const visibleStart = Math.max(0, t.start);
+    const visibleEnd = Math.max(1, L - Math.max(0, t.end));
+    if (rel <= visibleStart || rel >= visibleEnd) return;
+
+    // New trims per part (keep slot length constant; only change visibility)
+    const trimA = { start: t.start, end: Math.max(t.end, L - rel) };
+    const trimB = { start: Math.max(0, t.start + rel), end: t.end };
+
+    // Create the new clip on a new top lane, keeping the same slot start
+    const currentMaxZ = data.clips.reduce((acc, c) => Math.max(acc, (c.zIndex as unknown as number) ?? 0), (activePrimaryClip.zIndex as unknown as number) ?? 0);
+    const newClipId = await addClip({
       compositionId: (data?.composition?._id ?? compositionId) as Id<'compositions'>,
       sourceVideoId: activePrimaryClip.sourceVideoId,
-      sourceInFrame: cutSourceFrame,
+      sourceInFrame: activePrimaryClip.sourceInFrame,
       sourceOutFrame: activePrimaryClip.sourceOutFrame,
-      timelineStartFrame: Math.round(playhead),
+      timelineStartFrame: activePrimaryClip.timelineStartFrame,
       speed: activePrimaryClip.speed,
-      opacity: 1,
-      label: activePrimaryClip.label ?? 'Clip',
-      zIndex: (activePrimaryClip as any).zIndex ?? 0,
+      opacity: activePrimaryClip.opacity ?? 1,
+      label: (activePrimaryClip.label ?? 'Clip') + ' (part)',
+      zIndex: (currentMaxZ as number) + 1,
+    }) as unknown as Id<'compositionClips'>;
+
+    // Apply trims via keyframe tracks (non-destructive)
+    await upsertTrack({
+      compositionId: data.composition._id,
+      clipId: activePrimaryClip._id as any,
+      channel: 'trim',
+      keyframes: [{ frame: 0, value: { start: Math.max(0, Math.round(trimA.start)), end: Math.max(0, Math.round(trimA.end)) }, interpolation: 'hold' }],
     });
-  }, [data, activePrimaryClip, playhead, updateClip, addClip, compositionId]);
+    await upsertTrack({
+      compositionId: data.composition._id,
+      clipId: newClipId as any,
+      channel: 'trim',
+      keyframes: [{ frame: 0, value: { start: Math.max(0, Math.round(trimB.start)), end: Math.max(0, Math.round(trimB.end)) }, interpolation: 'hold' }],
+    });
+    setSelectedClipId(newClipId as unknown as string);
+  }, [data, activePrimaryClip, playhead, compositionId, addClip, upsertTrack, trimByClipId]);
 
   const handleDuplicateAtPlayhead = React.useCallback(async () => {
+    setDirty(true);
+    queueAutosave.current();
     const base = selectedClipObj ?? activePrimaryClip;
     if (!base) return;
     await addClip({
@@ -531,6 +701,8 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit })
   }, [selectedClipObj, activePrimaryClip, addClip, compositionId, playhead, data]);
 
   const handleDeleteSelected = React.useCallback(async () => {
+    setDirty(true);
+    queueAutosave.current();
     const target = selectedClipObj ?? activePrimaryClip;
     if (!target) return;
     await removeClip({ clipId: target._id as any });
@@ -543,6 +715,18 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit })
   useEffect(() => {
     const maxFrames = data?.composition?.settings?.durationFrames ?? 1;
     const onKey = (e: KeyboardEvent) => {
+      // Block global shortcuts while modals are open
+      if (savesOpen || infoModalOpen) return;
+      // Quick save: Cmd/Ctrl+S
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        const videoId = (data as any)?.composition?.sourceVideoId as Id<'videos'> | undefined;
+        if (videoId) {
+          setDirty(false);
+          void saveSnapshotMut({ compositionId: (data as any).composition._id as any, videoId: videoId as any, name: `Quick Save ${new Date().toLocaleTimeString()}` });
+        }
+        return;
+      }
       if (e.key === ' ') {
         e.preventDefault();
         setPlaying((p) => !p);
@@ -586,7 +770,7 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit })
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [playhead, data?.composition?.settings?.durationFrames, handleSplitAtPlayhead, handleDuplicateAtPlayhead, handleDeleteSelected, selectedClipObj, activePrimaryClip, trimByClipId]);
+  }, [playhead, data?.composition?.settings?.durationFrames, handleSplitAtPlayhead, handleDuplicateAtPlayhead, handleDeleteSelected, selectedClipObj, activePrimaryClip, trimByClipId, savesOpen, infoModalOpen]);
 
   
 
@@ -638,17 +822,37 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit })
   // Editing actions: split (cut), duplicate, delete
 
   return (
-    <div className="flex h-screen flex-col bg-gradient-to-b from-slate-950 via-black to-slate-950 text-white">
+    <div className="flex h-screen flex-col">
       <header className="flex items-center justify-between border-b border-white/10 px-6 py-3">
         <div className="flex items-center gap-3 min-w-0">
           <button
             className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/20 text-white/80 hover:bg-white/10"
             title="Back"
-            onClick={onExit}
+            onClick={() => {
+              const vid = (data as any)?.composition?.sourceVideoId as Id<'videos'> | undefined;
+              if (vid && onExitToReview) onExitToReview(vid);
+              else onExit();
+            }}
           >
             <ChevronLeft size={16} />
           </button>
           <h1 className="truncate text-lg font-semibold">{composition.title}</h1>
+          <button
+            className="ml-2 inline-flex h-8 items-center gap-1 rounded-full border border-white/20 px-3 text-xs text-white/80 hover:bg-white/10"
+            title="Saved edits"
+            onClick={() => setSavesOpen(true)}
+          >
+            <FolderOpen size={14} />
+            Saves
+          </button>
+          <button
+            className="ml-2 inline-flex h-8 items-center gap-1 rounded-full border border-white/20 px-3 text-xs text-white/80 hover:bg-white/10"
+            title="Save (Cmd/Ctrl+S)"
+            onClick={() => { void saveIntoCurrentMut({ compositionId: composition._id as any }); setDirty(false); }}
+          >
+            <Save size={14} />
+            Save
+          </button>
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -667,22 +871,37 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit })
           </button>
         </div>
       </header>
-      <main className="flex-1 min-h-0 flex flex-col gap-6 overflow-hidden bg-gradient-to-b from-slate-950/60 via-black/20 to-slate-950/60 px-10 py-6">
+      <main className="flex-1 min-h-0 flex flex-col gap-6 overflow-hidden px-10 py-6">
         <div className="flex flex-1 min-h-0 gap-6">
           <section className={`flex min-h-0 flex-1 flex-col gap-4 ${propertiesOpen ? 'pr-2' : ''}`}>
-            <div className="flex-1 min-h-0 rounded-3xl border border-white/10 bg-black/80 shadow-2xl overflow-hidden">
-              <MultiPreviewSurface
-                composition={composition}
-                items={activeClipsWithTrim
-                  .map((clip) => {
-                    const source = data.sources[clip.sourceVideoId];
-                    const src = videoUrls[clip.sourceVideoId];
-                    if (!source || !src) return null;
-                    const renderZ = renderZByClipId.get(clip._id as string) ?? (clip.zIndex as unknown as number) ?? 0;
-                    const trim = trimByClipId.get(clip._id as string) ?? { start: 0, end: 0 };
-                    return { clip, source, src, transform: getTransformForClip(clip._id), renderZ, trim } as any;
-                  })
-                  .filter(Boolean) as any}
+            <div ref={previewOuterRef} className="flex-1 min-h-[260px] border border-white/10 bg-black overflow-hidden">
+              <div className="flex h-full w-full items-center justify-center">
+                <div className="relative overflow-hidden bg-black" style={{ width: stageSize.w || undefined, height: stageSize.h || undefined }}>
+                  <MultiPreviewSurface
+                    composition={composition}
+                    items={(() => {
+                      const base = activeClipsWithTrim
+                        .map((clip) => {
+                          const source = data.sources[clip.sourceVideoId];
+                      const src = videoUrls[clip.sourceVideoId];
+                      if (!source || !src) return null;
+                      const renderZ = renderZByClipId.get(clip._id as string) ?? (clip.zIndex as unknown as number) ?? 0;
+                      const trim = trimByClipId.get(clip._id as string) ?? { start: 0, end: 0 };
+                      return { clip, source, src, transform: getTransformForClip(clip._id), renderZ, trim } as any;
+                    })
+                    .filter(Boolean) as any[];
+                  // If nothing is under the playhead, show the selected clip as a fallback
+                  if (base.length === 0 && selectedClip) {
+                    const source = data.sources[selectedClip.sourceVideoId];
+                    const src = videoUrls[selectedClip.sourceVideoId];
+                    if (source && src) {
+                      const renderZ = renderZByClipId.get(selectedClip._id as string) ?? (selectedClip.zIndex as unknown as number) ?? 0;
+                      const trim = trimByClipId.get(selectedClip._id as string) ?? { start: 0, end: 0 };
+                      base.push({ clip: selectedClip, source, src, transform: getTransformForClip(selectedClip._id), renderZ, trim } as any);
+                    }
+                  }
+                  return base;
+                })()}
                 playhead={playhead}
                 playing={playing}
                 primaryClipId={(activePrimaryClip?._id as string) ?? null}
@@ -692,11 +911,30 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit })
                   if (!srcInfo) return;
                   const sFps = Math.max(1, srcInfo.fps);
                   const sourceFrame = sec * sFps;
-                  const compFrame = activePrimaryClip.timelineStartFrame + (sourceFrame - activePrimaryClip.sourceInFrame) / Math.max(0.001, activePrimaryClip.speed);
-                  const clamped = Math.max(0, Math.min((data.composition.settings.durationFrames - 1), compFrame));
-                  setPlayhead(clamped);
+                  const speed = Math.max(0.001, activePrimaryClip.speed);
+                  const t = trimByClipId.get(activePrimaryClip._id as string) ?? { start: 0, end: 0 };
+                  const slotLen = Math.max(1, Math.round((activePrimaryClip.sourceOutFrame - activePrimaryClip.sourceInFrame) / speed));
+                  const visibleStart = activePrimaryClip.timelineStartFrame + Math.max(0, t.start);
+                  const visibleEnd = activePrimaryClip.timelineStartFrame + Math.max(1, slotLen - Math.max(0, t.end));
+                  const sourceStart = activePrimaryClip.sourceInFrame + Math.max(0, t.start) * speed;
+                  const compFrame = visibleStart + (sourceFrame - sourceStart) / speed;
+                  const compFps = Math.max(1, data.composition.settings.fps);
+                  const endThreshold = visibleEnd - (1 / compFps) * 0.5; // half-frame tolerance
+                  if (compFrame >= endThreshold) {
+                    // Jump exactly to end of the visible window so next frame drops primary
+                    const to = Math.min(data.composition.settings.durationFrames - 1, visibleEnd);
+                    setPlayhead(to);
+                    return;
+                  }
+                  if (compFrame < visibleStart) {
+                    setPlayhead(Math.max(0, Math.floor(visibleStart)));
+                    return;
+                  }
+                  setPlayhead(Math.max(0, Math.min(data.composition.settings.durationFrames - 1, compFrame)));
                 }}
-              />
+                  />
+                </div>
+              </div>
             </div>
             {/* Transport panel removed; controls moved to timeline with keyboard shortcuts */}
             {/* Clip Properties Sidebar */}
@@ -985,10 +1223,14 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit })
             selectedClipId={selectedClipId}
             onSelectClip={setSelectedClipId}
             onMoveClip={(clipId, patch) => {
+              setDirty(true);
+              queueAutosave.current();
               void updateClip({ clipId: clipId as any, patch: patch as any });
             }}
             trims={Object.fromEntries(trimByClipId)}
             onTrimClip={(clipId, trim) => {
+              setDirty(true);
+              queueAutosave.current();
               const base = trimByClipId.get(clipId) ?? { start: 0, end: 0 };
               void upsertTrack({
                 compositionId: composition._id,
@@ -1001,6 +1243,8 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit })
             onTogglePlay={() => setPlaying((p) => !p)}
             onReset={() => handleSeek(0)}
             onRenameClip={(clipId, title) => {
+              setDirty(true);
+              queueAutosave.current();
               void updateClip({ clipId: clipId as any, patch: { label: title } as any });
             }}
           />
@@ -1075,6 +1319,153 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit })
                   ))}
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Saves Modal */}
+      {savesOpen && (
+        <div className="fixed inset-0 z-[99999] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" onKeyDown={(e) => { e.stopPropagation(); }}>
+          <div className="w-full max-w-3xl rounded-2xl border border-white/10 bg-black/85 p-5 text-white shadow-2xl" onKeyDown={(e) => { e.stopPropagation(); }}>
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-base font-semibold">Saved edits</h2>
+              <button className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/20 text-white/80 hover:bg-white/10" onClick={() => setSavesOpen(false)} title="Close">×</button>
+            </div>
+            <div className="mb-4 rounded-xl border border-white/10 bg-white/5 p-3">
+              <div className="mb-2 text-sm text-white/80">Save current edit</div>
+              <div className="flex items-center gap-2">
+                <input
+                  value={saveName}
+                  onChange={(e) => setSaveName(e.target.value)}
+                  placeholder="Name this save…"
+                  className="min-w-0 flex-1 rounded-lg border border-white/20 bg-black/40 px-3 py-2 text-sm text-white placeholder-white/40 outline-none"
+                />
+                <button
+                  className="inline-flex items-center gap-1 rounded-full bg-white px-4 py-2 text-sm font-semibold text-black hover:bg-white/90"
+                  onClick={async () => {
+                    try {
+                      const videoId = (data as any).composition?.sourceVideoId as Id<'videos'> | undefined;
+                      if (!videoId) throw new Error('Missing source video');
+                      const res = await saveSnapshotMut({ compositionId: composition._id as any, videoId: videoId as any, name: saveName || undefined });
+                      // Set this new save as current
+                      const newId = (res as any)?.id;
+                      if (newId) await setCurrentSaveMut({ compositionId: composition._id as any, saveId: newId });
+                      setSaveName('');
+                    } catch (e) { console.error(e); }
+                  }}
+                >
+                  <Save size={14} />
+                  Save
+                </button>
+              </div>
+            </div>
+            <div className="mb-4 rounded-xl border border-white/10 bg-white/5 p-3">
+              <div className="mb-2 flex items-center justify-between">
+                <div className="text-sm text-white/80">Autosave</div>
+                <div className="text-[12px] text-white/60">
+                  Saving to: {currentSaveName ? <span className="font-semibold text-white/80">{currentSaveName}</span> : <span className="italic">Not set</span>}
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-4">
+                {/* Fancy toggle */}
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      await setAutosaveMut({ compositionId: composition._id as any, enabled: !getSaveState?.autosaveEnabled, intervalMs: getSaveState?.autosaveIntervalMs ?? 30000 });
+                    } catch (err) { console.error(err); }
+                  }}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition ${getSaveState?.autosaveEnabled ? 'bg-emerald-500' : 'bg-white/20'}`}
+                  title={getSaveState?.autosaveEnabled ? 'Autosave: On' : 'Autosave: Off'}
+                >
+                  <span
+                    className={`inline-block h-5 w-5 transform rounded-full bg-white transition ${getSaveState?.autosaveEnabled ? 'translate-x-5' : 'translate-x-1'}`}
+                  />
+                </button>
+                <div className={`flex items-center gap-2 ${getSaveState?.autosaveEnabled ? '' : 'opacity-50'}`}>
+                  <span className="text-white/60 text-sm">Every</span>
+                  <input
+                    type="number"
+                    min={5}
+                    step={5}
+                    disabled={!getSaveState?.autosaveEnabled}
+                    value={Math.round(((getSaveState?.autosaveIntervalMs ?? 300000) / 1000))}
+                    onChange={async (e) => {
+                      const sec = Math.max(5, Number(e.target.value) || 30);
+                      try { await setAutosaveMut({ compositionId: composition._id as any, enabled: !!getSaveState?.autosaveEnabled, intervalMs: sec * 1000 }); } catch (err) { console.error(err); }
+                    }}
+                    className="w-20 rounded border border-white/20 bg-black/40 px-2 py-1 text-sm disabled:cursor-not-allowed"
+                  />
+                  <span className="text-white/60 text-sm">seconds</span>
+                </div>
+                {!currentSaveName && (
+                  <span className="text-[12px] text-amber-300">Tip: select a save with “Use” to enable autosave target.</span>
+                )}
+              </div>
+            </div>
+            <div className="max-h-[50vh] overflow-auto rounded-xl border border-white/10 bg-white/5">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-white/60">
+                    <th className="px-3 py-2 text-left">Name</th>
+                    <th className="px-3 py-2 text-left">Updated</th>
+                    <th className="px-3 py-2"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(saves ?? []).map((s) => (
+                    <tr key={s.id} className={`border-t border-white/10 ${getSaveState?.currentSaveId === s.id ? 'bg-white/10' : ''}`}>
+                      <td className="px-3 py-2">{s.name} {getSaveState?.currentSaveId === s.id && <span className="ml-2 rounded-full bg-white/20 px-2 py-0.5 text-[10px] uppercase">In use</span>}</td>
+                      <td className="px-3 py-2 text-white/60">{new Date(s.updatedAt).toLocaleString()}</td>
+                      <td className="px-3 py-2 text-right">
+                        <button
+                          className="mr-2 inline-flex items-center gap-1 rounded-full border border-white/20 px-3 py-1 text-xs text-white/80 hover:bg-white/10"
+                          onClick={async () => {
+                            try {
+                              const res = await loadSnapshotMut({ saveId: s.id });
+                              const id = (res as any).compositionId as string;
+                              if (onOpenComposition) onOpenComposition(id as any);
+                              else window.location.assign(`/edit/${id}`);
+                            } catch (e) { console.error(e); }
+                          }}
+                        >
+                          Open
+                        </button>
+                        <button
+                          className="mr-2 inline-flex items-center gap-1 rounded-full border border-white/20 px-3 py-1 text-xs text-white/80 hover:bg-white/10"
+                          onClick={async () => {
+                            try { await setCurrentSaveMut({ compositionId: composition._id as any, saveId: s.id }); } catch (e) { console.error(e); }
+                          }}
+                        >
+                          Use
+                        </button>
+                        <button
+                          className="mr-2 inline-flex items-center gap-1 rounded-full border border-white/20 px-3 py-1 text-xs text-white/80 hover:bg-white/10"
+                          onClick={async () => {
+                            const next = window.prompt('Rename save', s.name);
+                            if (!next) return;
+                            try { await renameSaveMut({ saveId: s.id, name: next }); } catch (e) { console.error(e); }
+                          }}
+                        >
+                          Rename
+                        </button>
+                        <button
+                          className="inline-flex items-center gap-1 rounded-full border border-white/20 px-3 py-1 text-xs text-white/80 hover:bg-white/10"
+                          onClick={async () => {
+                            if (!window.confirm('Delete this save?')) return;
+                            try { await deleteSaveMut({ saveId: s.id }); } catch (e) { console.error(e); }
+                          }}
+                        >
+                          <Trash2 size={12} /> Delete
+                        </button>
+                      </td>
+                    </tr>
+                  )) || (
+                    <tr><td className="px-3 py-6 text-white/60" colSpan={3}>No saves yet.</td></tr>
+                  )}
+                </tbody>
+              </table>
             </div>
           </div>
         </div>

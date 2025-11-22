@@ -1138,6 +1138,8 @@ const App: React.FC = () => {
           <EditorPage
             compositionId={activeCompositionId as Id<'compositions'>}
             onExit={() => navigate('/dashboard')}
+            onOpenComposition={(id) => navigate(`/edit/${id}`)}
+            onExitToReview={(videoId) => navigate(`/review/${videoId}`)}
           />
         ) : (
           <div className="min-h-screen flex flex-col">

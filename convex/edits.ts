@@ -594,6 +594,353 @@ export const listExports = query({
   },
 });
 
+// --- Composition save/load (snapshots) ---
+
+export const listSavesByVideo = query({
+  args: { videoId: v.optional(v.id('videos')) },
+  async handler(ctx, { videoId }) {
+    const user = await getCurrentUserOrThrow(ctx);
+    if (!videoId) return [] as Array<any>;
+    const saves = await ctx.db.query('compositionSaves').withIndex('byVideo', (q) => q.eq('videoId', videoId)).collect();
+    return saves
+      .filter((s) => s.ownerId === user._id)
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .map((s) => ({ id: s._id, name: s.name, createdAt: s.createdAt, updatedAt: s.updatedAt }));
+  }
+});
+
+export const saveSnapshot = mutation({
+  args: { compositionId: v.id('compositions'), videoId: v.id('videos'), name: v.optional(v.string()) },
+  async handler(ctx, { compositionId, videoId, name }) {
+    const user = await getCurrentUserOrThrow(ctx);
+    const composition = await assertCompositionOwner(ctx, compositionId, user._id);
+    const clips = await ctx.db.query('compositionClips').withIndex('byComposition', (q) => q.eq('compositionId', compositionId)).collect();
+    const tracks = await ctx.db.query('keyframeTracks').withIndex('byComposition', (q) => q.eq('compositionId', compositionId)).collect();
+    const now = Date.now();
+    const payload = {
+      composition: {
+        title: composition.title,
+        description: composition.description ?? null,
+        projectId: composition.projectId ?? null,
+        sourceVideoId: composition.sourceVideoId ?? null,
+        settings: composition.settings,
+      },
+      clips: clips.map((c) => ({
+        id: c._id,
+        sourceVideoId: c.sourceVideoId,
+        sourceInFrame: c.sourceInFrame,
+        sourceOutFrame: c.sourceOutFrame,
+        timelineStartFrame: c.timelineStartFrame,
+        speed: c.speed,
+        opacity: c.opacity ?? 1,
+        transformTrackId: c.transformTrackId ?? null,
+        zIndex: c.zIndex,
+        label: c.label ?? null,
+      })),
+      tracks: tracks.map((t) => ({
+        id: t._id,
+        clipId: t.clipId ?? null,
+        channel: t.channel,
+        keyframes: t.keyframes,
+      })),
+    };
+    const saveId = await ctx.db.insert('compositionSaves', {
+      ownerId: user._id,
+      videoId,
+      compositionId,
+      name: name ?? `Snapshot ${new Date(now).toLocaleString()}`,
+      snapshot: payload,
+      createdAt: now,
+      updatedAt: now,
+    });
+    return { id: saveId };
+  }
+});
+
+export const renameSave = mutation({
+  args: { saveId: v.id('compositionSaves'), name: v.string() },
+  async handler(ctx, { saveId, name }) {
+    const user = await getCurrentUserOrThrow(ctx);
+    const save = await ctx.db.get(saveId);
+    if (!save) throw new ConvexError('SAVE_NOT_FOUND');
+    if (save.ownerId !== user._id) throw new ConvexError('FORBIDDEN');
+    await ctx.db.patch(saveId, { name, updatedAt: Date.now() });
+  }
+});
+
+export const deleteSave = mutation({
+  args: { saveId: v.id('compositionSaves') },
+  async handler(ctx, { saveId }) {
+    const user = await getCurrentUserOrThrow(ctx);
+    const save = await ctx.db.get(saveId);
+    if (!save) return;
+    if (save.ownerId !== user._id) throw new ConvexError('FORBIDDEN');
+    await ctx.db.delete(saveId);
+  }
+});
+
+export const loadSnapshot = mutation({
+  args: { saveId: v.id('compositionSaves'), title: v.optional(v.string()) },
+  async handler(ctx, { saveId, title }) {
+    const user = await getCurrentUserOrThrow(ctx);
+    const save = await ctx.db.get(saveId);
+    if (!save) throw new ConvexError('SAVE_NOT_FOUND');
+    if (save.ownerId !== user._id) throw new ConvexError('FORBIDDEN');
+    const snap = save.snapshot as any;
+    const now = Date.now();
+
+    const baseProjectId = snap.composition.projectId ?? null;
+    if (baseProjectId) {
+      await ensureProjectOwnership(ctx, baseProjectId, user._id);
+    }
+
+    const newCompId = await ctx.db.insert('compositions', {
+      ownerId: user._id,
+      projectId: baseProjectId ?? undefined,
+      sourceVideoId: snap.composition.sourceVideoId ?? undefined,
+      title: title ?? `${snap.composition.title} (loaded ${new Date(now).toLocaleString()})`,
+      description: snap.composition.description ?? undefined,
+      settings: snap.composition.settings,
+      version: 1,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    // Insert clips and build id mapping
+    const idMap = new Map<string, any>();
+    for (const c of snap.clips as Array<any>) {
+      const clipId = await ctx.db.insert('compositionClips', {
+        compositionId: newCompId,
+        sourceVideoId: c.sourceVideoId,
+        sourceInFrame: c.sourceInFrame,
+        sourceOutFrame: c.sourceOutFrame,
+        timelineStartFrame: c.timelineStartFrame,
+        speed: c.speed,
+        opacity: c.opacity ?? 1,
+        transformTrackId: undefined,
+        zIndex: c.zIndex,
+        label: c.label ?? undefined,
+        createdAt: now,
+        updatedAt: now,
+      });
+      idMap.set(c.id as string, clipId);
+    }
+
+    // Insert tracks with remapped clipIds
+    for (const t of snap.tracks as Array<any>) {
+      await ctx.db.insert('keyframeTracks', {
+        compositionId: newCompId,
+        clipId: t.clipId ? (idMap.get(t.clipId as string) ?? undefined) : undefined,
+        channel: t.channel,
+        keyframes: t.keyframes,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+
+    return { compositionId: newCompId };
+  }
+});
+
+export const upsertAutosave = mutation({
+  args: { compositionId: v.id('compositions'), videoId: v.id('videos') },
+  async handler(ctx, { compositionId, videoId }) {
+    const user = await getCurrentUserOrThrow(ctx);
+    const composition = await assertCompositionOwner(ctx, compositionId, user._id);
+    const clips = await ctx.db.query('compositionClips').withIndex('byComposition', (q) => q.eq('compositionId', compositionId)).collect();
+    const tracks = await ctx.db.query('keyframeTracks').withIndex('byComposition', (q) => q.eq('compositionId', compositionId)).collect();
+    const now = Date.now();
+    const payload = {
+      composition: {
+        title: composition.title,
+        description: composition.description ?? null,
+        projectId: composition.projectId ?? null,
+        sourceVideoId: composition.sourceVideoId ?? null,
+        settings: composition.settings,
+      },
+      clips: clips.map((c) => ({
+        id: c._id,
+        sourceVideoId: c.sourceVideoId,
+        sourceInFrame: c.sourceInFrame,
+        sourceOutFrame: c.sourceOutFrame,
+        timelineStartFrame: c.timelineStartFrame,
+        speed: c.speed,
+        opacity: c.opacity ?? 1,
+        transformTrackId: c.transformTrackId ?? null,
+        zIndex: c.zIndex,
+        label: c.label ?? null,
+      })),
+      tracks: tracks.map((t) => ({ id: t._id, clipId: t.clipId ?? null, channel: t.channel, keyframes: t.keyframes })),
+    };
+    // Find existing 'Autosave' for this user + video
+    const existing = (await ctx.db
+      .query('compositionSaves')
+      .withIndex('byVideo', (q) => q.eq('videoId', videoId))
+      .collect())
+      .find((s) => s.ownerId === user._id && s.name === 'Autosave');
+    if (existing) {
+      await ctx.db.patch(existing._id, { snapshot: payload, updatedAt: now, compositionId });
+      return { id: existing._id };
+    }
+    const id = await ctx.db.insert('compositionSaves', {
+      ownerId: user._id,
+      videoId,
+      compositionId,
+      name: 'Autosave',
+      snapshot: payload,
+      createdAt: now,
+      updatedAt: now,
+    });
+    return { id };
+  }
+});
+
+export const getSaveState = query({
+  args: { compositionId: v.id('compositions') },
+  async handler(ctx, { compositionId }) {
+    const user = await getCurrentUserOrThrow(ctx);
+    const comp = await assertCompositionOwner(ctx, compositionId, user._id);
+    const state = (await ctx.db
+      .query('compositionSaveStates')
+      .withIndex('byOwnerAndComposition', (q) => q.eq('ownerId', user._id).eq('compositionId', compositionId))
+      .first()) as any;
+    if (state) {
+      return { currentSaveId: state.currentSaveId ?? null, autosaveEnabled: state.autosaveEnabled, autosaveIntervalMs: state.autosaveIntervalMs, persisted: true };
+    }
+    // Fallback: reuse latest settings for this user+video across compositions
+    const fallback = (await ctx.db
+      .query('compositionSaveStates')
+      .withIndex('byOwnerAndVideo', (q) => q.eq('ownerId', user._id).eq('videoId', comp.sourceVideoId as Id<'videos'>))
+      .collect())
+      .sort((a, b) => b.updatedAt - a.updatedAt)[0] as any | undefined;
+    if (fallback) {
+      return { currentSaveId: fallback.currentSaveId ?? null, autosaveEnabled: fallback.autosaveEnabled, autosaveIntervalMs: fallback.autosaveIntervalMs, persisted: false };
+    }
+    return { currentSaveId: null, autosaveEnabled: false, autosaveIntervalMs: 300000, persisted: false };
+  }
+});
+
+export const setCurrentSave = mutation({
+  args: { compositionId: v.id('compositions'), saveId: v.optional(v.id('compositionSaves')) },
+  async handler(ctx, { compositionId, saveId }) {
+    const user = await getCurrentUserOrThrow(ctx);
+    const comp = await assertCompositionOwner(ctx, compositionId, user._id);
+    const videoId = comp.sourceVideoId ?? null;
+    if (!videoId) throw new ConvexError('COMPOSITION_HAS_NO_VIDEO');
+    if (saveId) {
+      const save = await ctx.db.get(saveId);
+      if (!save) throw new ConvexError('SAVE_NOT_FOUND');
+      if (save.ownerId !== user._id) throw new ConvexError('FORBIDDEN');
+      if (save.videoId !== videoId) throw new ConvexError('MISMATCH_VIDEO');
+    }
+    const existing = await ctx.db
+      .query('compositionSaveStates')
+      .withIndex('byOwnerAndComposition', (q) => q.eq('ownerId', user._id).eq('compositionId', compositionId))
+      .first();
+    const patch = { currentSaveId: saveId ?? undefined, updatedAt: Date.now() } as any;
+    if (existing) {
+      await ctx.db.patch(existing._id, patch);
+      return existing._id;
+    }
+    const id = await ctx.db.insert('compositionSaveStates', {
+      ownerId: user._id,
+      compositionId,
+      videoId: videoId as Id<'videos'>,
+      currentSaveId: saveId,
+      autosaveEnabled: false,
+      autosaveIntervalMs: 300000,
+      updatedAt: Date.now(),
+    });
+    return id;
+  }
+});
+
+export const setAutosave = mutation({
+  args: { compositionId: v.id('compositions'), enabled: v.boolean(), intervalMs: v.number() },
+  async handler(ctx, { compositionId, enabled, intervalMs }) {
+    const user = await getCurrentUserOrThrow(ctx);
+    const comp = await assertCompositionOwner(ctx, compositionId, user._id);
+    const videoId = comp.sourceVideoId ?? null;
+    if (!videoId) throw new ConvexError('COMPOSITION_HAS_NO_VIDEO');
+    const existing = await ctx.db
+      .query('compositionSaveStates')
+      .withIndex('byOwnerAndComposition', (q) => q.eq('ownerId', user._id).eq('compositionId', compositionId))
+      .first();
+    const patch = { autosaveEnabled: enabled, autosaveIntervalMs: intervalMs, updatedAt: Date.now() } as any;
+    if (existing) {
+      await ctx.db.patch(existing._id, patch);
+      return existing._id;
+    }
+    const id = await ctx.db.insert('compositionSaveStates', {
+      ownerId: user._id,
+      compositionId,
+      videoId: videoId as Id<'videos'>,
+      currentSaveId: undefined,
+      autosaveEnabled: enabled,
+      autosaveIntervalMs: intervalMs,
+      updatedAt: Date.now(),
+    });
+    return id;
+  }
+});
+
+export const saveIntoCurrent = mutation({
+  args: { compositionId: v.id('compositions') },
+  async handler(ctx, { compositionId }) {
+    const user = await getCurrentUserOrThrow(ctx);
+    const comp = await assertCompositionOwner(ctx, compositionId, user._id);
+    const videoId = comp.sourceVideoId ?? null;
+    if (!videoId) throw new ConvexError('COMPOSITION_HAS_NO_VIDEO');
+    const state = await ctx.db
+      .query('compositionSaveStates')
+      .withIndex('byOwnerAndComposition', (q) => q.eq('ownerId', user._id).eq('compositionId', compositionId))
+      .first();
+    const now = Date.now();
+    // Build payload
+    const clips = await ctx.db.query('compositionClips').withIndex('byComposition', (q) => q.eq('compositionId', compositionId)).collect();
+    const tracks = await ctx.db.query('keyframeTracks').withIndex('byComposition', (q) => q.eq('compositionId', compositionId)).collect();
+    const snapshot = {
+      composition: {
+        title: comp.title,
+        description: comp.description ?? null,
+        projectId: comp.projectId ?? null,
+        sourceVideoId: comp.sourceVideoId ?? null,
+        settings: comp.settings,
+      },
+      clips: clips.map((c) => ({ id: c._id, sourceVideoId: c.sourceVideoId, sourceInFrame: c.sourceInFrame, sourceOutFrame: c.sourceOutFrame, timelineStartFrame: c.timelineStartFrame, speed: c.speed, opacity: c.opacity ?? 1, transformTrackId: c.transformTrackId ?? null, zIndex: c.zIndex, label: c.label ?? null })),
+      tracks: tracks.map((t) => ({ id: t._id, clipId: t.clipId ?? null, channel: t.channel, keyframes: t.keyframes })),
+    } as any;
+    if (state?.currentSaveId) {
+      await ctx.db.patch(state.currentSaveId, { snapshot, compositionId, updatedAt: now });
+      return { id: state.currentSaveId };
+    }
+    // No current: create a default "Current" save and set it
+    const saveId = await ctx.db.insert('compositionSaves', {
+      ownerId: user._id,
+      videoId: comp.sourceVideoId as Id<'videos'>,
+      compositionId,
+      name: 'Current',
+      snapshot,
+      createdAt: now,
+      updatedAt: now,
+    });
+    if (state) {
+      await ctx.db.patch(state._id, { currentSaveId: saveId, updatedAt: now });
+    } else {
+      await ctx.db.insert('compositionSaveStates', {
+        ownerId: user._id,
+        compositionId,
+        videoId: comp.sourceVideoId as Id<'videos'>,
+        currentSaveId: saveId,
+        autosaveEnabled: false,
+        autosaveIntervalMs: 300000,
+        updatedAt: now,
+      });
+    }
+    return { id: saveId };
+  }
+});
+
 export const listExportsForVideo = query({
   args: {
     videoId: v.id("videos"),

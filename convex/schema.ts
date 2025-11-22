@@ -327,4 +327,31 @@ export default defineSchema({
   })
     .index("byStatus", ["status"])
     .index("byType", ["jobType"]),
+
+  // Named snapshots of a composition for a given base review (video)
+  compositionSaves: defineTable({
+    ownerId: v.id("users"),
+    videoId: v.id("videos"),
+    compositionId: v.id("compositions"),
+    name: v.string(),
+    snapshot: v.any(), // { composition, clips, tracks }
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("byOwner", ["ownerId"]) 
+    .index("byVideo", ["videoId"]) 
+    .index("byComposition", ["compositionId"]),
+
+  compositionSaveStates: defineTable({
+    ownerId: v.id("users"),
+    compositionId: v.id("compositions"),
+    videoId: v.id("videos"),
+    currentSaveId: v.optional(v.id("compositionSaves")),
+    autosaveEnabled: v.boolean(),
+    autosaveIntervalMs: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("byOwnerAndComposition", ["ownerId", "compositionId"]) 
+    .index("byComposition", ["compositionId"]) 
+    .index("byOwnerAndVideo", ["ownerId", "videoId"]),
 });

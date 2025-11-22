@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Play, Pause, ChevronLeft, ChevronRight, SkipBack, SkipForward } from 'lucide-react';
 import type { Id } from '../../convex/_generated/dataModel';
 
@@ -78,7 +79,8 @@ export const EditorTimeline: React.FC<TimelineProps> = ({ clips, durationFrames,
     previewEnd: number;
   } | null>(null);
   const [pendingTrimMap, setPendingTrimMap] = useState<Map<string, { start: number; end: number }>>(new Map());
-  const [pendingMoveMap, setPendingMoveMap] = useState<Map<string, { frame: number; laneIndex: number }>>(new Map());
+  const [pendingMoveMap, setPendingMoveMap] = useState<Map<string, { frame: number; laneIndex: number; zIndex: number }>>(new Map());
+  const [helpOpen, setHelpOpen] = useState(false);
 
   // Keep container width in sync to compute base scale
   useEffect(() => {
@@ -100,6 +102,7 @@ export const EditorTimeline: React.FC<TimelineProps> = ({ clips, durationFrames,
 
   // At minimal zoom, stretch to 100%. Beyond 1, scale > 100% and becomes scrollable
   const pxPerFrame = zoom <= 1 ? basePxPerFrame : basePxPerFrame * zoom;
+
   const totalWidth = Math.max(pxPerFrame * Math.max(1, durationFrames), containerWidth || 0);
 
   // no-op: playhead marker follows content horizontally; only vertical stickiness applied
@@ -108,63 +111,32 @@ export const EditorTimeline: React.FC<TimelineProps> = ({ clips, durationFrames,
   type SimpleClip = { id: string; start: number; end: number };
   const getDurationFor = (c: ClipDoc) => Math.max(1, Math.round((c.sourceOutFrame - c.sourceInFrame) / Math.max(0.001, c.speed)));
 
-  const snapshotClips: Array<SimpleClip> = useMemo(() => {
+  // Optimistic view: apply pending move/zIndex locally to avoid bounce until server confirms
+  const effectiveClips = useMemo(() => {
+    if (pendingMoveMap.size === 0 && !draggingClip) return clips;
     return clips.map((c) => {
       const id = c._id as unknown as string;
-      const duration = getDurationFor(c);
-      let start = c.timelineStartFrame;
-      let end = start + duration;
+      const pend = pendingMoveMap.get(id);
+      let next = c as ClipDoc;
+      if (pend) {
+        next = { ...next, timelineStartFrame: pend.frame, zIndex: pend.zIndex } as ClipDoc;
+      }
       if (draggingClip && draggingClip.clipId === id) {
-        start = draggingClip.previewFrame;
-        end = start + duration;
+        next = { ...next, timelineStartFrame: draggingClip.previewFrame } as ClipDoc;
       }
-      // Trimming does not change slot start/end; ignore it here
-      return { id, start, end };
+      return next;
     });
-  }, [clips, draggingClip]);
+  }, [clips, pendingMoveMap, draggingClip]);
 
-  const assignLanes = (all: Array<SimpleClip>, desired?: { id: string; laneIndex?: number }) => {
-    const lanesArr: Array<Array<SimpleClip>> = [];
-    const byIdLane = new Map<string, number>();
-    const sorted = all.slice().sort((a, b) => a.start - b.start || a.end - b.end);
-    const canPlace = (lane: SimpleClip[] | undefined, clip: SimpleClip) => !lane || lane.every((c) => c.end <= clip.start || c.start >= clip.end);
-    const place = (clip: SimpleClip, preferred?: number) => {
-      if (typeof preferred === 'number' && preferred >= 0) {
-        if (!lanesArr[preferred]) lanesArr[preferred] = [];
-        if (canPlace(lanesArr[preferred], clip)) {
-          lanesArr[preferred].push(clip);
-          byIdLane.set(clip.id, preferred);
-          return;
-        }
-      }
-      for (let i = 0; i < lanesArr.length; i++) {
-        if (canPlace(lanesArr[i], clip)) {
-          if (!lanesArr[i]) lanesArr[i] = [];
-          lanesArr[i].push(clip);
-          byIdLane.set(clip.id, i);
-          return;
-        }
-      }
-      lanesArr.push([clip]);
-      byIdLane.set(clip.id, lanesArr.length - 1);
-    };
-    for (const clip of sorted) {
-      const pref = desired && desired.id === clip.id ? desired.laneIndex : undefined;
-      place(clip, pref);
-    }
-    return { lanesArr, byIdLane } as const;
-  };
-
-  // Clamp desired lane to a sane range (avoid huge sparse arrays)
-  const maxLanesHint = Math.max(1, snapshotClips.length + 5);
-  const desiredLaneIndex = draggingClip
-    ? Math.max(0, Math.min(maxLanesHint, draggingClip.previewLaneIndex))
-    : undefined;
-  const laneAssignment = useMemo(
-    () => assignLanes(snapshotClips, draggingClip ? { id: draggingClip.clipId, laneIndex: desiredLaneIndex } : undefined),
-    [snapshotClips, desiredLaneIndex, draggingClip]
-  );
-  const lanesForBg = lanesFromClips(clips);
+  // Stable lane mapping strictly by zIndex (AE-like):
+  // - Lane index derives from sorted unique z values (highest z at top)
+  // - Other clips never auto-relane during a drag; only the dragged one changes lane by vertical movement
+  const lanesForBg = lanesFromClips(effectiveClips);
+  const indexForZ = useMemo(() => {
+    const map = new Map<number, number>();
+    lanesForBg.forEach((z, idx) => map.set(z, idx));
+    return map;
+  }, [lanesForBg]);
   const lanesCount = lanesForBg.length;
   const trackHeaderHeight = 24;
   const extraLanesBelow = 2;
@@ -172,10 +144,10 @@ export const EditorTimeline: React.FC<TimelineProps> = ({ clips, durationFrames,
   const totalHeight = trackHeaderHeight + tracksAreaHeight;
 
   const clipBlocks = useMemo(() => {
-    const lanes = lanesFromClips(clips);
+    const lanes = lanesFromClips(effectiveClips);
     const indexForZ = new Map<number, number>();
     lanes.forEach((z, idx) => indexForZ.set(z, idx));
-    return clips.map((clip) => {
+    return effectiveClips.map((clip) => {
       const id = clip._id as string;
       const color = colorForId(id);
       const duration = getDurationFor(clip);
@@ -188,16 +160,24 @@ export const EditorTimeline: React.FC<TimelineProps> = ({ clips, durationFrames,
       const laneIndex = draggingClip && draggingClip.clipId === id
         ? draggingClip.previewLaneIndex
         : indexForZ.get(clip.zIndex) ?? 0;
+      // Clip rendering to [0, durationFrames) without shifting the whole timeline.
+      const hiddenBefore = Math.max(0, -start);
+      const hiddenAfter = Math.max(0, end - durationFrames);
+      const visStart = Math.max(0, start);
+      const visEnd = Math.min(durationFrames, end);
+      const visibleFrames = Math.max(0, visEnd - visStart);
       return {
         ...clip,
-        left: start * pxPerFrame,
-        width: Math.max(1, (end - start) * pxPerFrame),
+        left: visStart * pxPerFrame,
+        width: Math.max(1, visibleFrames * pxPerFrame),
         color,
         clipDuration: Math.max(1, Math.round(end - start)),
         laneIndex,
+        __hiddenBefore: hiddenBefore,
+        __hiddenAfter: hiddenAfter,
       };
     });
-  }, [clips, pxPerFrame, draggingClip]);
+  }, [effectiveClips, pxPerFrame, draggingClip]);
 
   const ticks = useMemo(() => {
     // show more frame labels: ~20 divisions
@@ -210,8 +190,8 @@ export const EditorTimeline: React.FC<TimelineProps> = ({ clips, durationFrames,
   }, [durationFrames, fps, pxPerFrame]);
 
   const handleSeek = (clientX: number) => {
-    if (!trackRef.current || !containerRef.current) return;
-    const rect = trackRef.current.getBoundingClientRect();
+    if (!containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
     const scrollLeft = containerRef.current.scrollLeft;
     const x = clientX - rect.left + scrollLeft;
     const frame = Math.max(0, Math.round(x / pxPerFrame));
@@ -241,7 +221,7 @@ export const EditorTimeline: React.FC<TimelineProps> = ({ clips, durationFrames,
         const dy = e.clientY - draggingClip.startY;
         const df = Math.round(dx / pxPerFrame);
         const dl = Math.round(dy / laneHeight);
-        const previewFrame = Math.max(0, Math.min(durationFrames - 1, draggingClip.origFrame + df));
+        const previewFrame = Math.min(durationFrames - 1, draggingClip.origFrame + df);
         const previewLaneIndex = Math.max(0, draggingClip.origLaneIndex + dl);
         setDraggingClip({ ...draggingClip, previewFrame, previewLaneIndex });
         e.preventDefault();
@@ -261,16 +241,22 @@ export const EditorTimeline: React.FC<TimelineProps> = ({ clips, durationFrames,
         });
         setTrimming(null);
       } else if (draggingClip) {
-        const finalLane = Math.max(0, draggingClip.previewLaneIndex);
         const lanes = lanesFromClips(clips);
-        const computedZ = lanes[finalLane] ?? (Math.max(...lanes) + 1);
+        const desiredLane = Math.max(0, Math.min(lanes.length - 1, draggingClip.previewLaneIndex));
+        let computedZ = lanes[desiredLane];
+        // Enforce at most one clip per lane: if occupied by another clip, push to the top lane
+        const occupied = clips.some((c) => (c._id as string) !== draggingClip.clipId && c.zIndex === computedZ);
+        const targetLaneIndex = occupied ? 0 : desiredLane;
+        if (occupied) {
+          computedZ = lanes[0];
+        }
         onMoveClip?.(draggingClip.clipId, {
           timelineStartFrame: draggingClip.previewFrame,
           zIndex: computedZ,
         });
         setPendingMoveMap((prev) => {
           const next = new Map(prev);
-          next.set(draggingClip.clipId, { frame: draggingClip.previewFrame, laneIndex: finalLane });
+          next.set(draggingClip.clipId, { frame: draggingClip.previewFrame, laneIndex: targetLaneIndex, zIndex: computedZ });
           return next;
         });
         setDraggingClip(null);
@@ -303,7 +289,7 @@ export const EditorTimeline: React.FC<TimelineProps> = ({ clips, durationFrames,
           const dy = t.clientY - draggingClip.startY;
           const df = Math.round(dx / pxPerFrame);
           const dl = Math.round(dy / laneHeight);
-          const previewFrame = Math.max(0, Math.min(durationFrames - 1, draggingClip.origFrame + df));
+          const previewFrame = Math.min(durationFrames - 1, draggingClip.origFrame + df);
           const previewLaneIndex = Math.max(0, draggingClip.origLaneIndex + dl);
           setDraggingClip({ ...draggingClip, previewFrame, previewLaneIndex });
           e.preventDefault();
@@ -327,16 +313,21 @@ export const EditorTimeline: React.FC<TimelineProps> = ({ clips, durationFrames,
         });
         setTrimming(null);
       } else if (draggingClip) {
-        const finalLane = Math.max(0, draggingClip.previewLaneIndex);
         const lanes = lanesFromClips(clips);
-        const computedZ = lanes[finalLane] ?? (Math.max(...lanes) + 1);
+        const desiredLane = Math.max(0, Math.min(lanes.length - 1, draggingClip.previewLaneIndex));
+        let computedZ = lanes[desiredLane];
+        const occupied = clips.some((c) => (c._id as string) !== draggingClip.clipId && c.zIndex === computedZ);
+        const targetLaneIndex = occupied ? 0 : desiredLane;
+        if (occupied) {
+          computedZ = lanes[0];
+        }
         onMoveClip?.(draggingClip.clipId, {
           timelineStartFrame: draggingClip.previewFrame,
           zIndex: computedZ,
         });
         setPendingMoveMap((prev) => {
           const next = new Map(prev);
-          next.set(draggingClip.clipId, { frame: draggingClip.previewFrame, laneIndex: finalLane });
+          next.set(draggingClip.clipId, { frame: draggingClip.previewFrame, laneIndex: targetLaneIndex, zIndex: computedZ });
           return next;
         });
         setDraggingClip(null);
@@ -354,7 +345,7 @@ export const EditorTimeline: React.FC<TimelineProps> = ({ clips, durationFrames,
       window.removeEventListener('touchmove', onTouchMove as any);
       window.removeEventListener('touchend', onTouchEnd);
     };
-  }, [draggingClip, trimming, laneAssignment, laneHeight, pxPerFrame, durationFrames, onMoveClip, onTrimClip]);
+  }, [draggingClip, trimming, laneHeight, pxPerFrame, durationFrames, onMoveClip, onTrimClip, clips]);
 
   useEffect(() => {
     if (!trims) return;
@@ -377,7 +368,7 @@ export const EditorTimeline: React.FC<TimelineProps> = ({ clips, durationFrames,
       const next = new Map(prev);
       for (const [id, val] of prev) {
         const server = clips.find((c) => (c._id as string) === id);
-        if (server && server.timelineStartFrame === val.frame) {
+        if (server && server.timelineStartFrame === val.frame && server.zIndex === val.zIndex) {
           next.delete(id);
         }
       }
@@ -421,23 +412,50 @@ export const EditorTimeline: React.FC<TimelineProps> = ({ clips, durationFrames,
   return (
     <div className="w-full select-none">
       <div className="mb-3 relative h-12 text-xs text-white/60">
-        <div className="relative group absolute left-0 top-1/2 -translate-y-1/2">
-          <span className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-white/20 text-[10px] text-white/70">?</span>
-          <div className="pointer-events-none absolute left-1/2 z-50 hidden w-72 -translate-x-1/2 translate-y-2 rounded-lg border border-white/10 bg-black/80 p-3 text-[11px] text-white shadow-xl group-hover:block">
-            <div className="font-semibold mb-1">Shortcuts</div>
-            <ul className="space-y-0.5">
-              <li><span className="text-white/60">Space</span> — Play/Pause</li>
-              <li><span className="text-white/60">R</span> — Reset to start</li>
-              <li><span className="text-white/60">←/→</span> — Step 1 frame</li>
-              <li><span className="text-white/60">Shift+←/→</span> — Step 10 frames</li>
-              <li><span className="text-white/60">I</span> — Jump to clip start</li>
-              <li><span className="text-white/60">O</span> — Jump to clip end</li>
-              <li><span className="text-white/60">Cmd/Ctrl+Shift+D</span> — Split layer at playhead</li>
-              <li><span className="text-white/60">Cmd/Ctrl+D</span> — Duplicate layer at playhead</li>
-              <li><span className="text-white/60">Delete/Backspace</span> — Delete selected layer</li>
-            </ul>
-          </div>
+        {/* Hover trigger */}
+        <div className="absolute left-0 top-1/2 -translate-y-1/2">
+          <span
+            className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-white/20 text-[11px] text-white/80"
+            onMouseEnter={() => setHelpOpen(true)}
+          >
+            ?
+          </span>
         </div>
+        {helpOpen && createPortal(
+          <div
+            className="fixed inset-0 z-[2147483647] flex items-center justify-center"
+            onMouseLeave={() => setHelpOpen(false)}
+          >
+            <div className="absolute inset-0 bg-black/60" />
+            <div className="relative w-[min(92vw,960px)] max-h-[85vh] overflow-auto rounded-lg border border-white/10 bg-black/95 p-6 text-white shadow-2xl">
+              <div className="mb-4 text-xl font-semibold text-white">Timeline — Shortcuts & Tips</div>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 text-sm">
+                <div>
+                  <div className="mb-2 font-semibold text-white/80">Transport</div>
+                  <ul className="space-y-1">
+                    <li><span className="text-white/60">Space</span> — Play/Pause</li>
+                    <li><span className="text-white/60">R</span> — Reset to start</li>
+                    <li><span className="text-white/60">←/→</span> — Step 1 frame</li>
+                    <li><span className="text-white/60">Shift+←/→</span> — Step 10 frames</li>
+                    <li><span className="text-white/60">I</span> — Jump to clip start</li>
+                    <li><span className="text-white/60">O</span> — Jump to clip end</li>
+                  </ul>
+                </div>
+                <div>
+                  <div className="mb-2 font-semibold text-white/80">Edit</div>
+                  <ul className="space-y-1">
+                    <li><span className="text-white/60">Cmd/Ctrl+Shift+D</span> — Split layer at playhead</li>
+                    <li><span className="text-white/60">Cmd/Ctrl+D</span> — Duplicate layer</li>
+                    <li><span className="text-white/60">Delete / Backspace</span> — Delete selected layer</li>
+                    <li><span className="text-white/60">Drag edges</span> — Trim visible area</li>
+                    <li><span className="text-white/60">Drag layer</span> — Move in time / change lane</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
         <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center gap-2">
           <button onClick={(e) => { e.stopPropagation(); onSeek(Math.max(0, playhead - 1)); }} className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white/80" title="Prev frame (←)"><ChevronLeft size={18} /></button>
           <button onClick={(e) => { e.stopPropagation(); jumpToClipStart(); }} className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white/80" title="Clip start (I)"><SkipBack size={18} /></button>
@@ -493,7 +511,7 @@ export const EditorTimeline: React.FC<TimelineProps> = ({ clips, durationFrames,
             ))}
           </div>
           <div className="absolute inset-x-0 top-6" style={{ height: tracksAreaHeight }}>
-            {Array.from({ length: Math.max( (Array.from(new Set(clips.map(c=>c.zIndex))).length + 1) + extraLanesBelow, 1) }).map((_, idx) => (
+            {Array.from({ length: Math.max(lanesCount + extraLanesBelow, 1) }).map((_, idx) => (
               <div
                 key={`lane-${idx}`}
                 className={"absolute inset-x-0 border-t border-white/10 " + (idx % 2 === 0 ? 'bg-white/5' : 'bg-white/10')}
@@ -510,13 +528,14 @@ export const EditorTimeline: React.FC<TimelineProps> = ({ clips, durationFrames,
                   const currentLaneIdx = draggingClip?.clipId === (clip._id as string)
                     ? draggingClip.previewLaneIndex
                     : clip.laneIndex;
+                  const startFrame = Math.round((clip as any).timelineStartFrame as number);
                   setDraggingClip({
                     clipId: clip._id as string,
                     startX: e.clientX,
                     startY: e.clientY,
-                    origFrame: Math.round(clip.left / Math.max(1, pxPerFrame)),
+                    origFrame: startFrame,
                     origLaneIndex: currentLaneIdx,
-                    previewFrame: Math.round(clip.left / Math.max(1, pxPerFrame)),
+                    previewFrame: startFrame,
                     previewLaneIndex: currentLaneIdx,
                   });
                 }}
@@ -527,13 +546,14 @@ export const EditorTimeline: React.FC<TimelineProps> = ({ clips, durationFrames,
                   const currentLaneIdx = draggingClip?.clipId === (clip._id as string)
                     ? draggingClip.previewLaneIndex
                     : clip.laneIndex;
+                  const startFrame = Math.round((clip as any).timelineStartFrame as number);
                   setDraggingClip({
                     clipId: clip._id as string,
                     startX: t.clientX,
                     startY: t.clientY,
-                    origFrame: Math.round(clip.left / Math.max(1, pxPerFrame)),
+                    origFrame: startFrame,
                     origLaneIndex: currentLaneIdx,
-                    previewFrame: Math.round(clip.left / Math.max(1, pxPerFrame)),
+                    previewFrame: startFrame,
                     previewLaneIndex: currentLaneIdx,
                   });
                 }}
@@ -543,15 +563,15 @@ export const EditorTimeline: React.FC<TimelineProps> = ({ clips, durationFrames,
                 style={{
                   left:
                     draggingClip && draggingClip.clipId === (clip._id as string)
-                      ? draggingClip.previewFrame * pxPerFrame
+                      ? Math.max(0, draggingClip.previewFrame) * pxPerFrame
                       : pendingMoveMap.get(clip._id as string)
-                        ? pendingMoveMap.get(clip._id as string)!.frame * pxPerFrame
+                        ? Math.max(0, pendingMoveMap.get(clip._id as string)!.frame) * pxPerFrame
                         : clip.left,
                   width: Math.max(8, clip.width),
                   backgroundColor: clip.color,
                   top:
                     (draggingClip && draggingClip.clipId === (clip._id as string)
-                      ? (laneAssignment.byIdLane.get(clip._id as string) ?? draggingClip.previewLaneIndex)
+                      ? draggingClip.previewLaneIndex
                       : pendingMoveMap.get(clip._id as string)
                         ? pendingMoveMap.get(clip._id as string)!.laneIndex
                         : clip.laneIndex) * laneHeight,
@@ -573,8 +593,11 @@ export const EditorTimeline: React.FC<TimelineProps> = ({ clips, durationFrames,
                     : pend
                       ? pend.end
                       : Math.max(0, t.end);
-                  const leftW = Math.max(0, Math.min(clip.clipDuration, ts)) * pxPerFrame;
-                  const rightW = Math.max(0, Math.min(clip.clipDuration, te)) * pxPerFrame;
+                  const hiddenBefore = (clip as any).__hiddenBefore as number || 0;
+                  const hiddenAfter = (clip as any).__hiddenAfter as number || 0;
+                  const slotVisible = Math.max(0, clip.clipDuration - hiddenBefore - hiddenAfter);
+                  const leftW = Math.max(0, Math.min(slotVisible, ts - hiddenBefore)) * pxPerFrame;
+                  const rightW = Math.max(0, Math.min(slotVisible, te - hiddenAfter)) * pxPerFrame;
                   return (
                     <>
                       {leftW > 0 && (
