@@ -414,8 +414,8 @@ export const EditorTimeline: React.FC<TimelineProps> = ({ clips, durationFrames,
 
   return (
     <div className="w-full select-none">
-      <div className="mb-3 grid grid-cols-[56px_1fr] gap-3 text-xs text-white/60">
-        <div className="flex flex-col items-center gap-2">
+      <div className="mb-3 grid grid-cols-[auto_1fr_auto] items-center gap-6 text-xs text-white/60">
+        <div className="flex items-center gap-3">
           <button
             className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-white/20 text-white/80 hover:bg-white/10"
             title="Add clip"
@@ -423,7 +423,7 @@ export const EditorTimeline: React.FC<TimelineProps> = ({ clips, durationFrames,
           >
             +
           </button>
-          <div className="w-10">
+          <div className="w-32">
             <input
               type="range"
               min={0}
@@ -434,7 +434,7 @@ export const EditorTimeline: React.FC<TimelineProps> = ({ clips, durationFrames,
               title={`Volume ${Math.round(masterVolume * 100)}%`}
             />
           </div>
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-2">
             <button
               className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-white/20 text-white/80 hover:bg-white/10"
               title={masterVolume > 0 ? 'Mute all' : 'Unmute all'}
@@ -451,84 +451,58 @@ export const EditorTimeline: React.FC<TimelineProps> = ({ clips, durationFrames,
             </button>
           </div>
         </div>
-        <div className="relative h-12">
-        {/* Header center controls (no left duplicates) */}
-        {helpOpen && createPortal(
-          <div
-            className="fixed inset-0 z-[2147483647] flex items-center justify-center"
-            onClick={() => setHelpOpen(false)}
-          >
-            <div className="absolute inset-0 bg-black/60" />
-            <div className="relative w-[min(92vw,960px)] max-h-[85vh] overflow-auto rounded-lg border border-white/10 bg-black/95 p-6 text-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
-              <div className="absolute right-3 top-3">
-                <button className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-white/20 text-white/80 hover:bg-white/10" onClick={() => setHelpOpen(false)} title="Close">×</button>
-              </div>
-              <div className="mb-4 text-xl font-semibold text-white">Timeline — Shortcuts & Tips</div>
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 text-sm">
-                <div>
-                  <div className="mb-2 font-semibold text-white/80">Transport</div>
-                  <ul className="space-y-1">
-                    <li><span className="text-white/60">Space</span> — Play/Pause</li>
-                    <li><span className="text-white/60">R</span> — Reset to start</li>
-                    <li><span className="text-white/60">←/→</span> — Step 1 frame</li>
-                    <li><span className="text-white/60">Shift+←/→</span> — Step 10 frames</li>
-                    <li><span className="text-white/60">I</span> — Jump to clip start</li>
-                    <li><span className="text-white/60">O</span> — Jump to clip end</li>
-                  </ul>
-                </div>
-                <div>
-                  <div className="mb-2 font-semibold text-white/80">Edit</div>
-                  <ul className="space-y-1">
-                    <li><span className="text-white/60">Cmd/Ctrl+Shift+D</span> — Split layer at playhead</li>
-                    <li><span className="text-white/60">Cmd/Ctrl+D</span> — Duplicate layer</li>
-                    <li><span className="text-white/60">Delete / Backspace</span> — Delete selected layer</li>
-                    <li><span className="text-white/60">Drag edges</span> — Trim visible area</li>
-                    <li><span className="text-white/60">Drag layer</span> — Move in time / change lane</li>
-                  </ul>
-                </div>
-              </div>
+        <div className="h-12 grid grid-cols-[1fr_auto] items-center gap-6">
+          {/* Transport controls (center) */}
+          <div className="flex items-center justify-center gap-2">
+            <button onClick={(e) => { e.stopPropagation(); onSeek(Math.max(0, playhead - 1)); }} className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white/80" title="Prev frame (←)"><ChevronLeft size={18} /></button>
+            <button onClick={(e) => { e.stopPropagation(); jumpToClipStart(); }} className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white/80" title="Clip start (I)"><SkipBack size={18} /></button>
+            <button onClick={(e) => { e.stopPropagation(); onTogglePlay?.(); }} className="p-3 rounded-full bg-white text-black hover:bg-white/90" title={playing ? 'Pause (Space)' : 'Play (Space)'}>
+              {playing ? <Pause size={22} /> : <Play size={22} />}
+            </button>
+            <button onClick={(e) => { e.stopPropagation(); jumpToClipEnd(); }} className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white/80" title="Clip end (O)"><SkipForward size={18} /></button>
+            <button onClick={(e) => { e.stopPropagation(); onSeek(Math.min(durationFrames - 1, playhead + 1)); }} className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white/80" title="Next frame (→)"><ChevronRight size={18} /></button>
+          </div>
+          {/* Zoom controls (right) */}
+          <div className="flex items-center justify-end gap-2">
+            <span className="text-xs uppercase tracking-wide text-white/60">Zoom</span>
+            <button
+              className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-white/20 text-white/80 hover:bg-white/10"
+              onClick={() => onZoomChange(Math.max(0.1, Number((zoom - 0.1).toFixed(2))))}
+              title="Zoom out"
+            >
+              −
+            </button>
+            <input
+              type="range"
+              min={0.1}
+              max={4}
+              step={0.1}
+              value={zoom}
+              onChange={(e) => onZoomChange(Number(e.target.value))}
+              className="h-1.5 w-40 appearance-none rounded-full bg-white/10 accent-white range-thumb-white"
+            />
+            <button
+              className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-white/20 text-white/80 hover:bg-white/10"
+              onClick={() => onZoomChange(Math.min(4, Number((zoom + 0.1).toFixed(2))))}
+              title="Zoom in"
+            >
+              +
+            </button>
+            <span className="w-10 text-right text-xs text-white/60">{zoom.toFixed(1)}×</span>
+          </div>
+        
+      {helpOpen && createPortal(
+        <div className="fixed inset-0 z-[2147483647] flex items-center justify-center" onClick={() => setHelpOpen(false)}>
+          <div className="absolute inset-0 bg-black/60" />
+          <div className="relative w-[min(92vw,960px)] max-h-[85vh] overflow-auto rounded-lg border border-white/10 bg-black/95 p-6 text-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="absolute right-3 top-3">
+              <button className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-white/20 text-white/80 hover:bg-white/10" onClick={() => setHelpOpen(false)} title="Close">×</button>
             </div>
-          </div>,
-          document.body,
-        )}
-        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center gap-2">
-          <button onClick={(e) => { e.stopPropagation(); onSeek(Math.max(0, playhead - 1)); }} className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white/80" title="Prev frame (←)"><ChevronLeft size={18} /></button>
-          <button onClick={(e) => { e.stopPropagation(); jumpToClipStart(); }} className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white/80" title="Clip start (I)"><SkipBack size={18} /></button>
-          <button onClick={(e) => { e.stopPropagation(); onTogglePlay?.(); }} className="p-3 rounded-full bg-white text-black hover:bg-white/90" title={playing ? 'Pause (Space)' : 'Play (Space)'}>
-            {playing ? <Pause size={22} /> : <Play size={22} />}
-          </button>
-          <button onClick={(e) => { e.stopPropagation(); jumpToClipEnd(); }} className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white/80" title="Clip end (O)"><SkipForward size={18} /></button>
-          <button onClick={(e) => { e.stopPropagation(); onSeek(Math.min(durationFrames - 1, playhead + 1)); }} className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white/80" title="Next frame (→)"><ChevronRight size={18} /></button>
-        </div>
-        <div className="absolute right-0 top-1/2 -translate-y-1/2 flex items-center gap-2">
-          <span className="text-xs uppercase tracking-wide text-white/60">Zoom</span>
-          <button
-            className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-white/20 text-white/80 hover:bg-white/10"
-            onClick={() => onZoomChange(Math.max(0.1, Number((zoom - 0.1).toFixed(2))))}
-            title="Zoom out"
-          >
-            −
-          </button>
-          <input
-            type="range"
-            min={0.1}
-            max={4}
-            step={0.1}
-            value={zoom}
-            onChange={(e) => onZoomChange(Number(e.target.value))}
-            className="h-1.5 w-40 appearance-none rounded-full bg-white/10 accent-white range-thumb-white"
-          />
-          <button
-            className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-white/20 text-white/80 hover:bg-white/10"
-            onClick={() => onZoomChange(Math.min(4, Number((zoom + 0.1).toFixed(2))))}
-            title="Zoom in"
-          >
-            +
-          </button>
-          <span className="w-10 text-right text-xs text-white/60">{zoom.toFixed(1)}×</span>
-        </div>
-        </div>
-      </div>
+            <div className="mb-4 text-xl font-semibold text-white">Timeline — Shortcuts & Tips</div>
+          </div>
+        </div>,
+        document.body,
+      )}
       <div
         className="overflow-x-auto overflow-y-auto max-h-64 rounded-2xl border border-white/10 bg-black/40 select-none"
         ref={containerRef}
