@@ -265,8 +265,8 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
     await completeMultipart({ storageKey, uploadId, parts: completed });
     return { storageKey, publicUrl } as { storageKey: string; publicUrl: string };
   };
-  // Disable "Insert edit" feature entirely; keep Edit Mode available for owners
-  const showInsertButton = false;
+  // Allow owners to insert their rendered edits back into the review
+  const showInsertButton = Boolean(video.isOwnedByCurrentUser);
   const showEditButton = Boolean(video.isOwnedByCurrentUser);
   const [exportsForVideo, setExportsForVideo] = useState<Array<{ export: any; composition: any }> | undefined>(undefined);
   const completedExports = (exportsForVideo ?? []).filter(
@@ -287,6 +287,24 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
   const [abLoopEnabled, setAbLoopEnabled] = useState(false);
   const [abA, setAbA] = useState<number | null>(null);
   const [abB, setAbB] = useState<number | null>(null);
+
+  // Auto-open insert dialog when ?insertExport=ID is present
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const insertId = params.get('insertExport');
+    if (!insertId) return;
+    if (!exportsForVideo || exportsForVideo.length === 0) return;
+    const found = exportsForVideo.find((it) => (it.export._id as string) === insertId && it.export.status === 'completed' && it.export.outputPublicUrl);
+    if (!found) return;
+    setSelectedExportId(insertId);
+    setInsertEditOpen(true);
+    // Clean up param in URL (shallow)
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('insertExport');
+      window.history.replaceState({}, '', url.pathname + url.search + url.hash);
+    } catch {}
+  }, [exportsForVideo]);
   const [loopMenuOpen, setLoopMenuOpen] = useState(false);
   const [videoWidthPx, setVideoWidthPx] = useState(0);
   // Preserve a stable controls width so the bottom control bar doesn't jump when compare is active

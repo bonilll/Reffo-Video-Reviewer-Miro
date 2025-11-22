@@ -3,7 +3,8 @@ import { useAction, useMutation, useQuery } from 'convex/react';
 import { api } from '../../convex/_generated/api';
 import type { Id } from '../../convex/_generated/dataModel';
 import { EditorTimeline } from './EditorTimeline';
-import { Loader2, Pause, Play, RefreshCw, ChevronLeft, Info, Settings, Save, FolderOpen, Trash2, Edit3, Eye, EyeOff, Volume2, VolumeX } from 'lucide-react';
+import { Loader2, Pause, Play, RefreshCw, ChevronLeft, Info, Settings, Save, FolderOpen, Trash2, Edit3, Eye, EyeOff, Volume2, VolumeX, Download } from 'lucide-react';
+import { renderCompositionClient } from './clientExport';
 
 const formatSeconds = (seconds: number) => {
   const mins = Math.floor(seconds / 60)
@@ -207,7 +208,11 @@ const MultiPreviewSurface: React.FC<{
       const sourceFrame = it.clip.sourceInFrame + trimStart * it.clip.speed + offset * it.clip.speed;
       const seconds = sourceFrame / Math.max(1, it.source.fps);
       const frameSec = 1 / Math.max(1, it.source.fps);
-      if (!Number.isNaN(seconds) && Math.abs(video.currentTime - seconds) > frameSec * 0.75) {
+      // Audio routing: only the audioPrimary (if enabled) outputs audio
+      const isAudioPrimary = audioPrimaryClipId && (it.clip._id as string) === audioPrimaryClipId;
+      // Choose a more relaxed seek threshold for the audio source to avoid choppy audio
+      const seekThreshold = isAudioPrimary ? Math.max(0.25, frameSec * 6) : Math.max(0.08, frameSec * 3);
+      if (!Number.isNaN(seconds) && Math.abs(video.currentTime - seconds) > seekThreshold) {
         try {
           if (typeof (video as any).fastSeek === 'function') {
             (video as any).fastSeek(seconds);
@@ -216,12 +221,13 @@ const MultiPreviewSurface: React.FC<{
           }
         } catch {}
       }
-      // Audio routing: only the audioPrimary (if enabled) outputs audio
-      const isAudioPrimary = audioPrimaryClipId && (it.clip._id as string) === audioPrimaryClipId;
-      const wantsAudio = isAudioPrimary && ((it.clip as any).audioEnabled ?? true) && masterVolume > 0 && playing;
+      const wantsAudio = isAudioPrimary && ((it.clip as any).audioEnabled ?? true) && masterVolume > 0 && playing && Math.abs((it.clip.speed ?? 1) - 1) < 1e-3;
       try {
         video.muted = !wantsAudio;
         video.volume = Math.max(0, Math.min(1, masterVolume));
+        // Let the video decode smoothly by running at clip speed
+        const desiredRate = Math.max(0.0625, Math.min(16, it.clip.speed || 1));
+        if (video.playbackRate !== desiredRate) video.playbackRate = desiredRate;
       } catch {}
       if (playing) {
         if (video.paused) void video.play().catch(() => undefined);
@@ -231,32 +237,7 @@ const MultiPreviewSurface: React.FC<{
     });
   }, [items, playhead, playing, audioPrimaryClipId, masterVolume]);
 
-  // Drive playhead from the primary video's clock if requested
-  useEffect(() => {
-    if (!playing || !primaryClipId || !onPrimaryTime) return;
-    const el = videoRefs.current[primaryClipId as string];
-    if (!el) return;
-    let rafId: number | null = null;
-    let stopped = false;
-    const tick = (now?: any, metadata?: any) => {
-      if (stopped) return;
-      try { onPrimaryTime(el.currentTime || 0); } catch {}
-      if ('requestVideoFrameCallback' in el) {
-        (el as any).requestVideoFrameCallback(tick);
-      } else {
-        rafId = requestAnimationFrame(() => tick());
-      }
-    };
-    if ('requestVideoFrameCallback' in el) {
-      (el as any).requestVideoFrameCallback(tick);
-    } else {
-      rafId = requestAnimationFrame(() => tick());
-    }
-    return () => {
-      stopped = true;
-      if (rafId) cancelAnimationFrame(rafId);
-    };
-  }, [primaryClipId, onPrimaryTime, playing]);
+  // Removed primary-video-driven clock; composition clock drives playback consistently
 
   return (
     <div className="relative h-full w-full overflow-hidden">
@@ -337,17 +318,20 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit, o
   const renameSaveMut = useMutation((api as any).edits.renameSave);
   const deleteSaveMut = useMutation((api as any).edits.deleteSave);
   const upsertAutosaveMut = useMutation((api as any).edits.upsertAutosave);
+  const deleteExportMut = useMutation((api as any).edits.deleteExport);
   const completeVideoUpload = useMutation((api as any).videos.completeUpload);
   const getSaveState = useQuery((api as any).edits.getSaveState, { compositionId } as any) as { currentSaveId: string | null; autosaveEnabled: boolean; autosaveIntervalMs: number; persisted?: boolean } | undefined;
   const setCurrentSaveMut = useMutation((api as any).edits.setCurrentSave);
   const setAutosaveMut = useMutation((api as any).edits.setAutosave);
   const saveIntoCurrentMut = useMutation((api as any).edits.saveIntoCurrent);
+  const recordClientExport = useMutation((api as any).edits.recordClientExport);
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
   const saves = useQuery((api as any).edits.listSavesByVideo, (data as any)?.composition?.sourceVideoId ? { videoId: (data as any).composition.sourceVideoId } : undefined) as Array<any> | undefined;
   // Panels
   const [infoModalOpen, setInfoModalOpen] = useState(false);
   const [propertiesOpen, setPropertiesOpen] = useState(true);
   const [savesOpen, setSavesOpen] = useState(false);
+  
   const [saveName, setSaveName] = useState('');
   const [confirmDelete, setConfirmDelete] = useState<{ id: string; name?: string } | null>(null);
   const [dirty, setDirty] = useState(false);
@@ -356,6 +340,11 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit, o
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [clientExporting, setClientExporting] = useState(false);
+  const [clientExportProgress, setClientExportProgress] = useState<{ value: number; label: string }>({ value: 0, label: '' });
+  const [fastPublishWebM, setFastPublishWebM] = useState(false);
+  const [lastExportUrl, setLastExportUrl] = useState<string | null>(null);
+  const [lastExportName, setLastExportName] = useState<string | null>(null);
   // Ensure there is an active save to target
   const [ensureSaveOpen, setEnsureSaveOpen] = useState(false);
   const [ensureSaveName, setEnsureSaveName] = useState('');
@@ -406,12 +395,14 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit, o
       });
       completed.push({ ETag: etag, PartNumber: partNumber });
     }
-    await completeMultipart({ storageKey, uploadId, completed });
+    // Convex action expects `parts`, not `completed`
+    await completeMultipart({ storageKey, uploadId, parts: completed });
     onProgress(100);
     return { storageKey, publicUrl };
   };
   const autosaveTimer = useRef<number | null>(null);
   const autosaveInterval = useRef<number | null>(null);
+  const lastAutosaveAt = useRef<number | null>(null);
 
   // Preview stage sizing: keep a hard crop matching composition aspect
   const previewOuterRef = useRef<HTMLDivElement>(null);
@@ -453,31 +444,49 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit, o
   }, []);
 
   // Debounced autosave scheduler
-  const queueAutosave = useRef<() => void>(() => {});
-  queueAutosave.current = () => {
+  const queueAutosave = useRef<(force?: boolean) => void>(() => {});
+  queueAutosave.current = (force = false) => {
     if (!data?.composition?.sourceVideoId) return;
     if (!getSaveState?.autosaveEnabled) return;
+    // Skip if not dirty and not forced by timer
+    if (!force && !dirty) return;
     if (autosaveTimer.current) window.clearTimeout(autosaveTimer.current);
     autosaveTimer.current = window.setTimeout(async () => {
       try {
+        // Ensure a current save exists; if not pick latest if available
+        if (!getSaveState.currentSaveId) {
+          if ((saves?.length ?? 0) > 0) {
+            try { await setCurrentSaveMut({ compositionId: data.composition._id as any, saveId: (saves![0].id as any) }); } catch {}
+          } else {
+            // No target to save into
+            return;
+          }
+        }
         await saveIntoCurrentMut({ compositionId: data.composition._id as any });
+        lastAutosaveAt.current = Date.now();
         setDirty(false);
       } catch (e) {
         console.error('Autosave failed', e);
       }
-    }, 1500) as unknown as number;
+    }, 1200) as unknown as number;
   };
 
   // Periodic autosave guard
   useEffect(() => {
     if (autosaveInterval.current) window.clearInterval(autosaveInterval.current);
+    const period = Math.max(5000, getSaveState?.autosaveIntervalMs ?? 300000);
     autosaveInterval.current = window.setInterval(() => {
-      if (dirty && getSaveState?.autosaveEnabled) queueAutosave.current();
-    }, Math.max(5000, getSaveState?.autosaveIntervalMs ?? 300000)) as unknown as number;
+      if (!getSaveState?.autosaveEnabled) return;
+      const now = Date.now();
+      const elapsed = lastAutosaveAt.current ? (now - lastAutosaveAt.current) : Infinity;
+      if (elapsed >= period) {
+        queueAutosave.current(true);
+      }
+    }, Math.max(5000, Math.min(period, 60000))) as unknown as number; // tick at most every minute
     return () => {
       if (autosaveInterval.current) window.clearInterval(autosaveInterval.current);
     };
-  }, [dirty, data?.composition?._id, getSaveState?.autosaveEnabled, getSaveState?.autosaveIntervalMs]);
+  }, [data?.composition?._id, getSaveState?.autosaveEnabled, getSaveState?.autosaveIntervalMs]);
 
   // Auto-load the current or latest save when entering Edit Mode
   const autoLoadedRef = useRef(false);
@@ -525,6 +534,20 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit, o
       })();
     }
   }, [data?.composition?._id, getSaveState?.persisted]);
+
+  // Ensure a current version is selected if versions exist but no current is set
+  const ensuredCurrentRef = useRef(false);
+  useEffect(() => {
+    if (!data || !getSaveState) return;
+    if (ensuredCurrentRef.current) return;
+    if (getSaveState.currentSaveId) { ensuredCurrentRef.current = true; return; }
+    if ((saves?.length ?? 0) > 0) {
+      ensuredCurrentRef.current = true;
+      void (async () => {
+        try { await setCurrentSaveMut({ compositionId: data.composition._id as any, saveId: (saves![0].id as any) }); } catch (e) { console.error('Failed to set current version', e); }
+      })();
+    }
+  }, [data?.composition?._id, getSaveState?.currentSaveId, saves?.length]);
 
   const currentSaveName = useMemo(() => {
     if (!saves || !getSaveState?.currentSaveId) return null;
@@ -690,10 +713,9 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit, o
     return data.clips.find((c) => (c._id as string) === selectedClipId) ?? null;
   }, [data, selectedClipId]);
 
-  // Composition clock when no primary clip is under the playhead
+  // Composition clock drives playback at composition FPS
   useEffect(() => {
     if (!playing || !data) return;
-    if (activePrimaryClip) return; // primary video drives the playhead
     let frame: number;
     let last = performance.now();
     const run = (now: number) => {
@@ -713,17 +735,25 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit, o
     return () => cancelAnimationFrame(frame);
   }, [playing, data, activePrimaryClip]);
 
-  // On enter: ensure there is a current save to target. If missing, prompt to create one.
+  // On enter: ensure there is a current save to target.
+  // If there are NO versions at all, prompt to create one; otherwise don't show the prompt.
   useEffect(() => {
     if (!data || !getSaveState) return;
     if (ensureSaveShown.current) return;
-    if (!getSaveState.currentSaveId) {
+    const hasAnySaves = (saves?.length ?? 0) > 0;
+    if (!getSaveState.currentSaveId && !hasAnySaves) {
       const baseName = (data.composition?.title ? `${data.composition.title} — Save` : 'New Save');
       setEnsureSaveName(baseName);
       setEnsureSaveOpen(true);
       ensureSaveShown.current = true;
     }
-  }, [data?.composition?._id, getSaveState?.currentSaveId]);
+  }, [data?.composition?._id, getSaveState?.currentSaveId, saves?.length]);
+
+  // If a save appears (created elsewhere), close the ensure-save prompt automatically
+  useEffect(() => {
+    if (!ensureSaveOpen) return;
+    if ((saves?.length ?? 0) > 0) setEnsureSaveOpen(false);
+  }, [saves?.length, ensureSaveOpen]);
 
   // Editing actions: split (cut), duplicate, delete — define before guard to keep hook order stable
   const handleSplitAtPlayhead = React.useCallback(async () => {
@@ -806,28 +836,47 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit, o
   useEffect(() => {
     const maxFrames = data?.composition?.settings?.durationFrames ?? 1;
     const onKey = (e: KeyboardEvent) => {
-      // Block global shortcuts while modals are open
-      if (savesOpen || infoModalOpen || ensureSaveOpen) return;
+      // Ignore when typing in inputs or contenteditable
+      const t = e.target as HTMLElement | null;
+      if (t) {
+        const tag = (t.tagName || '').toLowerCase();
+        const isEditable = (t as any).isContentEditable || tag === 'input' || tag === 'textarea' || tag === 'select';
+        if (isEditable) return;
+      }
       // Quick save: Cmd/Ctrl+S
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
-        e.preventDefault();
-        if (!getSaveState?.currentSaveId) {
-          const baseName = (data as any)?.composition?.title ? `${(data as any).composition.title} — Save` : 'New Save';
-          setEnsureSaveName(baseName);
-          setEnsureSaveOpen(true);
-          return;
-        }
-        void saveIntoCurrentMut({ compositionId: (data as any).composition._id as any })
-          .then(() => { setDirty(false); })
-          .catch((err: any) => { console.error('Save failed', err); });
+        e.preventDefault(); e.stopPropagation();
+        void (async () => {
+          try {
+            if (!getSaveState?.currentSaveId) {
+              if ((saves?.length ?? 0) > 0) {
+                try { await setCurrentSaveMut({ compositionId: (data as any).composition._id as any, saveId: (saves![0].id as any) }); } catch {}
+              } else {
+                const baseName = (data as any)?.composition?.title ? `${(data as any).composition.title} — Save` : 'New Save';
+                setEnsureSaveName(baseName);
+                setEnsureSaveOpen(true);
+                return;
+              }
+            }
+            await saveIntoCurrentMut({ compositionId: (data as any).composition._id as any });
+            setDirty(false);
+          } catch (err) {
+            console.error('Save failed', err);
+          }
+        })();
         return;
       }
-      if (e.key === ' ') {
-        e.preventDefault();
+      if (e.key === ' ' || e.key.toLowerCase() === 'k') {
+        if (e.repeat) { e.preventDefault(); return; }
+        e.preventDefault(); e.stopPropagation();
         setPlaying((p) => !p);
       } else if (e.key.toLowerCase() === 'r') {
         e.preventDefault();
         handleSeek(0);
+      } else if (e.key.toLowerCase() === 'c') {
+        // Split (cut) at playhead
+        e.preventDefault();
+        void handleSplitAtPlayhead();
       } else if (e.key.toLowerCase() === 'i') {
         e.preventDefault();
         const base = selectedClipObj ?? activePrimaryClip;
@@ -844,28 +893,40 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit, o
         const t = trimByClipId.get(base._id as string) ?? { start: 0, end: 0 };
         const end = base.timelineStartFrame + Math.max(1, dur - Math.max(0, t.end));
         handleSeek(Math.max(0, Math.min(maxFrames - 1, end - 1)));
-      } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'd') {
-        e.preventDefault();
+      } else if (!e.metaKey && !e.ctrlKey && !e.altKey && e.key.toLowerCase() === 's') {
+        // Split (avoid browser combos)
+        e.preventDefault(); e.stopPropagation();
         void handleSplitAtPlayhead();
-      } else if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'd') {
-        e.preventDefault();
+      } else if (!e.metaKey && !e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'd') {
+        // Duplicate (Shift+D), avoid Cmd/Ctrl+D which bookmarks in browsers
+        e.preventDefault(); e.stopPropagation();
         void handleDuplicateAtPlayhead();
       } else if (e.key === 'Delete' || e.key === 'Backspace') {
-        e.preventDefault();
+        e.preventDefault(); e.stopPropagation();
         void handleDeleteSelected();
       } else if (e.key === 'ArrowLeft') {
-        e.preventDefault();
+        e.preventDefault(); e.stopPropagation();
         const step = e.shiftKey ? 10 : 1;
         handleSeek(Math.max(0, Math.floor(playhead - step)));
       } else if (e.key === 'ArrowRight') {
-        e.preventDefault();
+        e.preventDefault(); e.stopPropagation();
         const step = e.shiftKey ? 10 : 1;
         handleSeek(Math.min(maxFrames - 1, Math.ceil(playhead + step)));
+      } else if (e.key.toLowerCase() === 'j') {
+        e.preventDefault(); e.stopPropagation();
+        handleSeek(Math.max(0, Math.floor(playhead - 1)));
+      } else if (e.key.toLowerCase() === 'l') {
+        e.preventDefault(); e.stopPropagation();
+        handleSeek(Math.min(maxFrames - 1, Math.ceil(playhead + 1)));
       }
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [playhead, data?.composition?.settings?.durationFrames, handleSplitAtPlayhead, handleDuplicateAtPlayhead, handleDeleteSelected, selectedClipObj, activePrimaryClip, trimByClipId, savesOpen, infoModalOpen, ensureSaveOpen, getSaveState?.currentSaveId]);
+    window.addEventListener('keydown', onKey, { capture: true });
+    document.addEventListener('keydown', onKey, { capture: true });
+    return () => {
+      window.removeEventListener('keydown', onKey, true as any);
+      document.removeEventListener('keydown', onKey, true as any);
+    };
+  }, [playhead, data?.composition?.settings?.durationFrames, handleSplitAtPlayhead, handleDuplicateAtPlayhead, handleDeleteSelected, selectedClipObj, activePrimaryClip, trimByClipId, getSaveState?.currentSaveId]);
 
   
 
@@ -914,6 +975,75 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit, o
     }
   };
 
+  const handleClientExport = async (fastPublish?: boolean) => {
+    if (clientExporting) return;
+    if (!data) return;
+    try {
+      setClientExporting(true);
+      setClientExportProgress({ value: 0, label: 'Preparing…' });
+      const trimObject: Record<string, { start: number; end: number }> = Object.fromEntries(trimByClipId);
+      const transformMap: Record<string, { x: number; y: number; scale: number; rotate: number }> = {};
+      data.clips.forEach((clip) => {
+        const t = getTransformForClip(clip._id);
+        transformMap[clip._id as string] = { x: t.x ?? 0.5, y: t.y ?? 0.5, scale: t.scale ?? 1, rotate: t.rotate ?? 0 };
+      });
+      const missingSource = data.clips.find((clip) => !videoUrls[clip.sourceVideoId as string]);
+      if (missingSource) {
+        throw new Error('Some footage is still loading. Wait a moment and try again.');
+      }
+      const { webmBlob, mp4Blob } = await renderCompositionClient({
+        composition,
+        clips: data.clips as any,
+        trims: trimObject,
+        transforms: transformMap,
+        sources: data.sources as any,
+        videoUrls,
+        onProgress: (value, label) => {
+          console.log('[ClientExport:onProgress]', label, Math.round(value * 100) + '%');
+          setClientExportProgress({ value: Math.min(0.95, value), label });
+        },
+        debug: true,
+        logger: (msg, data) => console.log(msg, data ?? ''),
+        masterVolume,
+        retimeWebM: !!fastPublish,
+      });
+      const useFast = !!fastPublish;
+      const blob = useFast ? webmBlob : mp4Blob;
+      const ext = blob.type.includes('webm') ? 'webm' : 'mp4';
+      const filename = `${composition.title || 'export'}.${ext}`;
+      const file = new File([blob], filename, { type: blob.type || (useFast ? 'video/webm' : 'video/mp4') });
+      // Provide local download on completion
+      try { if (lastExportUrl) URL.revokeObjectURL(lastExportUrl); } catch {}
+      setLastExportUrl(URL.createObjectURL(blob));
+      setLastExportName(filename);
+      const upload = await uploadMultipart(file, file.type || 'video/mp4', (percent) => {
+        setClientExportProgress({ value: 0.95 + (percent / 100) * 0.05, label: 'Uploading…' });
+      });
+      const exportId = await recordClientExport({
+        compositionId: composition._id as any,
+        format: blob.type || (useFast ? 'video/webm' : 'video/mp4'),
+        storageKey: upload.storageKey,
+        publicUrl: upload.publicUrl,
+        durationSeconds: composition.settings.durationFrames / Math.max(1, composition.settings.fps),
+      });
+      setClientExportProgress({ value: 1, label: 'Completed' });
+      // Fast publish: go to review and open insert modal
+      if (useFast) {
+        const vid = (data.composition.sourceVideoId as any) as string;
+        const idStr = (exportId as any)?.toString?.() || (exportId as string);
+        if (vid && idStr) {
+          window.location.assign(`/review/${vid}?insertExport=${encodeURIComponent(idStr)}`);
+        }
+      }
+    } catch (err) {
+      console.error('Client export failed', err);
+      alert(err instanceof Error ? err.message : 'Client export failed');
+    } finally {
+      setClientExporting(false);
+      setTimeout(() => setClientExportProgress({ value: 0, label: '' }), 800);
+    }
+  };
+
   // Editing actions: split (cut), duplicate, delete
 
   return (
@@ -932,33 +1062,43 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit, o
             <ChevronLeft size={16} />
           </button>
           <h1 className="truncate text-lg font-semibold">{composition.title}</h1>
+        </div>
+        <div className="flex items-center gap-2">
+          {/* Save icon-only */}
           <button
-            className="ml-2 inline-flex h-8 items-center gap-1 rounded-full border border-white/20 px-3 text-xs text-white/80 hover:bg-white/10"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/20 text-white/80 hover:bg-white/10"
+            title="Save (Cmd/Ctrl+S)"
+            onClick={async () => {
+              // If no current save selected, but versions exist, select the latest one automatically.
+              if (!getSaveState?.currentSaveId) {
+                if ((saves?.length ?? 0) > 0) {
+                  try {
+                    await setCurrentSaveMut({ compositionId: composition._id as any, saveId: (saves![0].id as any) });
+                  } catch (e) {
+                    console.error('Failed to set current save', e);
+                  }
+                } else {
+                  const baseName = composition?.title ? `${composition.title} — Save` : 'New Save';
+                  setEnsureSaveName(baseName);
+                  setEnsureSaveOpen(true);
+                  return;
+                }
+              }
+              try { await saveIntoCurrentMut({ compositionId: composition._id as any }); } catch (e) { console.error(e); }
+              setDirty(false);
+            }}
+          >
+            <Save size={16} />
+          </button>
+          {/* Versions (renamed Saves) */}
+          <button
+            className="inline-flex h-8 items-center gap-1 rounded-full border border-white/20 px-3 text-xs text-white/80 hover:bg-white/10"
             title="Saved edits"
             onClick={() => setSavesOpen(true)}
           >
             <FolderOpen size={14} />
-            Saves
+            Versions
           </button>
-          <button
-            className="ml-2 inline-flex h-8 items-center gap-1 rounded-full border border-white/20 px-3 text-xs text-white/80 hover:bg-white/10"
-            title="Save (Cmd/Ctrl+S)"
-            onClick={() => {
-              if (!getSaveState?.currentSaveId) {
-                const baseName = composition?.title ? `${composition.title} — Save` : 'New Save';
-                setEnsureSaveName(baseName);
-                setEnsureSaveOpen(true);
-                return;
-              }
-              void saveIntoCurrentMut({ compositionId: composition._id as any });
-              setDirty(false);
-            }}
-          >
-            <Save size={14} />
-            Save
-          </button>
-        </div>
-        <div className="flex items-center gap-2">
           <button
             className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/20 text-white/80 hover:bg-white/10"
             title="Project info"
@@ -1006,43 +1146,11 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit, o
                   }
                   return base;
                 })()}
-                playhead={playhead}
-                playing={playing}
-                primaryClipId={(activePrimaryClip?._id as string) ?? null}
-                audioPrimaryClipId={(activePrimaryClip?._id as string) ?? null}
-                masterVolume={masterVolume}
-                onPrimaryTime={(sec) => {
-                  if (!data || !activePrimaryClip) return;
-                  const srcInfo = data.sources[activePrimaryClip.sourceVideoId];
-                  if (!srcInfo) return;
-                  const sFps = Math.max(1, srcInfo.fps);
-                  const sourceFrame = sec * sFps;
-                  const speed = Math.max(0.001, activePrimaryClip.speed);
-                  const t = trimByClipId.get(activePrimaryClip._id as string) ?? { start: 0, end: 0 };
-                  const slotLen = Math.max(1, Math.round((activePrimaryClip.sourceOutFrame - activePrimaryClip.sourceInFrame) / speed));
-                  const visibleStart = activePrimaryClip.timelineStartFrame + Math.max(0, t.start);
-                  const visibleEnd = activePrimaryClip.timelineStartFrame + Math.max(1, slotLen - Math.max(0, t.end));
-                  const sourceStart = activePrimaryClip.sourceInFrame + Math.max(0, t.start) * speed;
-                  const compFrame = visibleStart + (sourceFrame - sourceStart) / speed;
-                  const compFps = Math.max(1, data.composition.settings.fps);
-                  const endThreshold = visibleEnd - (1 / compFps) * 0.5; // half-frame tolerance
-                  if (compFrame >= endThreshold) {
-                    // Nudge just beyond this clip's end so we immediately hand off
-                    // to the composition clock or the next clip (no freeze at boundary).
-                    const epsilon = 0.001;
-                    const to = Math.min(
-                      data.composition.settings.durationFrames - 1,
-                      visibleEnd + epsilon,
-                    );
-                    setPlayhead(to);
-                    return;
-                  }
-                  if (compFrame < visibleStart) {
-                    setPlayhead(Math.max(0, Math.floor(visibleStart)));
-                    return;
-                  }
-                  setPlayhead(Math.max(0, Math.min(data.composition.settings.durationFrames - 1, compFrame)));
-                }}
+                    playhead={playhead}
+                    playing={playing}
+                    primaryClipId={null}
+                    audioPrimaryClipId={(activePrimaryClip?._id as string) ?? null}
+                    masterVolume={masterVolume}
                   />
                 </div>
               </div>
@@ -1427,15 +1535,35 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit, o
                 </div>
               </div>
               <div className="rounded-2xl border border-white/10 bg-white/5 p-4 md:col-span-2">
-                <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-white/70">
-                  <span>Exports</span>
-                  <button
-                    onClick={handleExport}
-                    disabled={exporting}
-                    className="rounded-full border border-white/20 px-3 py-1 text-xs text-white/80 hover:bg-white/10 disabled:opacity-50"
-                  >
-                    {exporting ? 'Rendering…' : 'Render MP4'}
-                  </button>
+                <div className="flex flex-col gap-2 text-xs font-semibold uppercase tracking-wide text-white/70">
+                  <div className="flex items-center justify-between">
+                    <span>Exports</span>
+                    <div className="flex items-center gap-2 text-[10px] font-normal">
+                      <button
+                        onClick={() => handleClientExport(false)}
+                        disabled={clientExporting}
+                        className="rounded-full border border-white/20 px-3 py-1 text-white/80 hover:bg-white/10 disabled:opacity-50"
+                      >
+                        {clientExporting ? 'Browser…' : 'Browser render'}
+                      </button>
+                      
+                    </div>
+                  </div>
+                  {clientExporting && (
+                    <div className="rounded-full border border-white/10 bg-white/5 p-1 text-[10px] font-normal text-white/70">
+                      <div className="mb-1">{clientExportProgress.label || 'Preparing…'}</div>
+                      <div className="h-1 w-full rounded-full bg-white/10">
+                        <div className="h-1 rounded-full bg-white/80" style={{ width: `${Math.min(100, Math.round(clientExportProgress.value * 100))}%` }} />
+                      </div>
+                    </div>
+                  )}
+                  {!clientExporting && lastExportUrl && (
+                    <div className="flex items-center gap-2 text-[11px] font-normal text-white/80">
+                      <a href={lastExportUrl} download={lastExportName || 'export'} className="inline-flex items-center gap-1 rounded-full border border-white/20 px-3 py-1 hover:bg-white/10">
+                        <Download size={12} /> Download last export
+                      </a>
+                    </div>
+                  )}
                 </div>
                 <div className="mt-3 grid grid-cols-1 gap-2 text-sm text-white/80 md:grid-cols-2">
                   {data.exports.length === 0 && <p className="text-xs text-white/60">No exports yet.</p>}
@@ -1616,12 +1744,12 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit, o
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-4">
-                {/* Fancy toggle */}
+                {/* Toggle */}
                 <button
                   type="button"
                   onClick={async () => {
                     try {
-                      await setAutosaveMut({ compositionId: composition._id as any, enabled: !getSaveState?.autosaveEnabled, intervalMs: getSaveState?.autosaveIntervalMs ?? 30000 });
+                      await setAutosaveMut({ compositionId: composition._id as any, enabled: !getSaveState?.autosaveEnabled, intervalMs: getSaveState?.autosaveIntervalMs ?? 300000 });
                     } catch (err) { console.error(err); }
                   }}
                   className={`relative inline-flex h-6 w-11 items-center rounded-full transition ${getSaveState?.autosaveEnabled ? 'bg-emerald-500' : 'bg-white/20'}`}
@@ -1631,25 +1759,70 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit, o
                     className={`inline-block h-5 w-5 transform rounded-full bg-white transition ${getSaveState?.autosaveEnabled ? 'translate-x-5' : 'translate-x-1'}`}
                   />
                 </button>
+                {/* Interval control */}
                 <div className={`flex items-center gap-2 ${getSaveState?.autosaveEnabled ? '' : 'opacity-50'}`}>
                   <span className="text-white/60 text-sm">Every</span>
+                  <button
+                    className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-white/20 text-white/80 hover:bg-white/10 disabled:opacity-40"
+                    disabled={!getSaveState?.autosaveEnabled}
+                    onClick={async () => {
+                      const cur = Math.max(5, Math.round(((getSaveState?.autosaveIntervalMs ?? 300000) / 1000)));
+                      const next = Math.max(5, cur - 5);
+                      try { await setAutosaveMut({ compositionId: composition._id as any, enabled: !!getSaveState?.autosaveEnabled, intervalMs: next * 1000 }); } catch (err) { console.error(err); }
+                    }}
+                    title="-5s"
+                  >−</button>
                   <input
-                    type="number"
+                    type="range"
                     min={5}
+                    max={1800}
                     step={5}
                     disabled={!getSaveState?.autosaveEnabled}
-                    value={Math.round(((getSaveState?.autosaveIntervalMs ?? 300000) / 1000))}
+                    value={Math.max(5, Math.round(((getSaveState?.autosaveIntervalMs ?? 300000) / 1000)))}
                     onChange={async (e) => {
-                      const sec = Math.max(5, Number(e.target.value) || 30);
+                      const sec = Math.max(5, Number(e.target.value) || 300);
                       try { await setAutosaveMut({ compositionId: composition._id as any, enabled: !!getSaveState?.autosaveEnabled, intervalMs: sec * 1000 }); } catch (err) { console.error(err); }
                     }}
-                    className="w-20 rounded border border-white/20 bg-black/40 px-2 py-1 text-sm disabled:cursor-not-allowed"
+                    className="h-1.5 w-56 appearance-none rounded-full bg-white/10 accent-white"
                   />
-                  <span className="text-white/60 text-sm">seconds</span>
+                  <button
+                    className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-white/20 text-white/80 hover:bg-white/10 disabled:opacity-40"
+                    disabled={!getSaveState?.autosaveEnabled}
+                    onClick={async () => {
+                      const cur = Math.max(5, Math.round(((getSaveState?.autosaveIntervalMs ?? 300000) / 1000)));
+                      const next = Math.min(3600, cur + 5);
+                      try { await setAutosaveMut({ compositionId: composition._id as any, enabled: !!getSaveState?.autosaveEnabled, intervalMs: next * 1000 }); } catch (err) { console.error(err); }
+                    }}
+                    title="+5s"
+                  >＋</button>
+                  <span className="text-white/80 text-sm w-20 text-center">
+                    {(() => {
+                      const sec = Math.max(5, Math.round(((getSaveState?.autosaveIntervalMs ?? 300000) / 1000)));
+                      if (sec < 60) return `${sec}s`;
+                      const m = Math.floor(sec / 60);
+                      const s = sec % 60;
+                      return s ? `${m}m ${s}s` : `${m}m`;
+                    })()}
+                  </span>
+                  {/* Presets */}
+                  <div className="flex items-center gap-1">
+                    {[30, 60, 300, 600].map((p) => (
+                      <button
+                        key={p}
+                        disabled={!getSaveState?.autosaveEnabled}
+                        className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] ${((getSaveState?.autosaveIntervalMs ?? 300000)/1000) === p ? 'border-emerald-400 text-emerald-300' : 'border-white/20 text-white/70'} hover:bg-white/10 disabled:opacity-40`}
+                        onClick={async () => {
+                          try { await setAutosaveMut({ compositionId: composition._id as any, enabled: !!getSaveState?.autosaveEnabled, intervalMs: p * 1000 }); } catch (err) { console.error(err); }
+                        }}
+                      >{p < 60 ? `${p}s` : `${Math.round(p/60)}m`}</button>
+                    ))}
+                  </div>
                 </div>
                 {!currentSaveName && (
                   <span className="text-[12px] text-amber-300">Tip: select a save with “Use” to enable autosave target.</span>
-      )}
+                )}
+              </div>
+            </div>
 
       {/* Ensure Active Save Modal */}
       {ensureSaveOpen && (
@@ -1692,8 +1865,8 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit, o
           </div>
         </div>
       )}
-              </div>
-            </div>
+
+      
             <div className="max-h-[50vh] overflow-auto rounded-xl border border-white/10 bg-white/5">
               <table className="w-full text-sm">
                 <thead>
@@ -1798,5 +1971,7 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit, o
     </div>
   );
 };
+
+// (removed Exports click-away helper)
 
 export default EditorPage;

@@ -523,6 +523,36 @@ export const queueExport = mutation({
   },
 });
 
+export const recordClientExport = mutation({
+  args: {
+    compositionId: v.id("compositions"),
+    format: v.string(),
+    storageKey: v.string(),
+    publicUrl: v.string(),
+    durationSeconds: v.number(),
+    note: v.optional(v.string()),
+  },
+  async handler(ctx, { compositionId, format, storageKey, publicUrl }) {
+    const user = await getCurrentUserOrThrow(ctx);
+    await assertCompositionOwner(ctx, compositionId, user._id);
+    const now = Date.now();
+    const exportId = await ctx.db.insert("compositionExports", {
+      compositionId,
+      ownerId: user._id,
+      status: "completed",
+      format,
+      renderJobId: undefined,
+      outputStorageKey: storageKey,
+      outputPublicUrl: publicUrl,
+      progress: 100,
+      error: undefined,
+      createdAt: now,
+      updatedAt: now,
+    });
+    return exportId;
+  },
+});
+
 export const attachExportToReview = mutation({
   args: {
     exportId: v.id("compositionExports"),
@@ -596,6 +626,35 @@ export const listExports = query({
 
     return exports.sort((a, b) => b.createdAt - a.createdAt);
   },
+});
+
+export const deleteExport = mutation({
+  args: {
+    exportId: v.id('compositionExports'),
+  },
+  async handler(ctx, { exportId }) {
+    const user = await getCurrentUserOrThrow(ctx);
+    const exp = await ctx.db.get(exportId);
+    if (!exp) return;
+    if ((exp as any).ownerId !== user._id) throw new ConvexError('FORBIDDEN');
+    // Best-effort: delete underlying object if present
+    const storageKey = (exp as any).outputStorageKey as string | undefined;
+    if (storageKey) {
+      try {
+        await ctx.scheduler.runAfter(0, internal.storage.deleteObject as any, { storageKey });
+      } catch {}
+    }
+    // If there is a render job, remove it too
+    const jobId = (exp as any).renderJobId as Id<'renderJobs'> | undefined;
+    if (jobId) {
+      try { await ctx.db.delete(jobId); } catch {}
+    }
+    await ctx.db.delete(exportId);
+    // Touch composition for listeners
+    if ((exp as any).compositionId) {
+      try { await ctx.db.patch((exp as any).compositionId, { updatedAt: Date.now() }); } catch {}
+    }
+  }
 });
 
 // --- Composition save/load (snapshots) ---
@@ -698,11 +757,19 @@ export const loadSnapshot = mutation({
       await ensureProjectOwnership(ctx, baseProjectId, user._id);
     }
 
+    // Build a clean title: "<original> - <save name>" once, without accumulating
+    const baseTitle = (snap.composition.title ?? '').trim();
+    const saveName = (save.name ?? '').trim();
+    let computedTitle = baseTitle || 'Untitled';
+    if (saveName && !computedTitle.endsWith(` - ${saveName}`)) {
+      computedTitle = `${computedTitle} - ${saveName}`;
+    }
+
     const newCompId = await ctx.db.insert('compositions', {
       ownerId: user._id,
       projectId: baseProjectId ?? undefined,
       sourceVideoId: snap.composition.sourceVideoId ?? undefined,
-      title: title ?? `${snap.composition.title} (loaded ${new Date(now).toLocaleString()})`,
+      title: (title ?? computedTitle),
       description: snap.composition.description ?? undefined,
       settings: snap.composition.settings,
       version: 1,
@@ -918,7 +985,32 @@ export const saveIntoCurrent = mutation({
       await ctx.db.patch(state.currentSaveId, { snapshot, compositionId, updatedAt: now });
       return { id: state.currentSaveId };
     }
-    // No current: create a default "Current" save and set it
+    // No current selected: if there are existing versions, save into the latest one instead of creating "Current".
+    const existingSaves = await ctx.db
+      .query('compositionSaves')
+      .withIndex('byVideo', (q) => q.eq('videoId', comp.sourceVideoId as Id<'videos'>))
+      .collect();
+    const myLatest = existingSaves
+      .filter((s: any) => s.ownerId === user._id)
+      .sort((a: any, b: any) => (b.updatedAt as number) - (a.updatedAt as number))[0] as any | undefined;
+    if (myLatest) {
+      await ctx.db.patch(myLatest._id, { snapshot, compositionId, updatedAt: now });
+      if (state) {
+        await ctx.db.patch(state._id, { currentSaveId: myLatest._id, updatedAt: now });
+      } else {
+        await ctx.db.insert('compositionSaveStates', {
+          ownerId: user._id,
+          compositionId,
+          videoId: comp.sourceVideoId as Id<'videos'>,
+          currentSaveId: myLatest._id,
+          autosaveEnabled: false,
+          autosaveIntervalMs: 300000,
+          updatedAt: now,
+        });
+      }
+      return { id: myLatest._id } as any;
+    }
+    // No versions exist: create one as a last resort
     const saveId = await ctx.db.insert('compositionSaves', {
       ownerId: user._id,
       videoId: comp.sourceVideoId as Id<'videos'>,
