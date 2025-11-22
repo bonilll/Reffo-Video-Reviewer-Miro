@@ -319,6 +319,12 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit, o
   const [zoom, setZoom] = useState(1);
   const [videoUrls, setVideoUrls] = useState<Record<string, string>>({});
   const getDownloadUrl = useAction(api.storage.getDownloadUrl);
+  // Upload actions
+  const generateVideoUploadUrl = useAction(api.storage.generateVideoUploadUrl);
+  const createMultipart = useAction((api as any).storage.createMultipartUpload);
+  const getMultipartUrls = useAction((api as any).storage.getMultipartUploadUrls);
+  const completeMultipart = useAction((api as any).storage.completeMultipartUpload);
+  const abortMultipart = useAction((api as any).storage.abortMultipartUpload);
   const queueExport = useMutation(api.edits.queueExport);
   const [exporting, setExporting] = useState(false);
   const updateClip = useMutation(api.edits.updateClip);
@@ -331,6 +337,7 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit, o
   const renameSaveMut = useMutation((api as any).edits.renameSave);
   const deleteSaveMut = useMutation((api as any).edits.deleteSave);
   const upsertAutosaveMut = useMutation((api as any).edits.upsertAutosave);
+  const completeVideoUpload = useMutation((api as any).videos.completeUpload);
   const getSaveState = useQuery((api as any).edits.getSaveState, { compositionId } as any) as { currentSaveId: string | null; autosaveEnabled: boolean; autosaveIntervalMs: number; persisted?: boolean } | undefined;
   const setCurrentSaveMut = useMutation((api as any).edits.setCurrentSave);
   const setAutosaveMut = useMutation((api as any).edits.setAutosave);
@@ -345,6 +352,59 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit, o
   const [dirty, setDirty] = useState(false);
   const [masterVolume, setMasterVolume] = useState(1);
   const [addClipOpen, setAddClipOpen] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
+  const resolveContentType = (file: File): string => {
+    const t = (file.type || '').toLowerCase();
+    if (t && t !== 'application/octet-stream') return t;
+    const name = file.name.toLowerCase();
+    if (name.endsWith('.mp4') || name.endsWith('.m4v')) return 'video/mp4';
+    if (name.endsWith('.webm')) return 'video/webm';
+    if (name.endsWith('.mov')) return 'video/quicktime';
+    return 'application/octet-stream';
+  };
+
+  const loadVideoMetadata = (file: File) => new Promise<{ width: number; height: number; duration: number }>((resolve, reject) => {
+    const videoEl = document.createElement('video');
+    const revoke = () => { if (videoEl.src.startsWith('blob:')) URL.revokeObjectURL(videoEl.src); };
+    videoEl.preload = 'metadata';
+    videoEl.onloadedmetadata = () => { resolve({ width: videoEl.videoWidth || 1920, height: videoEl.videoHeight || 1080, duration: Number.isFinite(videoEl.duration) ? videoEl.duration : 0 }); revoke(); };
+    videoEl.onerror = () => { revoke(); reject(new Error('Unable to read video metadata.')); };
+    videoEl.src = URL.createObjectURL(file);
+  });
+
+  const uploadMultipart = async (file: File, contentType: string, onProgress: (p: number) => void) => {
+    const partSize = 16 * 1024 * 1024; // 16MB
+    const totalParts = Math.max(1, Math.ceil(file.size / partSize));
+    const { storageKey, uploadId, publicUrl } = await createMultipart({ contentType, fileName: file.name });
+    const partNumbers = Array.from({ length: totalParts }, (_, i) => i + 1);
+    const { urls } = await getMultipartUrls({ storageKey, uploadId, partNumbers, contentType });
+    let uploadedBytes = 0;
+    const completed: Array<{ ETag: string; PartNumber: number }> = [];
+    for (let idx = 0; idx < totalParts; idx++) {
+      const partNumber = partNumbers[idx];
+      const start = idx * partSize;
+      const end = Math.min(file.size, start + partSize);
+      const blob = file.slice(start, end);
+      const url = urls.find((u: any) => u.partNumber === partNumber)?.url;
+      if (!url) throw new Error('Missing presigned URL for part ' + partNumber);
+      const etag = await new Promise<string>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('PUT', url, true);
+        xhr.setRequestHeader('Content-Type', contentType);
+        xhr.upload.onprogress = (e) => { if (e.lengthComputable) { uploadedBytes += (e.loaded - (uploadedBytes % partSize)); const percent = (Math.min(end, uploadedBytes) / file.size) * 100; onProgress(Math.max(0, Math.min(100, percent))); } };
+        xhr.onload = () => { if (xhr.status >= 200 && xhr.status < 300) resolve(xhr.getResponseHeader('ETag') || 'etag'); else reject(new Error('Part upload failed')); };
+        xhr.onerror = () => reject(new Error('Part upload failed'));
+        xhr.send(blob);
+      });
+      completed.push({ ETag: etag, PartNumber: partNumber });
+    }
+    await completeMultipart({ storageKey, uploadId, completed });
+    onProgress(100);
+    return { storageKey, publicUrl };
+  };
   const autosaveTimer = useRef<number | null>(null);
   const autosaveInterval = useRef<number | null>(null);
 
@@ -590,6 +650,7 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit, o
   const activePrimaryClip = useMemo(() => {
     if (!data) return null as ClipDoc | null;
     const containsVisible = (clip: ClipDoc) => {
+      if ((clip as any).hidden) return false;
       const speed = Math.max(0.001, clip.speed);
       const slot = Math.max(1, Math.round((clip.sourceOutFrame - clip.sourceInFrame) / speed));
       const t = trimByClipId.get(clip._id as string) ?? { start: 0, end: 0 };
@@ -609,6 +670,7 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit, o
     if (!data) return [] as ClipDoc[];
     const getSlot = (c: ClipDoc) => Math.max(1, Math.round((c.sourceOutFrame - c.sourceInFrame) / Math.max(0.001, c.speed)));
     return data.clips.filter((clip) => {
+      if ((clip as any).hidden) return false;
       const slot = getSlot(clip);
       const t = trimByClipId.get(clip._id as string) ?? { start: 0, end: 0 };
       const startF = clip.timelineStartFrame + Math.max(0, t.start);
@@ -903,7 +965,7 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit, o
                     })
                     .filter(Boolean) as any[];
                   // If nothing is under the playhead, show the selected clip as a fallback
-                  if (base.length === 0 && selectedClip) {
+                  if (base.length === 0 && selectedClip && !(selectedClip as any).hidden) {
                     const source = data.sources[selectedClip.sourceVideoId];
                     const src = videoUrls[selectedClip.sourceVideoId];
                     if (source && src) {
@@ -1401,6 +1463,75 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit, o
               {Object.keys(data.sources).length === 0 && (
                 <div className="text-sm text-white/60">No sources available for this composition.</div>
               )}
+              <div className="mt-3 rounded-xl border border-white/10 bg-white/5 p-3">
+                <div className="mb-2 text-sm text-white/80">Upload new source</div>
+                <input type="file" accept="video/*" onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  setUploadError(null);
+                  setUploading(true);
+                  setUploadProgress(0);
+                  try {
+                    const contentType = resolveContentType(file);
+                    const meta = await loadVideoMetadata(file);
+                    let storageKey: string, publicUrl: string;
+                    if (file.size >= 100 * 1024 * 1024) {
+                      const res = await uploadMultipart(file, contentType, (p) => setUploadProgress(p));
+                      storageKey = res.storageKey; publicUrl = res.publicUrl as any;
+                    } else {
+                      const creds = await generateVideoUploadUrl({ contentType, fileName: file.name });
+                      await new Promise<void>((resolve, reject) => {
+                        const xhr = new XMLHttpRequest();
+                        xhr.open('PUT', creds.uploadUrl, true);
+                        xhr.setRequestHeader('Content-Type', contentType);
+                        xhr.upload.onprogress = (ev) => { if (ev.lengthComputable) setUploadProgress((ev.loaded / ev.total) * 100); };
+                        xhr.onload = () => { if (xhr.status >= 200 && xhr.status < 300) resolve(); else reject(new Error('Upload failed')); };
+                        xhr.onerror = () => reject(new Error('Upload failed'));
+                        xhr.send(file);
+                      });
+                      storageKey = creds.storageKey; publicUrl = creds.publicUrl;
+                      setUploadProgress(100);
+                    }
+                    // Create video record
+                    const fps = Math.max(1, composition.settings.fps || 30);
+                    const created = await completeVideoUpload({
+                      storageKey,
+                      publicUrl,
+                      title: file.name,
+                      width: meta.width,
+                      height: meta.height,
+                      fps,
+                      duration: meta.duration,
+                      projectId: (data.composition as any).projectId ?? undefined,
+                      thumbnailUrl: undefined,
+                    });
+                    // Add as clip at playhead
+                    const highestZ = data.clips.length ? Math.max(...data.clips.map((c) => c.zIndex ?? 0)) : 0;
+                    await addClip({
+                      compositionId: data.composition._id as any,
+                      sourceVideoId: (created as any).id as any,
+                      sourceInFrame: 0,
+                      sourceOutFrame: Math.max(1, Math.round(meta.duration * fps)),
+                      timelineStartFrame: Math.round(playhead),
+                      speed: 1,
+                      opacity: 1,
+                      label: file.name,
+                      zIndex: highestZ + 1,
+                    });
+                    setAddClipOpen(false);
+                  } catch (err:any) {
+                    setUploadError(err?.message || 'Upload failed');
+                  } finally {
+                    setUploading(false);
+                  }
+                }} />
+                {uploading && (
+                  <div className="mt-2 text-[12px] text-white/70">Uploading… {Math.round(uploadProgress)}%</div>
+                )}
+                {uploadError && (
+                  <div className="mt-2 text-[12px] text-red-400">{uploadError}</div>
+                )}
+              </div>
             </div>
           </div>
         </div>

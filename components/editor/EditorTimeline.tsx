@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Play, Pause, ChevronLeft, ChevronRight, SkipBack, SkipForward } from 'lucide-react';
+import { Play, Pause, ChevronLeft, ChevronRight, SkipBack, SkipForward, Volume2, VolumeX } from 'lucide-react';
 import type { Id } from '../../convex/_generated/dataModel';
 
 type ClipDoc = {
@@ -32,6 +32,9 @@ type TimelineProps = {
   onTogglePlay?: () => void;
   onReset?: () => void;
   onRenameClip?: (clipId: string, title: string) => void;
+  onAddClip?: () => void;
+  masterVolume?: number;
+  onChangeVolume?: (v: number) => void;
 };
 
 const COLORS = ['#38bdf8', '#a855f7', '#f97316', '#14b8a6', '#ec4899', '#facc15'];
@@ -433,22 +436,49 @@ export const EditorTimeline: React.FC<TimelineProps> = ({ clips, durationFrames,
           </div>
         </div>
         <div className="relative h-12">
-        {/* Hover trigger */}
-        <div className="absolute left-0 top-1/2 -translate-y-1/2">
-          <span
-            className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-white/20 text-[11px] text-white/80"
-            onMouseEnter={() => setHelpOpen(true)}
+        {/* Left controls */}
+        <div className="absolute left-0 top-1/2 -translate-y-1/2 flex items-center gap-2">
+          <button
+            className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-white/20 text-[11px] text-white/80 hover:bg-white/10"
+            onClick={() => setHelpOpen((v) => !v)}
+            title="Shortcuts"
           >
             ?
-          </span>
+          </button>
+          <button
+            className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-white/20 text-[11px] text-white/80 hover:bg-white/10"
+            title="Add clip"
+            onClick={(e) => { e.stopPropagation(); (onAddClip as any)?.(); }}
+          >
+            +
+          </button>
+          <button
+            className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-white/20 text-[11px] text-white/80 hover:bg-white/10"
+            title={masterVolume > 0 ? 'Mute all' : 'Unmute all'}
+            onClick={() => { if (onChangeVolume) onChangeVolume(masterVolume > 0 ? 0 : 1); }}
+          >
+            {masterVolume > 0 ? <Volume2 size={12} /> : <VolumeX size={12} />}
+          </button>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            value={Math.round(masterVolume * 100)}
+            onChange={(e) => onChangeVolume?.(Math.max(0, Math.min(100, Number(e.target.value))) / 100)}
+            className="h-1 w-24 appearance-none rounded-full bg-white/10 accent-white range-thumb-white"
+            title={`Volume ${Math.round(masterVolume * 100)}%`}
+          />
         </div>
         {helpOpen && createPortal(
           <div
             className="fixed inset-0 z-[2147483647] flex items-center justify-center"
-            onMouseLeave={() => setHelpOpen(false)}
+            onClick={() => setHelpOpen(false)}
           >
             <div className="absolute inset-0 bg-black/60" />
-            <div className="relative w-[min(92vw,960px)] max-h-[85vh] overflow-auto rounded-lg border border-white/10 bg-black/95 p-6 text-white shadow-2xl">
+            <div className="relative w-[min(92vw,960px)] max-h-[85vh] overflow-auto rounded-lg border border-white/10 bg-black/95 p-6 text-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+              <div className="absolute right-3 top-3">
+                <button className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-white/20 text-white/80 hover:bg-white/10" onClick={() => setHelpOpen(false)} title="Close">×</button>
+              </div>
               <div className="mb-4 text-xl font-semibold text-white">Timeline — Shortcuts & Tips</div>
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2 text-sm">
                 <div>
