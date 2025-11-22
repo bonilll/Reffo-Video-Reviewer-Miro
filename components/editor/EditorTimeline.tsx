@@ -53,7 +53,7 @@ const lanesFromClips = (clips: Array<{ zIndex: number }>) => {
   return [topExtra, ...zs, bottomExtra];
 };
 
-export const EditorTimeline: React.FC<TimelineProps> = ({ clips, durationFrames, fps, playhead, zoom, onSeek, onZoomChange, selectedClipId, onSelectClip, onMoveClip, trims, onTrimClip, playing = false, onTogglePlay, onReset, onRenameClip }) => {
+export const EditorTimeline: React.FC<TimelineProps> = ({ clips, durationFrames, fps, playhead, zoom, onSeek, onZoomChange, selectedClipId, onSelectClip, onMoveClip, trims, onTrimClip, playing = false, onTogglePlay, onReset, onRenameClip, onAddClip, masterVolume = 1, onChangeVolume }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState<number>(0);
@@ -411,7 +411,28 @@ export const EditorTimeline: React.FC<TimelineProps> = ({ clips, durationFrames,
 
   return (
     <div className="w-full select-none">
-      <div className="mb-3 relative h-12 text-xs text-white/60">
+      <div className="mb-3 grid grid-cols-[48px_1fr] gap-3 text-xs text-white/60">
+        <div className="flex flex-col items-center gap-2">
+          <button
+            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-white/20 text-white/80 hover:bg-white/10"
+            title="Add clip"
+            onClick={(e) => { e.stopPropagation(); onAddClip?.(); }}
+          >
+            +
+          </button>
+          <div className="w-9">
+            <input
+              type="range"
+              min={0}
+              max={100}
+              value={Math.round(masterVolume * 100)}
+              onChange={(e) => onChangeVolume?.(Math.max(0, Math.min(100, Number(e.target.value))) / 100)}
+              className="h-1.5 w-full appearance-none rounded-full bg-white/10 accent-white range-thumb-white"
+              title={`Volume ${Math.round(masterVolume * 100)}%`}
+            />
+          </div>
+        </div>
+        <div className="relative h-12">
         {/* Hover trigger */}
         <div className="absolute left-0 top-1/2 -translate-y-1/2">
           <span
@@ -491,6 +512,7 @@ export const EditorTimeline: React.FC<TimelineProps> = ({ clips, durationFrames,
             +
           </button>
           <span className="w-10 text-right text-xs text-white/60">{zoom.toFixed(1)}×</span>
+        </div>
         </div>
       </div>
       <div

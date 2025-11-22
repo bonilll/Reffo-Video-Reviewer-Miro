@@ -3,7 +3,7 @@ import { useAction, useMutation, useQuery } from 'convex/react';
 import { api } from '../../convex/_generated/api';
 import type { Id } from '../../convex/_generated/dataModel';
 import { EditorTimeline } from './EditorTimeline';
-import { Loader2, Pause, Play, RefreshCw, ChevronLeft, Info, Settings, Save, FolderOpen, Trash2, Edit3 } from 'lucide-react';
+import { Loader2, Pause, Play, RefreshCw, ChevronLeft, Info, Settings, Save, FolderOpen, Trash2, Edit3, Eye, EyeOff, Volume2, VolumeX } from 'lucide-react';
 
 const formatSeconds = (seconds: number) => {
   const mins = Math.floor(seconds / 60)
@@ -166,7 +166,9 @@ const MultiPreviewSurface: React.FC<{
   playing: boolean;
   primaryClipId?: string | null;
   onPrimaryTime?: (timeSec: number) => void;
-}> = ({ composition, items, playhead, playing, primaryClipId, onPrimaryTime }) => {
+  audioPrimaryClipId?: string | null;
+  masterVolume?: number;
+}> = ({ composition, items, playhead, playing, primaryClipId, onPrimaryTime, audioPrimaryClipId = null, masterVolume = 1 }) => {
   const videoRefs = useRef<Record<string, HTMLVideoElement | null>>({});
 
   useEffect(() => {
@@ -214,13 +216,20 @@ const MultiPreviewSurface: React.FC<{
           }
         } catch {}
       }
+      // Audio routing: only the audioPrimary (if enabled) outputs audio
+      const isAudioPrimary = audioPrimaryClipId && (it.clip._id as string) === audioPrimaryClipId;
+      const wantsAudio = isAudioPrimary && ((it.clip as any).audioEnabled ?? true) && masterVolume > 0 && playing;
+      try {
+        video.muted = !wantsAudio;
+        video.volume = Math.max(0, Math.min(1, masterVolume));
+      } catch {}
       if (playing) {
         if (video.paused) void video.play().catch(() => undefined);
       } else if (!video.paused) {
         video.pause();
       }
     });
-  }, [items, playhead, playing]);
+  }, [items, playhead, playing, audioPrimaryClipId, masterVolume]);
 
   // Drive playhead from the primary video's clock if requested
   useEffect(() => {
@@ -265,6 +274,7 @@ const MultiPreviewSurface: React.FC<{
           const sc = t.scale ?? 1;
           const rot = t.rotate ?? 0;
           const z = (it as any).renderZ ?? (it.clip.zIndex as unknown as number) ?? 0;
+          if ((it.clip as any).hidden) return null;
           const speed = Math.max(0.001, it.clip.speed);
           const slotLen = Math.max(1, Math.round((it.clip.sourceOutFrame - it.clip.sourceInFrame) / speed));
           const trimStart = Math.max(0, (it as any).trim?.start ?? 0);
@@ -333,6 +343,8 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit, o
   const [savesOpen, setSavesOpen] = useState(false);
   const [saveName, setSaveName] = useState('');
   const [dirty, setDirty] = useState(false);
+  const [masterVolume, setMasterVolume] = useState(1);
+  const [addClipOpen, setAddClipOpen] = useState(false);
   const autosaveTimer = useRef<number | null>(null);
   const autosaveInterval = useRef<number | null>(null);
 
@@ -905,6 +917,8 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit, o
                 playhead={playhead}
                 playing={playing}
                 primaryClipId={(activePrimaryClip?._id as string) ?? null}
+                audioPrimaryClipId={(activePrimaryClip?._id as string) ?? null}
+                masterVolume={masterVolume}
                 onPrimaryTime={(sec) => {
                   if (!data || !activePrimaryClip) return;
                   const srcInfo = data.sources[activePrimaryClip.sourceVideoId];
@@ -947,6 +961,29 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit, o
                   <div className="text-xs text-white/60">Select a clip to edit its properties.</div>
                 ) : (
                   <div className="space-y-4 text-sm">
+                    {/* Quick toggles: visibility & audio */}
+                    <div className="flex items-center gap-2">
+                      <button
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-white/10 text-white/80 hover:bg-white/10"
+                        title={(selectedClip as any).hidden ? 'Show layer' : 'Hide layer'}
+                        onClick={async () => {
+                          setDirty(true); queueAutosave.current();
+                          await updateClip({ clipId: selectedClip._id as any, patch: { hidden: !(selectedClip as any).hidden } as any });
+                        }}
+                      >
+                        {(selectedClip as any).hidden ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                      <button
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-white/10 text-white/80 hover:bg-white/10"
+                        title={(selectedClip as any).audioEnabled ? 'Mute audio' : 'Unmute audio'}
+                        onClick={async () => {
+                          setDirty(true); queueAutosave.current();
+                          await updateClip({ clipId: selectedClip._id as any, patch: { audioEnabled: !((selectedClip as any).audioEnabled ?? true) } as any });
+                        }}
+                      >
+                        {((selectedClip as any).audioEnabled ?? true) ? <Volume2 size={16} /> : <VolumeX size={16} />}
+                      </button>
+                    </div>
                     {/* Position (px) */}
                     <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
                       <div className="mb-2 flex items-center justify-between">
@@ -1239,6 +1276,9 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit, o
                 keyframes: [{ frame: 0, value: { start: Math.max(0, Math.round(trim.start)), end: Math.max(0, Math.round(trim.end)) }, interpolation: 'hold' }],
               });
             }}
+            onAddClip={() => setAddClipOpen(true)}
+            masterVolume={masterVolume}
+            onChangeVolume={setMasterVolume}
             playing={playing}
             onTogglePlay={() => setPlaying((p) => !p)}
             onReset={() => handleSeek(0)}
@@ -1319,6 +1359,48 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit, o
                   ))}
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Clip Modal */}
+      {addClipOpen && (
+        <div className="fixed inset-0 z-[99999] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md rounded-2xl border border-white/10 bg-black/85 p-5 text-white shadow-2xl">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-base font-semibold">Add clip</h2>
+              <button className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/20 text-white/80 hover:bg-white/10" onClick={() => setAddClipOpen(false)} title="Close">×</button>
+            </div>
+            <div className="space-y-2 max-h-[50vh] overflow-auto pr-2">
+              {Object.values(data.sources).map((source) => (
+                <button key={source._id as string} className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-left hover:bg-white/10" onClick={async () => {
+                  try {
+                    const fps = Math.max(1, source.fps);
+                    const durationFrames = Math.max(1, Math.round(source.durationSeconds * fps));
+                    // Top z
+                    const highestZ = data.clips.length ? Math.max(...data.clips.map((c) => c.zIndex ?? 0)) : 0;
+                    await addClip({
+                      compositionId: data.composition._id as any,
+                      sourceVideoId: source._id as any,
+                      sourceInFrame: 0,
+                      sourceOutFrame: durationFrames,
+                      timelineStartFrame: Math.round(playhead),
+                      speed: 1,
+                      opacity: 1,
+                      label: source.title,
+                      zIndex: highestZ + 1,
+                    });
+                    setAddClipOpen(false);
+                  } catch (e) { console.error(e); }
+                }}>
+                  <div className="font-semibold">{source.title}</div>
+                  <div className="text-[12px] text-white/60">{source.width}×{source.height} · {source.fps} fps · {Math.round(source.durationSeconds)}s</div>
+                </button>
+              ))}
+              {Object.keys(data.sources).length === 0 && (
+                <div className="text-sm text-white/60">No sources available for this composition.</div>
+              )}
             </div>
           </div>
         </div>

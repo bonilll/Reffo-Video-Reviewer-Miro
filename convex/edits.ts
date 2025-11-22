@@ -31,6 +31,8 @@ const clipPatchValidator = v.object({
   label: v.optional(v.string()),
   zIndex: v.optional(v.number()),
   transformTrackId: v.optional(v.id("keyframeTracks")),
+  audioEnabled: v.optional(v.boolean()),
+  hidden: v.optional(v.boolean()),
 });
 
 const DEFAULT_SETTINGS = {
@@ -360,6 +362,8 @@ export const addClip = mutation({
       transformTrackId: undefined,
       zIndex: args.zIndex ?? highestZ + 1,
       label: args.label,
+      audioEnabled: true,
+      hidden: false,
       createdAt: now,
       updatedAt: now,
     });

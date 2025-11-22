@@ -273,6 +273,8 @@ export default defineSchema({
     transformTrackId: v.optional(v.id("keyframeTracks")),
     zIndex: v.number(),
     label: v.optional(v.string()),
+    audioEnabled: v.optional(v.boolean()),
+    hidden: v.optional(v.boolean()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
