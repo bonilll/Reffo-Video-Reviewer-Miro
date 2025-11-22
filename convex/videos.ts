@@ -19,9 +19,11 @@ export const list = query({
       .withIndex("byOwner", (q) => q.eq("ownerId", user._id));
 
     const videos = await videosQuery.collect();
+    // Exclude edit-only assets from general listing
+    const notAssets = videos.filter((v: any) => !(v as any).isEditAsset);
     const filtered = projectId
-      ? videos.filter((video) => video.projectId === projectId)
-      : videos;
+      ? notAssets.filter((video) => video.projectId === projectId)
+      : notAssets;
 
     return filtered.map((video) => ({
       id: video._id,
@@ -124,6 +126,7 @@ export const completeUpload = mutation({
     duration: v.number(),
     projectId: v.optional(v.id("projects")),
     thumbnailUrl: v.optional(v.string()),
+    isEditAsset: v.optional(v.boolean()),
   },
   async handler(ctx, args) {
     const user = await getCurrentUserOrThrow(ctx);
@@ -162,6 +165,7 @@ export const completeUpload = mutation({
     const videoId = await ctx.db.insert("videos", {
       ownerId: user._id,
       projectId: args.projectId,
+      isEditAsset: args.isEditAsset ?? false,
       title: args.title,
       description: args.description,
       storageKey: args.storageKey,
@@ -196,6 +200,34 @@ export const completeUpload = mutation({
       thumbnailUrl: video.thumbnailUrl ?? null,
     };
   },
+});
+
+export const listEditAssets = query({
+  args: {},
+  async handler(ctx) {
+    const user = await getCurrentUserDoc(ctx);
+    if (!user) return [] as Array<any>;
+    const videos = await ctx.db
+      .query('videos')
+      .withIndex('byOwner', (q) => q.eq('ownerId', user._id))
+      .collect();
+    const assets = (videos as any[]).filter((v) => v.isEditAsset === true);
+    return assets
+      .sort((a, b) => b.uploadedAt - a.uploadedAt)
+      .map((video) => ({
+        id: video._id,
+        title: video.title,
+        src: video.src,
+        storageKey: video.storageKey,
+        width: video.width,
+        height: video.height,
+        fps: video.fps,
+        duration: video.duration,
+        projectId: video.projectId ?? null,
+        uploadedAt: video.uploadedAt,
+        thumbnailUrl: video.thumbnailUrl ?? null,
+      }));
+  }
 });
 
 export const updateMetadata = mutation({

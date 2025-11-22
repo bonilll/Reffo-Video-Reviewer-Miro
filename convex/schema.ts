@@ -32,6 +32,7 @@ export default defineSchema({
   videos: defineTable({
     projectId: v.optional(v.id("projects")),
     ownerId: v.id("users"),
+    isEditAsset: v.optional(v.boolean()),
     title: v.string(),
     description: v.optional(v.string()),
     storageKey: v.string(),

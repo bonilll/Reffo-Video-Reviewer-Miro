@@ -5,6 +5,7 @@ import type { Id } from '../../convex/_generated/dataModel';
 import { EditorTimeline } from './EditorTimeline';
 import { Loader2, Pause, Play, RefreshCw, ChevronLeft, Info, Settings, Save, FolderOpen, Trash2, Edit3, Eye, EyeOff, Volume2, VolumeX, Download } from 'lucide-react';
 import { renderCompositionClient } from './clientExport';
+import EditorAssetsPicker from './EditorAssetsPicker';
 
 const formatSeconds = (seconds: number) => {
   const mins = Math.floor(seconds / 60)
@@ -1591,15 +1592,22 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit, o
 
       {/* Add Clip Modal */}
       {addClipOpen && (
-        <div className="fixed inset-0 z-[99999] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-          <div className="w-full max-w-md rounded-2xl border border-white/10 bg-black/85 p-5 text-white shadow-2xl">
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-base font-semibold">Add clip</h2>
+        <div className="fixed inset-0 z-[99999] flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
+          <div className="w-full max-w-[95vw] rounded-3xl border border-white/10 bg-black/95 p-6 text-white shadow-2xl">
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-lg font-semibold tracking-tight">Add clip</h2>
               <button className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/20 text-white/80 hover:bg-white/10" onClick={() => setAddClipOpen(false)} title="Close">×</button>
             </div>
-            <div className="space-y-2 max-h-[50vh] overflow-auto pr-2">
-              {Object.values(data.sources).map((source) => (
-                <button key={source._id as string} className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-left hover:bg-white/10" onClick={async () => {
+            <div className="grid max-h-[85vh] grid-cols-1 gap-5 overflow-hidden md:grid-cols-12">
+              <div className="md:col-span-4 flex min-h-0 flex-col gap-4 overflow-hidden">
+                <div className="rounded-2xl border border-white/10 bg-white/[0.06] p-3">
+                  <div className="mb-2 flex items-center justify-between">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-white/70">Composition Sources</div>
+                    <div className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] text-white/60">{Object.keys(data.sources).length}</div>
+                  </div>
+                  <div className="max-h-[28vh] overflow-auto pr-2 space-y-2">
+                    {Object.values(data.sources).map((source) => (
+                      <button key={source._id as string} className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-left hover:bg-white/10" onClick={async () => {
                   try {
                     const fps = Math.max(1, source.fps);
                     const durationFrames = Math.max(1, Math.round(source.durationSeconds * fps));
@@ -1618,82 +1626,112 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit, o
                     });
                     setAddClipOpen(false);
                   } catch (e) { console.error(e); }
-                }}>
-                  <div className="font-semibold">{source.title}</div>
-                  <div className="text-[12px] text-white/60">{source.width}×{source.height} · {source.fps} fps · {Math.round(source.durationSeconds)}s</div>
-                </button>
-              ))}
-              {Object.keys(data.sources).length === 0 && (
-                <div className="text-sm text-white/60">No sources available for this composition.</div>
-              )}
-              <div className="mt-3 rounded-xl border border-white/10 bg-white/5 p-3">
-                <div className="mb-2 text-sm text-white/80">Upload new source</div>
-                <input type="file" accept="video/*" onChange={async (e) => {
-                  const file = e.target.files?.[0];
-                  if (!file) return;
-                  setUploadError(null);
-                  setUploading(true);
-                  setUploadProgress(0);
-                  try {
-                    const contentType = resolveContentType(file);
-                    const meta = await loadVideoMetadata(file);
-                    let storageKey: string, publicUrl: string;
-                    if (file.size >= 100 * 1024 * 1024) {
-                      const res = await uploadMultipart(file, contentType, (p) => setUploadProgress(p));
-                      storageKey = res.storageKey; publicUrl = res.publicUrl as any;
-                    } else {
-                      const creds = await generateVideoUploadUrl({ contentType, fileName: file.name });
-                      await new Promise<void>((resolve, reject) => {
-                        const xhr = new XMLHttpRequest();
-                        xhr.open('PUT', creds.uploadUrl, true);
-                        xhr.setRequestHeader('Content-Type', contentType);
-                        xhr.upload.onprogress = (ev) => { if (ev.lengthComputable) setUploadProgress((ev.loaded / ev.total) * 100); };
-                        xhr.onload = () => { if (xhr.status >= 200 && xhr.status < 300) resolve(); else reject(new Error('Upload failed')); };
-                        xhr.onerror = () => reject(new Error('Upload failed'));
-                        xhr.send(file);
+                      }}>
+                        <div className="font-semibold">{source.title}</div>
+                        <div className="text-[12px] text-white/60">{source.width}×{source.height} · {source.fps} fps · {Math.round(source.durationSeconds)}s</div>
+                      </button>
+                    ))}
+                    {Object.keys(data.sources).length === 0 && (
+                      <div className="text-sm text-white/60">No sources available for this composition.</div>
+                    )}
+                  </div>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-white/[0.06] p-3">
+                  <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-white/70">Upload New Source</div>
+                  <div className="mb-2 text-xs text-white/60">Add footage to reuse across your edits. Files are stored in your library and won’t appear in Reviews.</div>
+                  <input type="file" accept="video/*" onChange={async (e) => {
+                   const file = e.target.files?.[0];
+                   if (!file) return;
+                   setUploadError(null);
+                   setUploading(true);
+                   setUploadProgress(0);
+                   try {
+                     const contentType = resolveContentType(file);
+                     const meta = await loadVideoMetadata(file);
+                     let storageKey: string, publicUrl: string;
+                     if (file.size >= 100 * 1024 * 1024) {
+                       const res = await uploadMultipart(file, contentType, (p) => setUploadProgress(p));
+                       storageKey = res.storageKey; publicUrl = res.publicUrl as any;
+                     } else {
+                       const creds = await generateVideoUploadUrl({ contentType, fileName: file.name });
+                       await new Promise<void>((resolve, reject) => {
+                         const xhr = new XMLHttpRequest();
+                         xhr.open('PUT', creds.uploadUrl, true);
+                         xhr.setRequestHeader('Content-Type', contentType);
+                         xhr.upload.onprogress = (ev) => { if (ev.lengthComputable) setUploadProgress((ev.loaded / ev.total) * 100); };
+                         xhr.onload = () => { if (xhr.status >= 200 && xhr.status < 300) resolve(); else reject(new Error('Upload failed')); };
+                         xhr.onerror = () => reject(new Error('Upload failed'));
+                         xhr.send(file);
+                       });
+                       storageKey = creds.storageKey; publicUrl = creds.publicUrl;
+                       setUploadProgress(100);
+                     }
+                     // Create video record
+                     const fps = Math.max(1, composition.settings.fps || 30);
+                     const created = await completeVideoUpload({
+                       storageKey,
+                       publicUrl,
+                       title: file.name,
+                       width: meta.width,
+                       height: meta.height,
+                       fps,
+                       duration: meta.duration,
+                       projectId: (data.composition as any).projectId ?? undefined,
+                       thumbnailUrl: undefined,
+                       isEditAsset: true,
+                     });
+                     // Add as clip at playhead
+                     const highestZ = data.clips.length ? Math.max(...data.clips.map((c) => c.zIndex ?? 0)) : 0;
+                     await addClip({
+                       compositionId: data.composition._id as any,
+                       sourceVideoId: (created as any).id as any,
+                       sourceInFrame: 0,
+                       sourceOutFrame: Math.max(1, Math.round(meta.duration * fps)),
+                       timelineStartFrame: Math.round(playhead),
+                       speed: 1,
+                       opacity: 1,
+                       label: file.name,
+                       zIndex: highestZ + 1,
+                     });
+                     setAddClipOpen(false);
+                   } catch (err:any) {
+                     setUploadError(err?.message || 'Upload failed');
+                   } finally {
+                     setUploading(false);
+                   }
+                  }} />
+                  {uploading && (
+                    <div className="mt-2 rounded-lg border border-white/10 bg-black/40 px-2 py-1 text-[12px] text-white/80">Uploading… {Math.round(uploadProgress)}%</div>
+                  )}
+                  {uploadError && (
+                    <div className="mt-2 rounded-lg border border-red-500/20 bg-red-500/10 px-2 py-1 text-[12px] text-red-300">{uploadError}</div>
+                  )}
+                </div>
+              </div>
+              <div className="md:col-span-8 min-h-0">
+                <EditorAssetsPicker
+                  projectId={(data.composition as any).projectId ?? null}
+                  onPick={async (src) => {
+                    try {
+                      const fps = Math.max(1, composition.settings.fps || 30);
+                      const highestZ = data.clips.length ? Math.max(...data.clips.map((c) => c.zIndex ?? 0)) : 0;
+                      await addClip({
+                        compositionId: data.composition._id as any,
+                        sourceVideoId: (src as any).id as any,
+                        sourceInFrame: 0,
+                        sourceOutFrame: Math.max(1, Math.round(((src as any).duration || 0) * fps)),
+                        timelineStartFrame: Math.round(playhead),
+                        speed: 1,
+                        opacity: 1,
+                        label: (src as any).title || 'Source',
+                        zIndex: highestZ + 1,
                       });
-                      storageKey = creds.storageKey; publicUrl = creds.publicUrl;
-                      setUploadProgress(100);
+                      setAddClipOpen(false);
+                    } catch (err:any) {
+                      setUploadError(err?.message || 'Add failed');
                     }
-                    // Create video record
-                    const fps = Math.max(1, composition.settings.fps || 30);
-                    const created = await completeVideoUpload({
-                      storageKey,
-                      publicUrl,
-                      title: file.name,
-                      width: meta.width,
-                      height: meta.height,
-                      fps,
-                      duration: meta.duration,
-                      projectId: (data.composition as any).projectId ?? undefined,
-                      thumbnailUrl: undefined,
-                    });
-                    // Add as clip at playhead
-                    const highestZ = data.clips.length ? Math.max(...data.clips.map((c) => c.zIndex ?? 0)) : 0;
-                    await addClip({
-                      compositionId: data.composition._id as any,
-                      sourceVideoId: (created as any).id as any,
-                      sourceInFrame: 0,
-                      sourceOutFrame: Math.max(1, Math.round(meta.duration * fps)),
-                      timelineStartFrame: Math.round(playhead),
-                      speed: 1,
-                      opacity: 1,
-                      label: file.name,
-                      zIndex: highestZ + 1,
-                    });
-                    setAddClipOpen(false);
-                  } catch (err:any) {
-                    setUploadError(err?.message || 'Upload failed');
-                  } finally {
-                    setUploading(false);
-                  }
-                }} />
-                {uploading && (
-                  <div className="mt-2 text-[12px] text-white/70">Uploading… {Math.round(uploadProgress)}%</div>
-                )}
-                {uploadError && (
-                  <div className="mt-2 text-[12px] text-red-400">{uploadError}</div>
-                )}
+                  }}
+                />
               </div>
             </div>
           </div>

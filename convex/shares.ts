@@ -312,7 +312,8 @@ export const videosSharedWithMe = query({
     const eligible = shares.filter(s => s.isActive && s.groupId && groupIds.has(s.groupId as Id<'shareGroups'>) && s.videoId);
     const uniqueVideoIds = Array.from(new Set(eligible.map(s => s.videoId as Id<'videos'>)));
     const videos = await Promise.all(uniqueVideoIds.map(id => ctx.db.get(id)));
-    return videos.filter(Boolean).map((video: any) => ({
+    // Exclude edit-only assets from shared listing as well
+    return videos.filter((v: any) => !!v && !(v as any).isEditAsset).map((video: any) => ({
       id: video._id,
       title: video.title,
       description: video.description ?? null,
