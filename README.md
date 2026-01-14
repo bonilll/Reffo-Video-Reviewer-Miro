@@ -10,7 +10,7 @@ This project combines a React/Vite front‑end with a Convex backend and Clerk a
 
 - Node.js 18+
 - Convex CLI (`npm install -g convex`, optional but useful)
-- Clerk account with a publishable key
+- Clerk account with a publishable key (Clerk SDKs supporting Session JWT V2)
 - MinIO (or any S3-compatible storage) credentials
 
 ## Environment Variables
@@ -61,6 +61,11 @@ npm run dev
 ```
 
 The app is available at `http://localhost:5173`. When developing on another device in the network, make sure to expose both the Vite server (defaults to 5173) and Convex dev server (defaults to 3210).
+
+### Clerk compatibility notes
+
+- Session JWT V2 requires compatible SDKs. This repo pins `@clerk/clerk-react@^5.61.0`, which includes the required Clerk.js version.
+- If you turned on Client Trust (credential stuffing protection) in the Clerk dashboard, sign‑in may require a second factor on new devices. The app now delegates such cases to Clerk’s UI automatically.
 
 ## Production Build
 

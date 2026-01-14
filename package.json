@@ -11,7 +11,7 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.919.0",
     "@aws-sdk/s3-request-presigner": "^3.919.0",
-    "@clerk/clerk-react": "^5.53.4",
+    "@clerk/clerk-react": "^5.58.1",
     "@ffmpeg/core": "^0.12.10",
     "@ffmpeg/ffmpeg": "^0.12.10",
     "@ffmpeg/util": "^0.12.2",

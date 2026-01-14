@@ -166,6 +166,8 @@ const App: React.FC = () => {
   const { signIn, isLoaded: isSignInLoaded } = useSignIn();
   const { signUp, isLoaded: isSignUpLoaded } = useSignUp();
   const { setActive } = useClerk();
+  // Access potential UI helpers in a version-tolerant way
+  const clerkAny = useClerk() as any;
   const consent = useConsent();
   const consentText = consent.text;
 
@@ -524,7 +526,18 @@ const App: React.FC = () => {
       if (result.status === 'complete' && result.createdSessionId) {
         await setActive({ session: result.createdSessionId });
       } else {
-        setAuthError('Additional verification is required. Please complete sign-in via the Clerk modal.');
+        // Handle Client Trust / second factor by delegating to Clerk UI.
+        // Prefer opening the modal; fall back to redirect if modal not available.
+        try {
+          if (clerkAny?.openSignIn) {
+            await clerkAny.openSignIn({ redirectUrl: window.location.href, redirectUrlComplete: '/dashboard' });
+          } else if (clerkAny?.redirectToSignIn) {
+            clerkAny.redirectToSignIn({ redirectUrl: window.location.href, redirectUrlComplete: '/dashboard' });
+          }
+        } catch (e) {
+          // Surface a helpful message if UI can't be opened for any reason
+          setAuthError('Additional verification is required. Please complete sign-in in the Clerk window.');
+        }
       }
     } catch (error) {
       setAuthError(getClerkErrorMessage(error));

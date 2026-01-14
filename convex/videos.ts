@@ -4,6 +4,43 @@ import { getCurrentUserDoc, getCurrentUserOrThrow } from "./utils/auth";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 
+async function canViewVideo(ctx: any, userId: Id<'users'>, videoId: Id<'videos'>) {
+  const video = await ctx.db.get(videoId);
+  if (!video) return false;
+  if (video.ownerId === userId) return true;
+  const videoShares = await ctx.db
+    .query('contentShares')
+    .withIndex('byVideo', (q: any) => q.eq('videoId', videoId))
+    .collect();
+  const memberEmails = new Set<string>();
+  for (const s of videoShares) {
+    if (s.groupId) {
+      const members = await ctx.db
+        .query('shareGroupMembers')
+        .withIndex('byGroup', (q: any) => q.eq('groupId', s.groupId))
+        .collect();
+      members.forEach((m: any) => memberEmails.add(m.email));
+    }
+  }
+  if (video.projectId) {
+    const projShares = await ctx.db
+      .query('contentShares')
+      .withIndex('byProject', (q: any) => q.eq('projectId', video.projectId))
+      .collect();
+    for (const s of projShares) {
+      if (s.groupId) {
+        const members = await ctx.db
+          .query('shareGroupMembers')
+          .withIndex('byGroup', (q: any) => q.eq('groupId', s.groupId))
+          .collect();
+        members.forEach((m: any) => memberEmails.add(m.email));
+      }
+    }
+  }
+  const user = await ctx.db.get(userId);
+  return user ? memberEmails.has(user.email) || videoShares.some((s: any) => s.linkToken && s.isActive) : false;
+}
+
 export const list = query({
   args: {
     projectId: v.optional(v.id("projects")),
@@ -322,9 +359,9 @@ export const updateMetadata = mutation({
 export const listRevisions = query({
   args: { videoId: v.id('videos') },
   async handler(ctx, { videoId }) {
-    const user = await getCurrentUserOrThrow(ctx);
-    const video = await ctx.db.get(videoId);
-    if (!video || video.ownerId !== user._id) throw new ConvexError('NOT_FOUND');
+    const user = await getCurrentUserDoc(ctx);
+    if (!user) return [];
+    if (!(await canViewVideo(ctx, user._id, videoId))) return [];
     const rows = await ctx.db.query('videoRevisions').withIndex('byVideo', q => q.eq('videoId', videoId)).collect();
     rows.sort((a, b) => b.createdAt - a.createdAt);
     return rows.map(r => ({
