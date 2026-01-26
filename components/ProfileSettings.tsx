@@ -15,7 +15,7 @@ import {
   RefreshCcw,
   Loader2,
 } from 'lucide-react';
-import { applyTheme, useThemePreference } from '../useTheme';
+import { useThemePreference } from '../useTheme';
 import lottieLoaderRaw from '../assets/animations/Loader.json?raw';
 const lottieLoader = `data:application/json;charset=utf-8,${encodeURIComponent(lottieLoaderRaw as unknown as string)}`;
 
@@ -28,12 +28,6 @@ interface ProfileSettingsProps {
   projects: Project[];
   onBack: () => void;
 }
-
-const themeOptions = [
-  { value: 'system', label: 'Match system' },
-  { value: 'light', label: 'Light mode' },
-  { value: 'dark', label: 'Dark mode' },
-];
 
 const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBack }) => {
   const settingsDoc = useQuery(api.settings.getOrNull, {});
@@ -210,7 +204,7 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
     }
     const letters = (displayName || user.email).slice(0, 2).toUpperCase();
     return (
-      <div className="flex h-14 w-14 items-center justify-center rounded-full bg-white/10 text-lg font-semibold text-white">
+      <div className="flex h-14 w-14 items-center justify-center rounded-full bg-gray-100 text-lg font-semibold text-gray-700">
         {letters}
       </div>
     );
@@ -232,12 +226,12 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
   }
 
   return (
-    <div className="space-y-8">
-      <header className="flex flex-wrap items-center justify-between gap-4 rounded-3xl border border-white/10 bg-white/5 p-6">
+    <div className="space-y-8 library-skin">
+      <header className="flex flex-wrap items-center justify-between gap-4 library-panel p-6">
         <div className="flex items-center gap-4">
           <button
             onClick={onBack}
-            className="rounded-full bg-white/10 p-2 text-white/70 hover:text-white"
+            className="rounded-full border border-gray-200 bg-white p-2 text-gray-600 hover:text-gray-900"
             aria-label="Back to dashboard"
           >
             <ArrowLeft size={18} />
@@ -245,20 +239,20 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
           <div className="flex items-center gap-4">
             {renderAvatar()}
             <div>
-              <h1 className="text-xl font-semibold text-white">{displayName || 'Your workspace'}</h1>
-              <p className="text-sm text-white/60">{user.email}</p>
+              <h1 className="text-xl font-semibold text-gray-900">{displayName || 'Your workspace'}</h1>
+              <p className="text-sm text-gray-600">{user.email}</p>
             </div>
           </div>
         </div>
         <div className="flex items-center gap-2">
           <button
             onClick={resetSettings}
-            className="inline-flex items-center gap-2 rounded-full bg-white/10 px-4 py-2 text-sm text-white/70 hover:text-white"
+            className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-4 py-2 text-sm text-gray-600 hover:text-gray-900"
           >
             <RefreshCcw size={16} /> Reset view
           </button>
           {isSaving && (
-            <span className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1.5 text-xs text-white/60">
+            <span className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-gray-100 px-3 py-1.5 text-xs text-gray-600">
               <Loader2 className="animate-spin" size={14} /> Saving…
             </span>
           )}
@@ -267,24 +261,24 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
 
       <section className="grid gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,1.2fr)]">
         <div className="space-y-6">
-          <article className="rounded-3xl border border-white/10 bg-white/5 p-6">
-            <div className="flex items-center gap-3 text-white">
+          <article className="library-panel p-6">
+            <div className="flex items-center gap-3 text-gray-900">
               <ShieldCheck size={18} />
               <h2 className="text-lg font-semibold">Account</h2>
             </div>
-            <p className="mt-2 text-sm text-white/60">
+            <p className="mt-2 text-sm text-gray-600">
               Update how teammates will see you across the platform.
             </p>
-            <div className="mt-4 space-y-4 text-sm text-white/70">
-              <label className="block text-xs font-semibold uppercase text-white/40">Display name</label>
+            <div className="mt-4 space-y-4 text-sm text-gray-700">
+              <label className="block text-xs font-semibold uppercase text-gray-500">Display name</label>
               <input
                 value={displayName}
                 onChange={(event) => setDisplayName(event.target.value)}
                 placeholder="Add your name"
-                className="w-full rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-white/60"
+                className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-300"
               />
               <div className="grid gap-3 sm:grid-cols-2">
-                <label className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-black/20 p-3">
+                <label className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 p-3">
                   <input
                     type="radio"
                     name="avatar-source"
@@ -293,7 +287,7 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
                   />
                   <span className="text-sm">Use sign-in profile image</span>
                 </label>
-                <label className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-black/20 p-3">
+                <label className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 p-3">
                   <input
                     type="radio"
                     name="avatar-source"
@@ -331,13 +325,13 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
                   />
                   <label
                     htmlFor="avatar-file"
-                    className="inline-flex cursor-pointer items-center gap-2 rounded-full bg-white/10 px-4 py-2 text-sm text-white hover:bg-white/20"
+                    className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-gray-200 bg-white px-4 py-2 text-sm text-gray-700 hover:text-gray-900"
                   >
                     {uploadingAvatar ? <Loader2 size={16} className="animate-spin" /> : null}
                     {uploadingAvatar ? 'Uploading…' : 'Choose image'}
                   </label>
                   {avatarUrl && (
-                    <span className="text-xs text-white/50 truncate max-w-[60ch]">{avatarUrl}</span>
+                    <span className="text-xs text-gray-500 truncate max-w-[60ch]">{avatarUrl}</span>
                   )}
                 </div>
               )}
@@ -345,7 +339,7 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
                 <button
                   onClick={handleSaveProfile}
                   disabled={profileSaving}
-                  className="inline-flex items-center gap-2 rounded-full bg-white/10 px-4 py-2 text-sm text-white/70 hover:text-white disabled:opacity-40"
+                  className="inline-flex items-center gap-2 rounded-full bg-gray-900 px-4 py-2 text-sm text-white hover:bg-gray-800 disabled:opacity-40"
                 >
                   {profileSaving ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
                   Update profile
@@ -354,20 +348,20 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
             </div>
       </article>
 
-      <article className="rounded-3xl border border-white/10 bg-white/5 p-6">
-        <div className="flex items-center gap-3 text-white">
+      <article className="library-panel p-6">
+        <div className="flex items-center gap-3 text-gray-900">
           <ExternalLink size={18} />
           <h2 className="text-lg font-semibold">Connections</h2>
         </div>
-        <p className="mt-2 text-sm text-white/60">
+        <p className="mt-2 text-sm text-gray-600">
           Connect external apps to receive notifications and streamline your workflow.
         </p>
         <div className="mt-4 space-y-4">
-          <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+          <div className="library-card p-4">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <div className="text-sm font-semibold text-white">Slack</div>
-                <div className="text-xs text-white/60">
+                <div className="text-sm font-semibold text-gray-900">Slack</div>
+                <div className="text-xs text-gray-600">
                   {slackStatus && slackStatus.length > 0
                     ? (
                       <>Connected to {slackStatus.map(s => <span key={s.teamId} className="font-semibold">{s.teamName}</span>).reduce((prev, curr) => [prev, <span key={Math.random()}> , </span>, curr])}</>
@@ -388,7 +382,7 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
                         console.error('Failed to start Slack OAuth', err);
                       }
                     }}
-                    className="rounded-full bg-white px-4 py-2 text-sm font-semibold text-black hover:bg-white/90"
+                    className="rounded-full bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800"
                   >
                     Connect Slack
                   </button>
@@ -398,7 +392,7 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
                       onClick={async () => {
                         try { await testSlackDm({}); } catch (err) { console.error('Failed to send test DM', err); }
                       }}
-                      className="rounded-full bg-white/10 px-4 py-2 text-sm font-semibold text-white/80 hover:bg-white/20"
+                      className="rounded-full border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-gray-700 hover:text-gray-900"
                     >
                       Send test DM
                     </button>
@@ -412,7 +406,7 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
                           console.error('Failed to start Slack OAuth', err);
                         }
                       }}
-                      className="rounded-full bg-white/10 px-4 py-2 text-sm font-semibold text-white/80 hover:bg-white/20"
+                      className="rounded-full border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-gray-700 hover:text-gray-900"
                     >
                       Connect another workspace
                     </button>
@@ -425,7 +419,7 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
                             setSlackStatus(Array.isArray(next) ? next : (next ? [next] : []));
                           } catch (err) { console.error('Failed to disconnect Slack', err); }
                         }}
-                        className="rounded-full bg-white/10 px-3 py-1.5 text-xs font-semibold text-white/80 hover:bg-white/20"
+                        className="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold text-gray-600 hover:text-gray-900"
                         title={`Disconnect ${s.teamName}`}
                       >
                         Disconnect {s.teamName}
@@ -439,13 +433,13 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
         </div>
       </article>
 
-      <article className="rounded-3xl border border-white/10 bg-white/5 p-6">
-        <div className="flex items-center gap-3 text-white">
+      <article className="library-panel p-6">
+        <div className="flex items-center gap-3 text-gray-900">
           <Users size={18} />
           <h2 className="text-lg font-semibold">Friends</h2>
         </div>
-        <p className="mt-2 text-sm text-white/60">People you collaborate with across your teams. Mentions use this list.</p>
-        <div className="mt-4 space-y-3 text-sm text-white/70">
+        <p className="mt-2 text-sm text-gray-600">People you collaborate with across your teams. Mentions use this list.</p>
+        <div className="mt-4 space-y-3 text-sm text-gray-700">
           <FriendsManager
             friends={friends ?? []}
             onAdd={async (email, name) => {
@@ -592,109 +586,6 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
         </div>
 
         <aside className="space-y-6">
-          <article className="rounded-3xl border border-white/10 bg-white/5 p-6">
-            <div className="flex items-center gap-3 text-white">
-              <Palette size={18} />
-              <h2 className="text-lg font-semibold">Workspace preferences</h2>
-            </div>
-            <p className="mt-2 text-sm text-white/60">
-              Tailor your default environment for new reviews.
-            </p>
-            <div className="mt-4 space-y-4 text-sm text-white/70">
-              <div>
-                <label className="text-xs font-semibold uppercase text-white/40">Default theme</label>
-                <div className="mt-2 grid gap-2">
-                  {themeOptions.map((option) => (
-                    <button
-                      key={option.value}
-                      onClick={() => {
-                        const value = option.value as UserSettings['workspace']['theme'];
-                        handleSettingsChange((current) => ({
-                          ...current,
-                          workspace: {
-                            ...current.workspace,
-                            theme: value,
-                          },
-                        }));
-                        applyTheme(value);
-                      }}
-                      className={`flex items-center justify-between rounded-xl border px-3 py-2 text-left text-sm transition ${
-                        localSettings?.workspace.theme === option.value
-                          ? 'border-white/60 bg-white/10 text-white'
-                          : 'border-white/10 bg-black/20 text-white/60 hover:text-white'
-                      }`}
-                    >
-                      <span>{option.label}</span>
-                      {localSettings?.workspace.theme === option.value && <ShieldCheck size={16} />}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <label className="text-xs font-semibold uppercase text-white/40">Default project</label>
-                <select
-                  value={localSettings?.workspace.defaultProjectId ?? ''}
-                  onChange={(event) => {
-                    const value = event.target.value;
-                    handleSettingsChange((current) => ({
-                      ...current,
-                      workspace: {
-                        ...current.workspace,
-                        defaultProjectId: value || null,
-                      },
-                    }));
-                  }}
-                className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-white/60"
-              >
-                  <option value="">Ask on upload</option>
-                  {projects.map((project) => (
-                    <option key={project.id} value={project.id}>
-                      {project.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="text-xs font-semibold uppercase text-white/40">Auto share groups</label>
-                <p className="mt-1 text-xs text-white/60">
-                  Reviews uploaded to your workspace will automatically be shared with these groups.
-                </p>
-                <div className="mt-2 space-y-2">
-                  {activeGroups.map((group) => {
-                    const checked = localSettings?.workspace.autoShareGroupIds.includes(group.id) ?? false;
-                    return (
-                      <label
-                        key={group.id}
-                        className="flex items-center justify-between rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-xs text-white/70"
-                      >
-                        <span>{group.name}</span>
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={(event) => {
-                            handleSettingsChange((current) => ({
-                              ...current,
-                              workspace: {
-                                ...current.workspace,
-                                autoShareGroupIds: event.target.checked
-                                  ? [...current.workspace.autoShareGroupIds, group.id]
-                                  : current.workspace.autoShareGroupIds.filter((id) => id !== group.id),
-                              },
-                            }));
-                          }}
-                          className="h-4 w-4 rounded border-white/20 bg-black/30"
-                        />
-                      </label>
-                    );
-                  })}
-                  {activeGroups.length === 0 && (
-                    <p className="text-xs text-white/50">Create a group in the dashboard to enable auto sharing.</p>
-                  )}
-                </div>
-              </div>
-            </div>
-          </article>
-
           {/* Integrations panel hidden */}
           {false && (
           <article className="rounded-3xl border border-white/10 bg-white/5 p-6">
@@ -743,13 +634,13 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
           </article>
           )}
 
-          <article className="rounded-3xl border border-white/10 bg-white/5 p-6">
-            <div className="flex items-center gap-3 text-white">
+          <article className="library-panel p-6">
+            <div className="flex items-center gap-3 text-gray-900">
               <ExternalLink size={18} />
               <h2 className="text-lg font-semibold">Billing</h2>
             </div>
-            <div className="mt-3 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-white/70">
-              <p className="text-base font-semibold text-white">Beta program</p>
+            <div className="mt-3 rounded-2xl border border-gray-200 bg-gray-50 p-4 text-sm text-gray-600">
+              <p className="text-base font-semibold text-gray-900">Beta program</p>
               <p className="mt-1">Reffo is currently in beta testing and free to use.</p>
               <p className="mt-1">Pricing will be announced later, and you’ll be notified well in advance.</p>
             </div>
@@ -768,17 +659,17 @@ interface ToggleRowProps {
 }
 
 const ToggleRow: React.FC<ToggleRowProps> = ({ label, description, enabled, onToggle }) => (
-  <div className="flex items-start justify-between gap-3 rounded-xl border border-white/10 bg-black/20 px-4 py-3">
+  <div className="flex items-start justify-between gap-3 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
     <div>
-      <p className="font-semibold text-white">{label}</p>
-      <p className="text-xs text-white/50">{description}</p>
+      <p className="font-semibold text-gray-900">{label}</p>
+      <p className="text-xs text-gray-500">{description}</p>
     </div>
     <label className="inline-flex items-center">
       <input
         type="checkbox"
         checked={enabled}
         onChange={onToggle}
-        className="h-4 w-4 rounded border-white/20 bg-black/40"
+        className="h-4 w-4 rounded border-gray-300 bg-white"
       />
     </label>
   </div>
@@ -793,12 +684,12 @@ interface IntegrationFieldProps {
 
 const IntegrationField: React.FC<IntegrationFieldProps> = ({ label, placeholder, value, onChange }) => (
   <div>
-    <label className="text-xs font-semibold uppercase text-white/40">{label}</label>
+    <label className="text-xs font-semibold uppercase text-gray-500">{label}</label>
     <input
       value={value}
       onChange={(event) => onChange(event.target.value)}
       placeholder={placeholder}
-      className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-white/60"
+      className="mt-2 w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-300"
     />
   </div>
 );
@@ -847,13 +738,13 @@ const FriendsManager: React.FC<FriendsManagerProps> = ({ friends, onAdd, onRemov
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           placeholder="email@studio.com"
-          className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-white/60"
+          className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-300"
         />
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="Name (optional)"
-          className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-white/60"
+          className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-300"
         />
         <button
           disabled={!email.trim() || saving}
@@ -864,28 +755,28 @@ const FriendsManager: React.FC<FriendsManagerProps> = ({ friends, onAdd, onRemov
             setEmail('');
             setName('');
           }}
-          className="rounded-full bg-white px-4 py-2 text-sm font-semibold text-black enabled:hover:bg-white/90 disabled:opacity-40"
+          className="rounded-full bg-gray-900 px-4 py-2 text-sm font-semibold text-white enabled:hover:bg-gray-800 disabled:opacity-40"
         >
           {saving ? 'Adding…' : 'Add'}
         </button>
       </div>
-      <ul className="divide-y divide-white/10 rounded-2xl border border-white/10">
+      <ul className="divide-y divide-gray-200 rounded-2xl border border-gray-200 bg-white">
         {friends.map((f) => (
-          <li key={f.id} className="flex items-center justify-between px-4 py-2 text-sm text-white/70">
+          <li key={f.id} className="flex items-center justify-between px-4 py-2 text-sm text-gray-700">
             <div>
-              <p className="font-semibold text-white">{f.contactName ?? f.contactEmail}</p>
-              <p className="text-white/50">{f.contactEmail}</p>
+              <p className="font-semibold text-gray-900">{f.contactName ?? f.contactEmail}</p>
+              <p className="text-gray-500">{f.contactEmail}</p>
             </div>
             <button
               onClick={() => onRemove(f.id)}
-              className="rounded-full bg-white/10 px-3 py-1 text-xs text-white/70 hover:text-white"
+              className="rounded-full border border-gray-200 bg-white px-3 py-1 text-xs text-gray-600 hover:text-gray-900"
             >
               Remove
             </button>
           </li>
         ))}
         {friends.length === 0 && (
-          <li className="px-4 py-6 text-center text-white/50 text-sm">No friends yet</li>
+          <li className="px-4 py-6 text-center text-gray-500 text-sm">No friends yet</li>
         )}
       </ul>
     </div>

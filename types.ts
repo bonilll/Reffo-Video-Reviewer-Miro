@@ -125,6 +125,17 @@ export interface Project {
   createdAt: string;
 }
 
+export interface Board {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt?: string;
+  projectId?: string | null;
+  imageUrl?: string | null;
+  isShared?: boolean;
+  sharedRole?: string | null;
+}
+
 export interface Video {
   id: string;
   title: string;

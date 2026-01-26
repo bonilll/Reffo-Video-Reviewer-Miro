@@ -527,7 +527,7 @@ const CommentsPane: React.FC<CommentsPaneProps> = ({ comments, currentFrame, onA
         <h2 className="text-sm font-semibold text-white/50 uppercase flex items-center gap-2">
           <MessageSquare size={18}/> Comments
         </h2>
-        <div className="mt-4 inline-flex items-center gap-2 bg-white/5 border border-white/10 rounded-full p-1">
+        <div className="mt-4 flex flex-wrap items-center gap-2 bg-white/5 border border-white/10 rounded-full p-1">
             <button onClick={() => setFilter('active')} className={`px-4 py-1.5 rounded-full text-xs font-semibold ${filter === 'active' ? 'bg-white text-black' : 'text-white/60 hover:bg-white/10'}`}>Active</button>
             <button onClick={() => setFilter('all')} className={`px-4 py-1.5 rounded-full text-xs font-semibold ${filter === 'all' ? 'bg-white text-black' : 'text-white/60 hover:bg-white/10'}`}>All</button>
             <button onClick={() => setFilter('open')} className={`px-4 py-1.5 rounded-full text-xs font-semibold ${filter === 'open' ? 'bg-white text-black' : 'text-white/60 hover:bg-white/10'}`}>Open</button>

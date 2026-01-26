@@ -29,6 +29,163 @@ export default defineSchema({
       searchField: "name",
     }),
 
+  boards: defineTable({
+    title: v.string(),
+    ownerId: v.id("users"),
+    ownerName: v.optional(v.string()),
+    projectId: v.optional(v.id("projects")),
+    imageUrl: v.optional(v.string()),
+    isArchived: v.optional(v.boolean()),
+    camera: v.optional(
+      v.object({
+        x: v.number(),
+        y: v.number(),
+        scale: v.number(),
+      })
+    ),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("byOwner", ["ownerId"])
+    .index("byProject", ["projectId"])
+    .index("byOwnerProject", ["ownerId", "projectId"]),
+
+  boardSharing: defineTable({
+    boardId: v.id("boards"),
+    userId: v.optional(v.id("users")),
+    userEmail: v.optional(v.string()),
+    role: v.string(),
+    invitedBy: v.id("users"),
+    createdAt: v.number(),
+    acceptedAt: v.optional(v.number()),
+  })
+    .index("byBoard", ["boardId"])
+    .index("byUser", ["userId"])
+    .index("byEmail", ["userEmail"])
+    .index("byBoardUser", ["boardId", "userId"])
+    .index("byBoardEmail", ["boardId", "userEmail"]),
+
+  boardAccessRequests: defineTable({
+    boardId: v.id("boards"),
+    requesterId: v.optional(v.id("users")),
+    requesterEmail: v.optional(v.string()),
+    requestedRole: v.string(), // viewer | editor
+    message: v.optional(v.string()),
+    status: v.string(), // pending | approved | rejected | message
+    createdAt: v.number(),
+    resolvedAt: v.optional(v.number()),
+  })
+    .index("byBoard", ["boardId"])
+    .index("byRequester", ["requesterId"])
+    .index("byRequesterEmail", ["requesterEmail"])
+    .index("byBoardStatus", ["boardId", "status"]),
+
+  media: defineTable({
+    userId: v.id("users"),
+    boardId: v.optional(v.id("boards")),
+    name: v.string(),
+    url: v.string(),
+    type: v.string(), // image | video | file
+    size: v.optional(v.number()),
+    mimeType: v.optional(v.string()),
+    orgId: v.optional(v.string()),
+    userName: v.optional(v.string()),
+    userEmail: v.optional(v.string()),
+    isFromLibrary: v.optional(v.boolean()),
+    createdAt: v.number(),
+  })
+    .index("byUser", ["userId"])
+    .index("byBoard", ["boardId"]),
+
+  assets: defineTable({
+    userId: v.id("users"),
+    title: v.string(),
+    fileUrl: v.string(),
+    type: v.string(),
+    fileName: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.optional(v.number()),
+    tokens: v.optional(v.array(v.string())),
+    description: v.optional(v.string()),
+    externalLink: v.optional(v.string()),
+    author: v.optional(v.string()),
+    isPrivate: v.optional(v.boolean()),
+    fileSize: v.optional(v.number()),
+    mimeType: v.optional(v.string()),
+    width: v.optional(v.number()),
+    height: v.optional(v.number()),
+    durationSeconds: v.optional(v.number()),
+    fps: v.optional(v.number()),
+    aspectRatio: v.optional(v.number()),
+    dominantColors: v.optional(v.array(v.string())),
+    colorFingerprint: v.optional(v.array(v.number())),
+    phash: v.optional(v.string()),
+    exif: v.optional(v.any()),
+    ocrText: v.optional(v.string()),
+    analysisStatus: v.optional(v.string()),
+    analysisError: v.optional(v.string()),
+    analysisUpdatedAt: v.optional(v.number()),
+    analysisVersion: v.optional(v.string()),
+    embeddingProvider: v.optional(v.string()),
+    embeddingRef: v.optional(v.string()),
+    source: v.optional(v.string()),
+    orgId: v.optional(v.string()),
+  })
+    .index("byUser", ["userId"])
+    .index("byType", ["type"])
+    .index("byUserType", ["userId", "type"])
+    .index("byUserUpdatedAt", ["userId", "updatedAt"])
+    .index("byUserAnalysisStatus", ["userId", "analysisStatus"])
+    .searchIndex("search_assets", {
+      searchField: "title",
+      filterFields: ["userId", "type"],
+    }),
+
+  assetAnalysisJobs: defineTable({
+    assetId: v.id("assets"),
+    userId: v.id("users"),
+    status: v.string(),
+    priority: v.optional(v.number()),
+    attempts: v.number(),
+    maxAttempts: v.number(),
+    lockedAt: v.optional(v.number()),
+    lockedBy: v.optional(v.string()),
+    error: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    requestedFeatures: v.object({
+      ocr: v.boolean(),
+      caption: v.boolean(),
+      tags: v.boolean(),
+      embedding: v.boolean(),
+      colors: v.boolean(),
+      exif: v.boolean(),
+    }),
+    resultSummary: v.optional(v.string()),
+  })
+    .index("byUserCreatedAt", ["userId", "createdAt"])
+    .index("byStatusUpdatedAt", ["status", "updatedAt"])
+    .index("byAsset", ["assetId"]),
+
+  todoLists: defineTable({
+    ownerId: v.id("users"),
+    name: v.string(),
+    createdAt: v.number(),
+    archived: v.optional(v.boolean()),
+    color: v.optional(v.string()),
+    groups: v.optional(v.array(v.any())),
+  })
+    .index("byOwner", ["ownerId"])
+    .index("byOwnerArchived", ["ownerId", "archived"]),
+
+  todoItems: defineTable({
+    listId: v.id("todoLists"),
+    text: v.string(),
+    completed: v.optional(v.boolean()),
+    createdAt: v.number(),
+    groupId: v.optional(v.string()),
+  }).index("byList", ["listId"]),
+
   videos: defineTable({
     projectId: v.optional(v.id("projects")),
     ownerId: v.id("users"),

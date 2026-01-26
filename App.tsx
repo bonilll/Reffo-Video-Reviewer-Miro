@@ -7,12 +7,12 @@ import Dashboard from './components/Dashboard';
 import ProfileSettings from './components/ProfileSettings';
 import EditorPage from './components/editor/EditorPage';
 import ProjectWorkspace from './components/ProjectWorkspace';
+import LibraryPage from './components/LibraryPage';
 import { Project, Video } from './types';
 import type { Id } from './convex/_generated/dataModel';
 import logo from './assets/logo.svg';
 import googleLogo from './assets/google.svg';
-import { useThemePreference, applyTheme, ThemePref } from './useTheme';
-import { Sun, Moon } from 'lucide-react';
+import { useThemePreference, ThemePref } from './useTheme';
 import { Bell } from 'lucide-react';
 import { useConsent } from './contexts/ConsentContext';
 import PrivacyPolicy from './components/legal/PrivacyPolicy';
@@ -20,6 +20,7 @@ import CookiePolicy from './components/legal/CookiePolicy';
 import TermsOfUse from './components/legal/TermsOfUse';
 import { CookieSettingsTrigger } from './components/legal/CookieSettingsTrigger';
 import { LanguageSwitcher } from './components/legal/LanguageSwitcher';
+import { BoardPageWrapper } from './components/board/BoardPageWrapper';
 // Lottie assets as static URLs to ensure they are included in Vite build
 import lottieLoaderRaw from './assets/animations/Loader.json?raw';
 import lottieImageLoaderRaw from './assets/animations/imageloader.json?raw';
@@ -44,9 +45,11 @@ type LegalPage = 'privacy' | 'cookies' | 'terms';
 type Route =
   | { name: 'home' }
   | { name: 'dashboard' }
+  | { name: 'library' }
   | { name: 'profile' }
   | { name: 'project'; id: string }
   | { name: 'review'; id: string }
+  | { name: 'board'; id: string }
   | { name: 'share'; token: string }
   | { name: 'legal'; page: LegalPage }
   | { name: 'edit'; id: string };
@@ -98,12 +101,15 @@ const formatTimeAgo = (timestamp: number): string => {
 function parseRoute(pathname: string): Route {
   if (pathname === '/' || pathname === '') return { name: 'home' };
   if (pathname === '/dashboard') return { name: 'dashboard' };
+  if (pathname === '/library') return { name: 'library' };
   if (pathname === '/profile') return { name: 'profile' };
   if (pathname === '/privacy' || pathname === '/privacy-policy') return { name: 'legal', page: 'privacy' };
   if (pathname === '/cookie-policy' || pathname === '/cookies') return { name: 'legal', page: 'cookies' };
   if (pathname === '/terms' || pathname === '/terms-of-use') return { name: 'legal', page: 'terms' };
   const editMatch = pathname.match(/^\/edit\/([^\/?#]+)/);
   if (editMatch) return { name: 'edit', id: editMatch[1] };
+  const boardMatch = pathname.match(/^\/board\/([^\/?#]+)/);
+  if (boardMatch) return { name: 'board', id: boardMatch[1] };
   const projectMatch = pathname.match(/^\/project\/([^\/?#]+)/);
   if (projectMatch) return { name: 'project', id: projectMatch[1] };
   const reviewMatch = pathname.match(/^\/review\/([^\/?#]+)/);
@@ -141,9 +147,10 @@ const getClerkErrorMessage = (error: unknown): string => {
 
 const App: React.FC = () => {
   const [route, setRoute] = useState<Route>(() => parseRoute(window.location.pathname));
-  const [view, setView] = useState<'dashboard' | 'reviewer' | 'profile' | 'project' | 'legal' | 'editor'>('dashboard');
+  const [view, setView] = useState<'dashboard' | 'library' | 'reviewer' | 'profile' | 'project' | 'legal' | 'editor' | 'board'>('dashboard');
   const [legalPage, setLegalPage] = useState<LegalPage>('privacy');
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
+  const [activeBoardId, setActiveBoardId] = useState<string | null>(null);
   const [sharedSelectedVideo, setSharedSelectedVideo] = useState<Video | null>(null);
   const [selectedVideoId, setSelectedVideoId] = useState<string | null>(null);
   const [reviewSourceUrl, setReviewSourceUrl] = useState<string | null>(null);
@@ -832,6 +839,9 @@ const App: React.FC = () => {
 
   useEffect(() => {
     setActiveCompositionId(null);
+    if (route.name !== 'board') {
+      setActiveBoardId(null);
+    }
     // derive view + IDs from route
     if (route.name === 'home') {
       // If signed in, prefer dashboard URL; otherwise keep landing.
@@ -848,6 +858,11 @@ const App: React.FC = () => {
       setActiveProjectId(null);
       return;
     }
+    if (route.name === 'library') {
+      setView('library');
+      setActiveProjectId(null);
+      return;
+    }
     if (route.name === 'profile') {
       setView('profile');
       setActiveProjectId(null);
@@ -856,6 +871,11 @@ const App: React.FC = () => {
     if (route.name === 'project') {
       setActiveProjectId(route.id);
       setView('project');
+      return;
+    }
+    if (route.name === 'board') {
+      setActiveBoardId(route.id);
+      setView('board');
       return;
     }
     if (route.name === 'review') {
@@ -880,6 +900,7 @@ const App: React.FC = () => {
     setView('dashboard');
     setActiveProjectId(null);
     setSelectedVideoId(null);
+    setActiveBoardId(null);
     setActiveCompositionId(null);
   }, [route]);
 
@@ -1154,12 +1175,15 @@ const App: React.FC = () => {
             onOpenComposition={(id) => navigate(`/edit/${id}`)}
             onExitToReview={(videoId) => navigate(`/review/${videoId}`)}
           />
+        ) : view === 'board' && activeBoardId ? (
+          <BoardPageWrapper boardId={activeBoardId} />
         ) : (
           <div className="min-h-screen flex flex-col">
             <AppHeader
-              active={view === 'profile' ? 'profile' : 'dashboard'}
+              active={view === 'profile' ? 'profile' : view === 'library' ? 'library' : 'dashboard'}
               onNavigate={(target) => {
                 if (target === 'dashboard') navigate('/dashboard');
+                else if (target === 'library') navigate('/library');
                 else navigate('/profile');
               }}
               user={{
@@ -1184,6 +1208,8 @@ const App: React.FC = () => {
                   projects={projects}
                   onBack={() => navigate('/dashboard')}
                 />
+              ) : view === 'library' ? (
+                <LibraryPage />
               ) : view === 'project' && activeProjectId ? (
                 <ProjectWorkspace
                   project={projects.find((p) => p.id === activeProjectId)!}
@@ -1195,6 +1221,12 @@ const App: React.FC = () => {
                   onRenameVideo={handleRenameVideo}
                   onSetVideoProject={handleSetVideoProject}
                   onRemoveVideo={handleRemoveVideo}
+                  onCompleteUpload={handleCompleteUpload}
+                  onGenerateUploadUrl={generateUploadUrl}
+                  onOpenBoard={(boardId) => {
+                    setActiveBoardId(boardId);
+                    navigate(`/board/${boardId}`);
+                  }}
                   highlightMessage={activeProjectHighlight ? activeProjectHighlight.message ?? 'This project was shared with you.' : null}
                   onDismissHighlight={() => {
                     setPendingProjectFocus((focus) => {
@@ -1268,8 +1300,8 @@ const App: React.FC = () => {
 export default App;
 
 interface AppHeaderProps {
-  active: 'dashboard' | 'profile';
-  onNavigate: (view: 'dashboard' | 'profile') => void;
+  active: 'dashboard' | 'library' | 'profile';
+  onNavigate: (view: 'dashboard' | 'library' | 'profile') => void;
   user: {
     name?: string | null;
     email: string;
@@ -1316,6 +1348,12 @@ const AppHeader: React.FC<AppHeaderProps & { isDark: boolean }> = ({
               label="Dashboard"
               active={active === 'dashboard'}
               onClick={() => onNavigate('dashboard')}
+              isDark={isDark}
+            />
+            <HeaderNavButton
+              label="Library"
+              active={active === 'library'}
+              onClick={() => onNavigate('library')}
               isDark={isDark}
             />
             <HeaderNavButton
@@ -1410,30 +1448,6 @@ const AppHeader: React.FC<AppHeaderProps & { isDark: boolean }> = ({
               </div>
             )}
           </div>
-          <button
-            onClick={async () => {
-              const next: ThemePref = isDark ? 'light' : 'dark';
-              applyTheme(next);
-              try {
-                await updateSettings({
-                  workspace: {
-                    theme: next,
-                    autoShareGroupIds: settingsDoc?.workspace.autoShareGroupIds ?? [],
-                    ...(settingsDoc?.workspace.defaultProjectId
-                      ? { defaultProjectId: settingsDoc.workspace.defaultProjectId }
-                      : {}),
-                  },
-                });
-              } catch {}
-            }}
-            className={isDark
-              ? 'rounded-full border border-white/20 bg-black/30 p-2 text-white/80 hover:text-white'
-              : 'rounded-full border border-gray-200 bg-white p-2 text-gray-700 hover:text-gray-900'}
-            aria-label="Toggle theme"
-            title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
-          >
-            {isDark ? <Sun size={16} /> : <Moon size={16} />}
-          </button>
           <div className="hidden text-right text-xs text-white/60 sm:block">
             <p className="font-semibold text-white/80">{user.name ?? user.email}</p>
             <p>{user.email}</p>

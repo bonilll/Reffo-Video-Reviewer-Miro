@@ -7,7 +7,6 @@ import React, {
 } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  UploadCloud,
   Film,
   PlayCircle,
   Folder,
@@ -322,6 +321,7 @@ const Dashboard: React.FC<DashboardProps> = ({
   const [projectToEdit, setProjectToEdit] = useState<Project | null>(null);
   const [projectToShare, setProjectToShare] = useState<Project | null>(null);
   const [projectModalOpen, setProjectModalOpen] = useState(false);
+  const [sharingModalOpen, setSharingModalOpen] = useState(false);
   const [isDragActive, setIsDragActive] = useState(false);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>(() => {
     if (typeof window === 'undefined') return 'grid';
@@ -367,22 +367,12 @@ const Dashboard: React.FC<DashboardProps> = ({
     }
   }, [shareGroups, syncFriends]);
 
-  const recentVideos = useMemo(() => {
-    const sorted = [...videos]
-      .sort((a, b) => {
-        const aTime = a.lastReviewedAt ? Date.parse(a.lastReviewedAt) : Date.parse(a.uploadedAt);
-        const bTime = b.lastReviewedAt ? Date.parse(b.lastReviewedAt) : Date.parse(b.uploadedAt);
-        return bTime - aTime;
-      })
-      .slice(0, 6);
-    return sorted;
-  }, [videos]);
-
   const filteredProjects = useMemo(() => {
     if (!searchTerm.trim()) return projects;
     const term = searchTerm.toLowerCase();
     return projects.filter((project) => project.name.toLowerCase().includes(term));
   }, [projects, searchTerm]);
+
 
   useEffect(() => {
     if (!projects.length || ensuredDefaultProject.current) {
@@ -409,6 +399,7 @@ const Dashboard: React.FC<DashboardProps> = ({
   const dismissToast = (id: number) => {
     setToasts((current) => current.filter((item) => item.id !== id));
   };
+
 
   const prepareUpload = async (file: File) => {
     setUploadLogs([]);
@@ -880,502 +871,422 @@ const Dashboard: React.FC<DashboardProps> = ({
   };
 
   return (
-    <div className="space-y-10">
-      <section className="grid gap-6 xl:grid-cols-[minmax(0,3fr)_minmax(0,1.2fr)]">
-        <div className="rounded-3xl border border-white/10 bg-white/5 p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-lg font-semibold text-white">Recently reviewed</h2>
-              <p className="text-sm text-white/60">Your last six sessions at a glance.</p>
-            </div>
-          </div>
-          <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {recentVideos.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-white/20 bg-black/20 p-4 text-center text-xs text-white/50">
-                No reviews yet. Upload a video to start collaborating.
-              </div>
-            ) : (
-              recentVideos.map((video) => (
-                <div
-                  key={video.id}
-                  className="group relative overflow-hidden rounded-xl border border-white/10 bg-black/40 cursor-pointer"
-                  onClick={() => onStartReview(video)}
-                >
-                  <div className="relative aspect-video">
-                    <ThumbnailPreview video={video} />
-                    <button
-                      onClick={() => onStartReview(video)}
-                      className="absolute bottom-2 right-2 rounded-full bg-white/10 p-2 text-white opacity-90 hover:bg-white/20"
-                      title="Open"
-                      onMouseDown={(e) => e.stopPropagation()}
-                      onClickCapture={(e) => { e.stopPropagation(); onStartReview(video); }}
-                    >
-                      <PlayCircle size={20} />
-                    </button>
-                    <div className="absolute right-3 top-3">
-                      <VideoActionsMenu
-                        onRename={() => openRenameModal(video)}
-                        onMove={() => openMoveModal(video)}
-                        onShare={() => openShareModal(video)}
-                        onDelete={() => openDeleteModal(video)}
-                        isDark={isDark}
-                      />
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-between gap-3 px-2 pt-2">
-                    <h3 className="truncate text-sm font-semibold text-white" title={video.title}>{video.title}</h3>
-                    <span className="text-[11px] text-white/50">{formatDuration(video.duration)}</span>
-                  </div>
-                  <div className="px-2 pb-2 text-[11px] text-white/50">
-                    <span>Uploaded {formatDate(video.uploadedAt)}</span>
-                    <span className="mx-1">•</span>
-                    <span>
-                      {video.width}×{video.height}
-                    </span>
-                    <span className="mx-1">•</span>
-                    <span>{video.fps} fps</span>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-
-        <div
-          className={`rounded-3xl border border-white/10 bg-white/5 p-6 transition ${
-            isDragActive ? 'ring-2 ring-white/40' : ''
-          }`}
-          onDragOver={(event) => {
-            event.preventDefault();
-            setIsDragActive(true);
-          }}
-          onDragLeave={(event) => {
-            event.preventDefault();
-            setIsDragActive(false);
-          }}
-          onDrop={handleDrop}
-        >
-          <div className="flex items-start justify-between">
-            <div>
-              <h2 className="text-lg font-semibold text-white">Upload review</h2>
-              <p className="text-sm text-white/60">
-                Drag and drop a video here or use the button below. Each review needs a project.
+    <div className="space-y-10 library-skin">
+      <section className="library-panel p-8">
+        <div className="flex flex-col gap-6">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="space-y-2">
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-gray-500">Workspace</p>
+              <h1 className="text-3xl font-semibold text-gray-900">Projects</h1>
+              <p className="text-sm text-gray-600">
+                Projects contain boards and review sessions. Manage everything from here.
               </p>
             </div>
-            <UploadCloud className="text-white" size={28} />
-          </div>
-          <div className="mt-6 space-y-4">
-            <button
-              onClick={() => uploadInputRef.current?.click()}
-              className="flex w-full items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/10 px-4 py-3 font-semibold text-white hover:bg-white/20"
-            >
-              <UploadCloud size={18} /> Select video
-            </button>
-            <input
-              type="file"
-              ref={uploadInputRef}
-              className="hidden"
-              accept="video/*"
-              onChange={handleFileInput}
-            />
-            <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-              <h3 className="text-sm font-semibold text-white">Upload checklist</h3>
-              <ul className="mt-3 space-y-2 text-xs text-white/60">
-                <li>• Accepted formats: MP4, MOV, WebM.</li>
-                <li>• Maximum size depends on your plan.</li>
-                <li>• Assign the review to a project before starting.</li>
-              </ul>
-            </div>
-            <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-              <h3 className="text-sm font-semibold text-white">Quick stats</h3>
-              <div className="mt-3 grid grid-cols-2 gap-3 text-xs text-white/70">
-                <div>
-                  <p className="text-white/40">Reviews this week</p>
-                  <p className="text-lg font-semibold text-white">{videos.length}</p>
-                </div>
-                <div>
-                  <p className="text-white/40">Active projects</p>
-                  <p className="text-lg font-semibold text-white">{projects.length}</p>
-                </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="relative">
+                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                <input
+                  value={searchTerm}
+                  onChange={(event) => setSearchTerm(event.target.value)}
+                  placeholder="Search projects"
+                  className="rounded-full border border-gray-200 bg-white py-2 pl-10 pr-4 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-300"
+                />
               </div>
+              <button
+                onClick={() => {
+                  setProjectToEdit(null);
+                  setProjectModalOpen(true);
+                }}
+                className="inline-flex items-center gap-2 rounded-full bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800"
+              >
+                <Plus size={16} /> New project
+              </button>
+              <button
+                onClick={() => setSharingModalOpen(true)}
+                className="inline-flex items-center gap-2 rounded-full border border-gray-900 bg-white px-4 py-2 text-sm font-semibold text-gray-900 hover:bg-gray-100"
+              >
+                Sharing options
+              </button>
             </div>
           </div>
-        </div>
-      </section>
-
-      <section className="rounded-3xl border border-white/10 bg-white/5 p-6">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <h2 className="text-lg font-semibold text-white">Projects</h2>
-            <p className="text-sm text-white/60">Organise reviews by client, campaign, or delivery.</p>
-          </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="relative">
-              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40" />
-              <input
-                value={searchTerm}
-                onChange={(event) => setSearchTerm(event.target.value)}
-                placeholder="Search projects"
-                className="rounded-full border border-white/10 bg-black/20 py-2 pl-10 pr-4 text-sm text-white focus:outline-none focus:ring-2 focus:ring-white/60"
-              />
-            </div>
+        <div>
+          <div className="flex items-center justify-end gap-2">
             <button
-              onClick={() => {
-                setProjectToEdit(null);
-                setProjectModalOpen(true);
-              }}
-              className="inline-flex items-center gap-2 rounded-full bg-white/10 px-4 py-2 text-sm font-semibold text-white hover:bg-white/20"
+              onClick={() => setViewMode('list')}
+              className={`rounded-full px-3 py-1.5 text-xs ${viewMode === 'list' ? 'bg-gray-900 text-white' : 'text-gray-500 hover:text-gray-900'}`}
             >
-              <Plus size={16} /> New project
+              List
+            </button>
+            <button
+              onClick={() => setViewMode('grid')}
+              className={`rounded-full px-3 py-1.5 text-xs ${viewMode === 'grid' ? 'bg-gray-900 text-white' : 'text-gray-500 hover:text-gray-900'}`}
+            >
+              Grid
             </button>
           </div>
-        </div>
-        <div className="mt-4 flex items-center justify-end gap-2">
-          <button
-            onClick={() => setViewMode('list')}
-            className={`rounded-full px-3 py-1.5 text-xs ${viewMode === 'list' ? 'bg-white/10 text-white' : 'text-white/60 hover:text-white'}`}
-          >
-            List
-          </button>
-          <button
-            onClick={() => setViewMode('grid')}
-            className={`rounded-full px-3 py-1.5 text-xs ${viewMode === 'grid' ? 'bg-white/10 text-white' : 'text-white/60 hover:text-white'}`}
-          >
-            Grid
-          </button>
-        </div>
 
-        {viewMode === 'list' ? (
-          <div className="mt-4 overflow-hidden rounded-2xl border border-white/10">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-white/5 text-xs uppercase text-white/40">
-                <tr>
-                  <th className="px-4 py-3">Name</th>
-                  <th className="px-4 py-3">Reviews</th>
-                  <th className="px-4 py-3">Last activity</th>
-                  <th className="px-4 py-3 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredProjects.map((project) => {
-                  const isOwned = ownedProjectIds?.includes(project.id) ?? true;
-                  const projectVideos = videos.filter((video) => video.projectId === project.id);
-                  const recent = projectVideos[0];
-                  return (
-                    <tr key={project.id} className="border-t border-white/10 hover:bg-white/5">
-                      <td className="px-4 py-3 text-white">
-                        <div className="flex flex-col">
-                          <button
-                            onClick={() => openProjectWorkspace(project.id)}
-                            className="text-left font-semibold hover:underline"
-                            title="Open workspace"
-                          >
-                            {project.name}
-                          </button>
-                          {(() => {
-                            // Only consider project-level shares (exclude per-video propagated entries)
-                            const shares = activeShares.filter(s => s.projectId === project.id && s.groupId && !s.videoId);
-                            if (shares.length === 0) return null;
-                            const names = Array.from(new Set(
-                              shares.map(s => getGroupById(s.groupId as any)?.name).filter(Boolean) as string[]
-                            ));
-                            const shown = names.slice(0,3);
-                            const more = Math.max(0, names.length - shown.length);
-                            return (
-                              <div className="mt-1 flex flex-wrap items-center gap-1">
-                                {shown.map((n, i) => (
-                                  <span key={i} className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-white/70">{n}</span>
-                                ))}
-                                {more > 0 && (
-                                  <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-white/50">+{more} more</span>
-                                )}
-                              </div>
-                            );
-                          })()}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 text-white/70">{projectVideos.length}</td>
-                      <td className="px-4 py-3 text-white/50">{recent ? formatDate(recent.lastReviewedAt ?? recent.uploadedAt) : 'Not started'}</td>
+          {viewMode === 'list' ? (
+            <div className="mt-4 overflow-hidden rounded-2xl border border-gray-200 bg-white">
+              <table className="w-full text-left text-sm">
+                <thead className="bg-gray-50 text-xs uppercase text-gray-500">
+                  <tr>
+                    <th className="px-4 py-3">Name</th>
+                    <th className="px-4 py-3">Reviews</th>
+                    <th className="px-4 py-3">Last activity</th>
+                    <th className="px-4 py-3 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredProjects.map((project) => {
+                const isOwned = ownedProjectIds?.includes(project.id) ?? true;
+                const projectVideos = videos.filter((video) => video.projectId === project.id);
+                const recent = projectVideos[0];
+                return (
+                  <tr
+                    key={project.id}
+                    className="cursor-pointer border-t border-gray-200 hover:bg-gray-50"
+                    onClick={() => openProjectWorkspace(project.id)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        openProjectWorkspace(project.id);
+                      }
+                    }}
+                  >
+                    <td className="px-4 py-3 text-gray-900">
+                      <div className="flex flex-col">
+                        <span className="font-semibold text-gray-900" title="Open workspace">
+                          {project.name}
+                        </span>
+                        {(() => {
+                          // Only consider project-level shares (exclude per-video propagated entries)
+                          const shares = activeShares.filter(s => s.projectId === project.id && s.groupId && !s.videoId);
+                          if (shares.length === 0) return null;
+                          const names = Array.from(new Set(
+                            shares.map(s => getGroupById(s.groupId as any)?.name).filter(Boolean) as string[]
+                          ));
+                          const shown = names.slice(0,3);
+                          const more = Math.max(0, names.length - shown.length);
+                          return (
+                            <div className="mt-1 flex flex-wrap items-center gap-1">
+                              {shown.map((n, i) => (
+                                <span key={i} className="rounded-full border border-gray-200 bg-gray-100 px-2 py-0.5 text-[10px] text-gray-700">{n}</span>
+                              ))}
+                              {more > 0 && (
+                                <span className="rounded-full border border-gray-200 bg-gray-100 px-2 py-0.5 text-[10px] text-gray-500">+{more} more</span>
+                              )}
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-gray-600">{projectVideos.length}</td>
+                    <td className="px-4 py-3 text-gray-500">{recent ? formatDate(recent.lastReviewedAt ?? recent.uploadedAt) : 'Not started'}</td>
                       <td className="px-4 py-3">
-                        <div className="flex items-center justify-end gap-2">
+                        <div className="flex items-center justify-end gap-2" onClick={(e) => e.stopPropagation()}>
                           <button
-                            onClick={() => {
+                            onClick={(e) => {
+                              e.stopPropagation();
                               setProjectToEdit(project);
                               setProjectModalOpen(true);
                             }}
                             disabled={!isOwned}
-                            className={`rounded-full p-1 ${!isOwned ? 'cursor-not-allowed bg-white/5 text-white/30' : 'bg-white/10 text-white/60 hover:text-white'}`}
+                            className={`rounded-full p-1 ${!isOwned ? 'cursor-not-allowed bg-gray-100 text-gray-300' : 'bg-gray-100 text-gray-600 hover:text-gray-900'}`}
                           >
                             <Pencil size={14} />
                           </button>
                           <button
-                            onClick={() => setProjectToShare(project)}
-                            className="rounded-full bg-white/10 p-1 text-white/60 hover:text-white"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setProjectToShare(project);
+                            }}
+                            className="rounded-full bg-gray-100 p-1 text-gray-600 hover:text-gray-900"
                           >
                             <Share2 size={14} />
                           </button>
                           <button
-                            onClick={() => setProjectDeleteTarget(project)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setProjectDeleteTarget(project);
+                            }}
                             disabled={!isOwned}
-                            className={`rounded-full p-1 ${!isOwned ? 'cursor-not-allowed bg-white/5 text-white/30' : 'bg-white/10 text-white/60 hover:text-white'}`}
+                            className={`rounded-full p-1 ${!isOwned ? 'cursor-not-allowed bg-gray-100 text-gray-300' : 'bg-gray-100 text-gray-600 hover:text-gray-900'}`}
                           >
                             <Trash2 size={14} />
                           </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {filteredProjects.map((project) => {
-            const isOwned = ownedProjectIds?.includes(project.id) ?? true;
-            const projectVideos = videos.filter((video) => video.projectId === project.id);
-            const recentReview = projectVideos[0];
-            return (
-              <div key={project.id} className="rounded-2xl border border-white/10 bg-black/30 p-5">
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white">
-                      <Folder size={18} />
-                    </div>
-                    <div>
-                      <h3 className="text-base font-semibold text-white">{project.name}</h3>
-                      <p className="text-xs text-white/50">Created {formatDate(project.createdAt)}</p>
-                      {(() => {
-                        // Only consider project-level shares (exclude per-video propagated entries)
-                        const shares = activeShares.filter(s => s.projectId === project.id && s.groupId && !s.videoId);
-                        if (shares.length === 0) return null;
-                        const names = Array.from(new Set(
-                          shares.map(s => getGroupById(s.groupId as any)?.name).filter(Boolean) as string[]
-                        ));
-                        const shown = names.slice(0,3);
-                        const more = Math.max(0, names.length - shown.length);
-                        return (
-                          <div className="mt-1 flex flex-wrap items-center gap-1">
-                            {shown.map((n, i) => (
-                              <span key={i} className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-white/70">{n}</span>
-                            ))}
-                            {more > 0 && (
-                              <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-white/50">+{more} more</span>
-                            )}
-                          </div>
-                        );
-                      })()}
-                    </div>
-                  </div>
-                  <VideoActionsMenu
-                    onRename={() => {
-                      if (!isOwned) { pushToast('info', 'Only the owner can rename this project.'); return; }
-                      setProjectToEdit(project);
-                      setProjectModalOpen(true);
-                    }}
-                    onMove={() => {
-                      const firstVideo = projectVideos[0];
-                      if (firstVideo) {
-                        openMoveModal(firstVideo);
-                      }
-                    }}
-                    onShare={() => setProjectToShare(project)}
-                    onDelete={() => { if (!isOwned) { pushToast('info', 'Only the owner can delete this project.'); return; } setProjectDeleteTarget(project); }}
-                    isDark={isDark}
-                  />
-                </div>
-                <div className="mt-4 space-y-3 text-sm text-white/70">
-                  <div className="flex items-center justify-between">
-                    <span>Reviews</span>
-                    <span className="text-white">{projectVideos.length}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span>Last activity</span>
-                    <span>
-                      {projectVideos.length
-                        ? formatDate(
-                            projectVideos[0].lastReviewedAt ?? projectVideos[0].uploadedAt,
-                          )
-                        : 'Not started'}
-                    </span>
-                  </div>
-                </div>
-                <button
-                  className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/10 px-4 py-2 text-sm font-semibold text-white hover:bg-white/20"
-                  onClick={() => openProjectWorkspace(project.id)}
-                >
-                  Open workspace
-                </button>
-              </div>
-            );
-          })}
-          {filteredProjects.length === 0 && (
-            <div className="rounded-2xl border border-dashed border-white/20 bg-black/20 p-6 text-center text-sm text-white/60">
-              No projects match your search.
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+                </tbody>
+              </table>
             </div>
-          )}
-        </div>
-        )}
-      </section>
-
-      <section className="rounded-3xl border border-white/10 bg-white/5 p-6">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <h2 className="text-lg font-semibold text-white">Sharing workspace</h2>
-            <p className="text-sm text-white/60">
-              Create groups, invite collaborators, and share reviews or entire projects.
-            </p>
-          </div>
-          <button
-            onClick={async () => {
-              try {
-                await createShareGroup({ name: `Team ${shareGroups?.length ? shareGroups.length + 1 : 1}` });
-                pushToast('success', 'Collaboration group created.');
-              } catch (error) {
-                console.error(error);
-                pushToast('error', 'Unable to create group.');
-              }
-            }}
-            className="inline-flex items-center gap-2 rounded-full bg-white/10 px-4 py-2 text-sm font-semibold text-white hover:bg-white/20"
-          >
-            <Users size={16} /> New group
-          </button>
-        </div>
-        <div className="mt-6 grid gap-4 lg:grid-cols-2">
-          {(shareGroups ?? []).map((group) => (
-            <div key={group.id} className="rounded-2xl border border-white/10 bg-black/30 p-5">
+          ) : (
+            <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {filteredProjects.map((project) => {
+          const isOwned = ownedProjectIds?.includes(project.id) ?? true;
+          const projectVideos = videos.filter((video) => video.projectId === project.id);
+          const recentReview = projectVideos[0];
+          return (
+            <div key={project.id} className="library-card p-5">
               <div className="flex items-start justify-between">
-                <div>
-                  <h3 className="text-base font-semibold text-white">{group.name}</h3>
-                  <p className="text-xs text-white/50">
-                    {group.members.length} member{group.members.length === 1 ? '' : 's'}
-                  </p>
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gray-100 text-gray-700">
+                    <Folder size={18} />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-semibold text-gray-900">{project.name}</h3>
+                    <p className="text-xs text-gray-500">Created {formatDate(project.createdAt)}</p>
+                    {(() => {
+                      // Only consider project-level shares (exclude per-video propagated entries)
+                      const shares = activeShares.filter(s => s.projectId === project.id && s.groupId && !s.videoId);
+                      if (shares.length === 0) return null;
+                      const names = Array.from(new Set(
+                        shares.map(s => getGroupById(s.groupId as any)?.name).filter(Boolean) as string[]
+                      ));
+                      const shown = names.slice(0,3);
+                      const more = Math.max(0, names.length - shown.length);
+                      return (
+                        <div className="mt-1 flex flex-wrap items-center gap-1">
+                          {shown.map((n, i) => (
+                            <span key={i} className="rounded-full border border-gray-200 bg-gray-100 px-2 py-0.5 text-[10px] text-gray-700">{n}</span>
+                          ))}
+                          {more > 0 && (
+                            <span className="rounded-full border border-gray-200 bg-gray-100 px-2 py-0.5 text-[10px] text-gray-500">+{more} more</span>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setRenameTarget(group)}
-                    className="rounded-full bg-white/10 p-1 text-white/60 hover:text-white"
-                  >
-                    <Pencil size={14} />
-                  </button>
-                  <button
-                    onClick={async () => {
-                      await archiveShareGroup({ groupId: group.id as any });
-                      pushToast('success', 'Group archived.');
-                    }}
-                    className="rounded-full bg-white/10 p-1 text-white/60 hover:text-white"
-                  >
-                    <Trash2 size={14} />
-                  </button>
+                <VideoActionsMenu
+                  onRename={() => {
+                    if (!isOwned) { pushToast('info', 'Only the owner can rename this project.'); return; }
+                    setProjectToEdit(project);
+                    setProjectModalOpen(true);
+                  }}
+                  onMove={() => {
+                    const firstVideo = projectVideos[0];
+                    if (firstVideo) {
+                      openMoveModal(firstVideo);
+                    }
+                  }}
+                  onShare={() => setProjectToShare(project)}
+                  onDelete={() => { if (!isOwned) { pushToast('info', 'Only the owner can delete this project.'); return; } setProjectDeleteTarget(project); }}
+                  isDark={isDark}
+                />
+              </div>
+              <div className="mt-4 space-y-3 text-sm text-gray-600">
+                <div className="flex items-center justify-between">
+                  <span>Reviews</span>
+                  <span className="text-gray-900">{projectVideos.length}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>Last activity</span>
+                  <span>
+                    {projectVideos.length
+                      ? formatDate(
+                          projectVideos[0].lastReviewedAt ?? projectVideos[0].uploadedAt,
+                        )
+                      : 'Not started'}
+                  </span>
                 </div>
               </div>
-              <ul className="mt-4 space-y-2 text-xs text-white/70">
-                {group.members.map((member) => (
-                  <li key={member.id} className="flex items-center justify-between rounded-xl bg-white/5 px-3 py-2">
-                    <div>
-                      <p className="font-semibold text-white">{member.email}</p>
-                      <p className="text-white/40">{member.role} • {member.status}</p>
-                    </div>
-                    <button
-                      onClick={async () => {
-                        await removeMemberMutation({ memberId: member.id as any });
-                        pushToast('success', 'Member removed.');
-                      }}
-                      className="rounded-full bg-white/10 px-3 py-1 text-xs text-white/60 hover:text-white"
-                    >
-                      Remove
-                    </button>
-                  </li>
-                ))}
-              </ul>
               <button
-                onClick={() => setInviteTarget(group)}
-                className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/10 px-4 py-2 text-sm font-semibold text-white hover:bg-white/20"
+                className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800"
+                onClick={() => openProjectWorkspace(project.id)}
               >
-                Invite collaborator
+                Open workspace
               </button>
             </div>
-          ))}
-          {(shareGroups?.length ?? 0) === 0 && (
-            <div className="rounded-2xl border border-dashed border-white/20 bg-black/20 p-6 text-center text-sm text-white/60">
-              Create your first sharing group to collaborate with teammates.
-            </div>
+          );
+        })}
+        {filteredProjects.length === 0 && (
+          <div className="library-card-muted p-6 text-center text-sm text-gray-500">
+            No projects match your search.
+          </div>
+        )}
+          </div>
           )}
         </div>
-        <div className="mt-8 rounded-2xl border border-white/10 bg-black/30 p-5">
-          <h3 className="text-base font-semibold text-white">Active share links</h3>
-          <div className="mt-4 space-y-3 text-xs text-white/70">
-            {activeShares.filter((share) => share.linkToken).length === 0 ? (
-              <p className="text-white/50">Generate a link from a review to see it here.</p>
-            ) : (
-              activeShares
-                .filter((share) => share.linkToken)
-                .map((share) => (
-                  <div
-                    key={share.id}
-                    className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-white/5 px-4 py-3"
-                  >
-                    <div>
-                      {(() => {
-                        const v = share.videoId ? videosById.get(share.videoId) : undefined;
-                        const p = share.projectId ? projectsById.get(share.projectId) : (v?.projectId ? projectsById.get(v.projectId) : undefined);
-                        if (v) {
-                          return (
-                            <>
-                              <p className="font-semibold text-white">Link for review “{v.title}” {p ? <span className="text-white/60">• Project “{p.name}”</span> : null}</p>
-                              <p className="text-white/40">Token: {share.linkToken?.slice(0, 12)}… • {share.allowComments ? 'Comments allowed' : 'View only'}</p>
-                            </>
-                          );
-                        }
-                        if (p) {
-                          return (
-                            <>
-                              <p className="font-semibold text-white">Link for project “{p.name}”</p>
-                              <p className="text-white/40">Token: {share.linkToken?.slice(0, 12)}… • {share.allowComments ? 'Comments allowed' : 'View only'}</p>
-                            </>
-                          );
-                        }
-                        return (
-                          <>
-                            <p className="font-semibold text-white">Link</p>
-                            <p className="text-white/40">Token: {share.linkToken?.slice(0, 12)}… • {share.allowComments ? 'Comments allowed' : 'View only'}</p>
-                          </>
-                        );
-                      })()}
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <button
-                        onClick={() => {
-                          const url = `${publicBaseUrl()}/share/${share.linkToken}`;
-                          if (navigator.clipboard && 'writeText' in navigator.clipboard) {
-                            void navigator.clipboard.writeText(url);
-                          } else {
-                            window.prompt('Copy this link', url);
-                          }
-                        }}
-                        className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1.5 text-xs text-white hover:bg-white/20"
-                      >
-                        <LinkIcon size={14} /> Copy link
-                      </button>
-                      <button
-                        onClick={() => revokeShare({ shareId: share.id as any })}
-                        className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1.5 text-xs text-white/60 hover:text-white"
-                      >
-                        Disable
-                      </button>
-                    </div>
-                  </div>
-                ))
-            )}
-          </div>
         </div>
       </section>
 
-      <div className="fixed bottom-6 right-6 space-y-2">
+      {sharingModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center dashboard-overlay p-4 backdrop-blur">
+          <div className="library-panel w-full max-w-5xl max-h-[85vh] overflow-y-auto p-6">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">Sharing workspace</h2>
+                <p className="text-sm text-gray-600">
+                  Create groups, invite collaborators, and share reviews or entire projects.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={async () => {
+                    try {
+                      await createShareGroup({ name: `Team ${shareGroups?.length ? shareGroups.length + 1 : 1}` });
+                      pushToast('success', 'Collaboration group created.');
+                    } catch (error) {
+                      console.error(error);
+                      pushToast('error', 'Unable to create group.');
+                    }
+                  }}
+                  className="inline-flex items-center gap-2 rounded-full bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800"
+                >
+                  <Users size={16} /> New group
+                </button>
+                <button
+                  onClick={() => setSharingModalOpen(false)}
+                  className="inline-flex items-center gap-2 rounded-full border border-gray-900 bg-white px-3 py-2 text-sm font-semibold text-gray-900 hover:bg-gray-100"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-6 grid gap-4 lg:grid-cols-2">
+              {(shareGroups ?? []).map((group) => (
+                <div key={group.id} className="library-card p-5">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <h3 className="text-base font-semibold text-gray-900">{group.name}</h3>
+                      <p className="text-xs text-gray-500">
+                        {group.members.length} member{group.members.length === 1 ? '' : 's'}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setRenameTarget(group)}
+                        className="rounded-full bg-gray-100 p-1 text-gray-600 hover:text-gray-900"
+                      >
+                        <Pencil size={14} />
+                      </button>
+                      <button
+                        onClick={async () => {
+                          await archiveShareGroup({ groupId: group.id as any });
+                          pushToast('success', 'Group archived.');
+                        }}
+                        className="rounded-full bg-gray-100 p-1 text-gray-600 hover:text-gray-900"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </div>
+                  <ul className="mt-4 space-y-2 text-xs text-gray-600">
+                    {group.members.map((member) => (
+                      <li key={member.id} className="flex items-center justify-between rounded-xl border border-gray-200 bg-gray-50 px-3 py-2">
+                        <div>
+                          <p className="font-semibold text-gray-900">{member.email}</p>
+                          <p className="text-gray-500">{member.role} • {member.status}</p>
+                        </div>
+                        <button
+                          onClick={async () => {
+                            await removeMemberMutation({ memberId: member.id as any });
+                            pushToast('success', 'Member removed.');
+                          }}
+                          className="rounded-full border border-gray-200 bg-white px-3 py-1 text-xs text-gray-600 hover:text-gray-900"
+                        >
+                          Remove
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                  <button
+                    onClick={() => setInviteTarget(group)}
+                    className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800"
+                  >
+                    Invite collaborator
+                  </button>
+                </div>
+              ))}
+              {(shareGroups?.length ?? 0) === 0 && (
+                <div className="library-card-muted p-6 text-center text-sm text-gray-500">
+                  Create your first sharing group to collaborate with teammates.
+                </div>
+              )}
+            </div>
+
+            <div className="mt-8 library-card p-5">
+              <h3 className="text-base font-semibold text-gray-900">Active share links</h3>
+              <div className="mt-4 space-y-3 text-xs text-gray-600">
+                {activeShares.filter((share) => share.linkToken).length === 0 ? (
+                  <p className="text-gray-500">Generate a link from a review to see it here.</p>
+                ) : (
+                  activeShares
+                    .filter((share) => share.linkToken)
+                    .map((share) => (
+                      <div
+                        key={share.id}
+                        className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3"
+                      >
+                        <div>
+                          {(() => {
+                            const v = share.videoId ? videosById.get(share.videoId) : undefined;
+                            const p = share.projectId ? projectsById.get(share.projectId) : (v?.projectId ? projectsById.get(v.projectId) : undefined);
+                            if (v) {
+                              return (
+                                <>
+                                  <p className="font-semibold text-gray-900">Link for review “{v.title}” {p ? <span className="text-gray-500">• Project “{p.name}”</span> : null}</p>
+                                  <p className="text-gray-500">Token: {share.linkToken?.slice(0, 12)}… • {share.allowComments ? 'Comments allowed' : 'View only'}</p>
+                                </>
+                              );
+                            }
+                            if (p) {
+                              return (
+                                <>
+                                  <p className="font-semibold text-gray-900">Link for project “{p.name}”</p>
+                                  <p className="text-gray-500">Token: {share.linkToken?.slice(0, 12)}… • {share.allowComments ? 'Comments allowed' : 'View only'}</p>
+                                </>
+                              );
+                            }
+                            return (
+                              <>
+                                <p className="font-semibold text-gray-900">Link</p>
+                                <p className="text-gray-500">Token: {share.linkToken?.slice(0, 12)}… • {share.allowComments ? 'Comments allowed' : 'View only'}</p>
+                              </>
+                            );
+                          })()}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            onClick={() => {
+                              const url = `${publicBaseUrl()}/share/${share.linkToken}`;
+                              if (navigator.clipboard && 'writeText' in navigator.clipboard) {
+                                void navigator.clipboard.writeText(url);
+                              } else {
+                                window.prompt('Copy this link', url);
+                              }
+                            }}
+                            className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-700 hover:text-gray-900"
+                          >
+                            <LinkIcon size={14} /> Copy link
+                          </button>
+                          <button
+                            onClick={() => revokeShare({ shareId: share.id as any })}
+                            className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-600 hover:text-gray-900"
+                          >
+                            Disable
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="fixed bottom-4 right-4 left-4 md:left-auto md:bottom-6 md:right-6 space-y-2">
         {toasts.map((toast) => (
           <div
             key={toast.id}
-            className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/10 px-4 py-3 text-sm text-white shadow-xl backdrop-blur"
+            className="flex items-center gap-3 rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-700 shadow-xl"
           >
             {toast.tone === 'success' ? (
               <lottie-player
@@ -1396,7 +1307,7 @@ const Dashboard: React.FC<DashboardProps> = ({
               <Info size={18} />
             )}
             <span>{toast.message}</span>
-            <button onClick={() => dismissToast(toast.id)} className="text-white/60 hover:text-white">
+            <button onClick={() => dismissToast(toast.id)} className="text-gray-500 hover:text-gray-900">
               <X size={14} />
             </button>
           </div>
@@ -1404,7 +1315,7 @@ const Dashboard: React.FC<DashboardProps> = ({
       </div>
 
       {showUploadModal && pendingUpload && (
-        <div className={`fixed inset-0 z-50 flex items-center justify-center ${isDark ? 'bg-black/80' : 'bg-black/30'} p-4 backdrop-blur`}>
+        <div className={`fixed inset-0 z-50 flex items-center justify-center dashboard-overlay ${isDark ? 'bg-black/80' : 'bg-black/30'} p-4 backdrop-blur`}>
           <div className={`w-full max-w-lg rounded-3xl border border-white/10 ${isDark ? 'bg-black/80' : 'bg-white'} p-6`}>
             <div className="flex items-start justify-between">
               <div>
@@ -1472,14 +1383,14 @@ const Dashboard: React.FC<DashboardProps> = ({
             <div className="mt-6 flex justify-end gap-2">
               <button
                 onClick={resetUploadState}
-                className="rounded-full bg-white/10 px-4 py-2 text-sm font-semibold text-white/60 hover:text-white"
+                className="rounded-full border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-50"
               >
                 Cancel
               </button>
               <button
                 onClick={proceedUpload}
                 disabled={!selectedProjectId || isUploading}
-                className="rounded-full bg-white px-4 py-2 text-sm font-semibold text-black transition enabled:hover:bg-white/90 disabled:opacity-40"
+                className="rounded-full bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition enabled:hover:bg-gray-800 disabled:opacity-40"
               >
                 {isUploading ? 'Uploading…' : 'Upload' }
               </button>
@@ -1548,7 +1459,7 @@ const Dashboard: React.FC<DashboardProps> = ({
       )}
 
       {inviteTarget && (
-        <div className={`fixed inset-0 z-50 grid place-items-center ${isDark ? 'bg-black/80' : 'bg-black/30'} p-4 backdrop-blur`}>
+        <div className={`fixed inset-0 z-50 grid place-items-center dashboard-overlay ${isDark ? 'bg-black/80' : 'bg-black/30'} p-4 backdrop-blur`}>
           <div className={`w-full max-w-sm space-y-4 rounded-3xl border border-white/10 ${isDark ? 'bg-black/80' : 'bg-white'} p-6`}>
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-semibold text-white">Invite collaborator</h3>
@@ -1569,7 +1480,7 @@ const Dashboard: React.FC<DashboardProps> = ({
       )}
 
       {renameTarget && (
-        <div className={`fixed inset-0 z-50 grid place-items-center ${isDark ? 'bg-black/80' : 'bg-black/30'} p-4 backdrop-blur`}>
+        <div className={`fixed inset-0 z-50 grid place-items-center dashboard-overlay ${isDark ? 'bg-black/80' : 'bg-black/30'} p-4 backdrop-blur`}>
           <div className={`w-full max-w-sm space-y-4 rounded-3xl border border-white/10 ${isDark ? 'bg-black/80' : 'bg-white'} p-6`}>
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-semibold text-white">Rename team</h3>
@@ -1623,7 +1534,7 @@ const Dashboard: React.FC<DashboardProps> = ({
       )}
 
       {projectDeleteTarget && (
-        <div className={`fixed inset-0 z-50 grid place-items-center ${isDark ? 'bg-black/80' : 'bg-black/30'} p-4 backdrop-blur`}>
+        <div className={`fixed inset-0 z-50 grid place-items-center dashboard-overlay ${isDark ? 'bg-black/80' : 'bg-black/30'} p-4 backdrop-blur`}>
           <div className={`w-full max-w-md space-y-4 rounded-3xl border border-white/10 ${isDark ? 'bg-black/80' : 'bg-white'} p-6`}>
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-semibold text-white">Delete project</h3>
@@ -1638,7 +1549,10 @@ const Dashboard: React.FC<DashboardProps> = ({
               <p className="text-white/50">Make sure you exported any important content before continuing.</p>
             </div>
             <div className="flex justify-end gap-2">
-              <button onClick={() => setProjectDeleteTarget(null)} className="rounded-full bg-white/10 px-4 py-2 text-sm text-white/70 hover:text-white">
+              <button
+                onClick={() => setProjectDeleteTarget(null)}
+                className="rounded-full border border-gray-200 bg-white px-4 py-2 text-sm text-gray-600 hover:bg-gray-50"
+              >
                 Cancel
               </button>
               <button
@@ -1651,7 +1565,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                   pushToast('success', 'Project deleted.');
                 }}
                 disabled={isDeletingProject}
-                className="rounded-full bg-white px-4 py-2 text-sm font-semibold text-black enabled:hover:bg-white/90 disabled:opacity-40"
+                className="rounded-full bg-rose-600 px-4 py-2 text-sm font-semibold text-white enabled:hover:bg-rose-500 disabled:opacity-40"
               >
                 {isDeletingProject ? 'Deleting…' : 'Delete project'}
               </button>
@@ -1708,7 +1622,7 @@ export const RenameVideoModal: React.FC<RenameVideoModalProps> = ({ video, onClo
   };
 
   return (
-    <div className={`fixed inset-0 z-50 flex items-center justify-center ${isDark ? 'bg-black/80' : 'bg-black/30'} p-4 backdrop-blur`}>
+    <div className={`fixed inset-0 z-50 flex items-center justify-center dashboard-overlay ${isDark ? 'bg-black/80' : 'bg-black/30'} p-4 backdrop-blur`}>
       <form onSubmit={handleSubmit} className={`w-full max-w-sm space-y-4 rounded-3xl border border-white/10 ${isDark ? 'bg-black/80' : 'bg-white'} p-6`}>
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-semibold text-white">Rename review</h3>
@@ -1733,7 +1647,7 @@ export const RenameVideoModal: React.FC<RenameVideoModalProps> = ({ video, onClo
           <button
             type="submit"
             disabled={!title.trim() || saving}
-            className="rounded-full bg-white px-4 py-2 text-sm font-semibold text-black transition enabled:hover:bg-white/90 disabled:opacity-40"
+            className="rounded-full bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition enabled:hover:bg-gray-800 disabled:opacity-40"
           >
             {saving ? 'Saving…' : 'Save'}
           </button>
@@ -1765,7 +1679,7 @@ export const MoveVideoModal: React.FC<MoveVideoModalProps> = ({ video, projects,
   };
 
   return (
-    <div className={`fixed inset-0 z-50 flex items-center justify-center ${isDark ? 'bg-black/80' : 'bg-black/30'} p-4 backdrop-blur`}>
+    <div className={`fixed inset-0 z-50 flex items-center justify-center dashboard-overlay ${isDark ? 'bg-black/80' : 'bg-black/30'} p-4 backdrop-blur`}>
       <form onSubmit={handleSubmit} className={`w-full max-w-sm space-y-4 rounded-3xl border border-white/10 ${isDark ? 'bg-black/80' : 'bg-white'} p-6`}>
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-semibold text-white">Move review</h3>
@@ -1819,7 +1733,7 @@ export const MoveVideoModal: React.FC<MoveVideoModalProps> = ({ video, projects,
           <button
             type="submit"
             disabled={!target || saving}
-            className="rounded-full bg-white px-4 py-2 text-sm font-semibold text-black transition enabled:hover:bg-white/90 disabled:opacity-40"
+            className="rounded-full bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition enabled:hover:bg-gray-800 disabled:opacity-40"
           >
             {saving ? 'Moving…' : 'Move'}
           </button>
@@ -1846,7 +1760,7 @@ export const ConfirmDeleteModal: React.FC<ConfirmDeleteModalProps> = ({ video, o
   };
 
   return (
-    <div className={`fixed inset-0 z-50 flex items-center justify-center ${isDark ? 'bg-black/80' : 'bg-black/30'} p-4 backdrop-blur`}>
+    <div className={`fixed inset-0 z-50 flex items-center justify-center dashboard-overlay ${isDark ? 'bg-black/80' : 'bg-black/30'} p-4 backdrop-blur`}>
       <div className={`w-full max-w-sm space-y-4 rounded-3xl border border-white/10 ${isDark ? 'bg-black/80' : 'bg-white'} p-6`}>
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-semibold text-white">Delete review</h3>
@@ -1867,7 +1781,7 @@ export const ConfirmDeleteModal: React.FC<ConfirmDeleteModalProps> = ({ video, o
           <button
             onClick={handleConfirm}
             disabled={deleting}
-            className="rounded-full bg-red-400 px-4 py-2 text-sm font-semibold text-black transition enabled:hover:bg-red-300 disabled:opacity-40"
+            className="rounded-full bg-rose-600 px-4 py-2 text-sm font-semibold text-white transition enabled:hover:bg-rose-500 disabled:opacity-40"
           >
             {deleting ? 'Deleting…' : 'Delete'}
           </button>
@@ -1951,7 +1865,7 @@ export const ShareModal: React.FC<ShareModalProps> = ({
   };
 
   return (
-    <div className={`fixed inset-0 z-50 flex items-center justify-center ${isDark ? 'bg-black/80' : 'bg-black/30'} p-4 backdrop-blur`}>
+    <div className={`fixed inset-0 z-50 flex items-center justify-center dashboard-overlay ${isDark ? 'bg-black/80' : 'bg-black/30'} p-4 backdrop-blur`}>
       <div className={`w-full max-w-2xl space-y-6 rounded-3xl border border-white/10 ${isDark ? 'bg-black/80' : 'bg-white'} p-6`}>
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-semibold text-white">Share “{assetTitle}” {assetKind}</h3>
@@ -2133,7 +2047,7 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ initialName, onCancel, onSu
   };
 
   return (
-    <div className={`fixed inset-0 z-50 flex items-center justify-center ${isDark ? 'bg-black/80' : 'bg-black/30'} p-4 backdrop-blur`}>
+    <div className={`fixed inset-0 z-50 flex items-center justify-center dashboard-overlay ${isDark ? 'bg-black/80' : 'bg-black/30'} p-4 backdrop-blur`}>
       <form onSubmit={handleSubmit} className={`w-full max-w-sm space-y-4 rounded-3xl border border-white/10 ${isDark ? 'bg-black/80' : 'bg-white'} p-6`}>
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-semibold text-white">{initialName ? 'Rename project' : 'New project'}</h3>
@@ -2158,7 +2072,7 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ initialName, onCancel, onSu
           <button
             type="submit"
             disabled={!name.trim() || saving}
-            className="rounded-full bg-white px-4 py-2 text-sm font-semibold text-black transition enabled:hover:bg-white/90 disabled:opacity-40"
+            className="rounded-full bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition enabled:hover:bg-gray-800 disabled:opacity-40"
           >
             {saving ? 'Saving…' : 'Save'}
           </button>
@@ -2244,7 +2158,7 @@ const InviteForm: React.FC<{
         <button type="button" onClick={onCancel} className="rounded-full bg-white/10 px-4 py-2 text-sm text-white/70 hover:text-white">
           Cancel
         </button>
-        <button type="submit" disabled={saving || !email.trim()} className="rounded-full bg-white px-4 py-2 text-sm font-semibold text-black enabled:hover:bg-white/90 disabled:opacity-40">
+        <button type="submit" disabled={saving || !email.trim()} className="rounded-full bg-gray-900 px-4 py-2 text-sm font-semibold text-white enabled:hover:bg-gray-800 disabled:opacity-40">
           {saving ? 'Sending…' : 'Send invite'}
         </button>
       </div>
@@ -2282,7 +2196,7 @@ const RenameTeamForm: React.FC<{
         <button type="button" onClick={onCancel} className="rounded-full bg-white/10 px-4 py-2 text-sm text-white/70 hover:text-white">
           Cancel
         </button>
-        <button type="submit" disabled={saving || !name.trim()} className="rounded-full bg-white px-4 py-2 text-sm font-semibold text-black enabled:hover:bg-white/90 disabled:opacity-40">
+        <button type="submit" disabled={saving || !name.trim()} className="rounded-full bg-gray-900 px-4 py-2 text-sm font-semibold text-white enabled:hover:bg-gray-800 disabled:opacity-40">
           {saving ? 'Saving…' : 'Save'}
         </button>
       </div>
@@ -2316,7 +2230,7 @@ const InlineCreateProject: React.FC<{
       <button
         type="submit"
         disabled={!name.trim() || saving}
-        className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-2 text-xs font-semibold text-black enabled:hover:bg-white/90 disabled:opacity-40"
+        className="inline-flex items-center gap-2 rounded-full bg-gray-900 px-3 py-2 text-xs font-semibold text-white enabled:hover:bg-gray-800 disabled:opacity-40"
       >
         <Plus size={14} /> Create
       </button>

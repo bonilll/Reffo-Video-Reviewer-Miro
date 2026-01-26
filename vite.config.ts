@@ -20,6 +20,12 @@ export default defineConfig(({ mode }) => {
       resolve: {
         alias: {
           '@': path.resolve(__dirname, '.'),
+          '@clerk/nextjs': path.resolve(__dirname, 'shims/clerk-nextjs.tsx'),
+          '@clerk/nextjs/server': path.resolve(__dirname, 'shims/clerk-nextjs-server.ts'),
+          'next/link': path.resolve(__dirname, 'shims/next-link.tsx'),
+          'next/image': path.resolve(__dirname, 'shims/next-image.tsx'),
+          'next/navigation': path.resolve(__dirname, 'shims/next-navigation.tsx'),
+          'next/font/google': path.resolve(__dirname, 'shims/next-font-google.ts'),
         }
       }
     };

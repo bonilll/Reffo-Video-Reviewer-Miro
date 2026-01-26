@@ -1,5 +1,5 @@
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import { ClerkProvider, useAuth } from '@clerk/clerk-react';
@@ -34,6 +34,20 @@ if (!rootElement) {
 }
 
 const root = ReactDOM.createRoot(rootElement);
+
+const CookieSettingsGate: React.FC = () => {
+  const [hide, setHide] = useState(() => window.location.pathname.startsWith('/board/'));
+
+  useEffect(() => {
+    const update = () => setHide(window.location.pathname.startsWith('/board/'));
+    window.addEventListener('popstate', update);
+    return () => window.removeEventListener('popstate', update);
+  }, []);
+
+  if (hide) return null;
+  return <CookieSettingsTrigger />;
+};
+
 root.render(
   <React.StrictMode>
     <ClerkProvider publishableKey={clerkPublishableKey} afterSignOutUrl="/">
@@ -42,7 +56,7 @@ root.render(
           <App />
           <CookieBanner />
           <CookiePreferencesModal />
-          <CookieSettingsTrigger />
+          <CookieSettingsGate />
           <GoogleAnalytics />
         </ConsentProvider>
       </ConvexProviderWithClerk>

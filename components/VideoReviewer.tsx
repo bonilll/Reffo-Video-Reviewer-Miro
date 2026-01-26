@@ -107,8 +107,11 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const [comments, setComments] = useState<Comment[]>([]);
   
-  // Comments pane visibility
-  const [showComments, setShowComments] = useState(true);
+  // Comments pane visibility (default closed on small screens)
+  const [showComments, setShowComments] = useState(() => {
+    if (typeof window === 'undefined') return true;
+    return window.innerWidth >= 768;
+  });
   const [pendingComment, setPendingComment] = useState<{ position: Point } | null>(null);
 
 
@@ -1698,7 +1701,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
       )}
       <header
         ref={headerEl}
-        className={`flex-shrink-0 border-b px-4 md:px-8 py-3 md:py-4 grid grid-cols-[minmax(0,1fr)_360px] items-center z-20 backdrop-blur ${
+        className={`flex-shrink-0 border-b px-4 md:px-8 py-3 md:py-4 grid grid-cols-1 gap-3 md:gap-0 md:grid-cols-[minmax(0,1fr)_360px] md:items-center z-20 backdrop-blur ${
           isDark ? 'bg-black/30 border-white/10 text-white' : 'bg-white/80 border-gray-200 text-gray-900'
         }`}
       >
@@ -1742,7 +1745,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
           </div>
         </div>
         {/* Right column (aligned with comments): controls + share */}
-        <div className={'grid grid-cols-4 items-center justify-items-center w-[360px] gap-2 md:gap-3'}>
+        <div className={'grid grid-cols-4 items-center justify-items-center w-full md:w-[360px] md:justify-self-end gap-2 md:gap-3'}>
           {/* Toggle comments panel */}
           <button
             onClick={() => setShowComments((v) => !v)}
@@ -2116,7 +2119,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
             )}
             {compareSource && (
               <div
-                className={`absolute top-6 right-6 z-30 min-w-[240px] rounded-xl border px-4 py-3 shadow-lg ${isDark ? 'bg-black/70 border-white/10 text-white/80' : 'bg-white/90 border-gray-200 text-gray-800'}`}
+                className={`absolute top-4 right-4 md:top-6 md:right-6 z-30 w-[min(90vw,240px)] rounded-xl border px-4 py-3 shadow-lg ${isDark ? 'bg-black/70 border-white/10 text-white/80' : 'bg-white/90 border-gray-200 text-gray-800'}`}
               >
                 <div className="flex items-center justify-between gap-3">
                   <div>
@@ -2266,9 +2269,9 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
                   />
                   {/* Removed resolution • fps row under the timeline as requested */}
                 </div>
-                <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-4">
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_auto_1fr] md:items-center md:gap-4">
                   {/* Left side: Loop toggle */}
-                  <div className="relative flex items-center gap-3 justify-start flex-wrap">
+                  <div className="relative flex items-center gap-3 justify-center md:justify-start flex-wrap">
                     <div className="group relative">
                       <button
                         onClick={() => setLoopMenuOpen((v) => !v)}
@@ -2322,7 +2325,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
                     </div>
                   </div>
                   {/* Center cluster: prev mark | transport | next mark */}
-                  <div className="flex items-center justify-center gap-3">
+                  <div className="flex items-center justify-center gap-3 flex-wrap">
                     <button onClick={() => handleJump('prev')} className={`${isDark ? 'px-3 py-1 rounded-full bg-white/10 hover:bg-white/20 text-white/80' : 'px-3 py-1 rounded-full bg-black/5 hover:bg-black/10 text-gray-800'}`}>Prev</button>
                     <div className="flex items-center gap-2">
                       <button onClick={() => stepFrame(-1)} className={`p-2 rounded-full ${isDark ? 'bg-white/10 hover:bg-white/20 text-white/80' : 'bg-black/5 hover:bg-black/10 text-gray-800'}`}><Rewind size={18} /></button>
@@ -2336,7 +2339,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
                     <button onClick={() => handleJump('next')} className={`${isDark ? 'px-3 py-1 rounded-full bg-white/10 hover:bg-white/20 text-white/80' : 'px-3 py-1 rounded-full bg-black/5 hover:bg-black/10 text-gray-800'}`}>Next</button>
                   </div>
                   {/* Right side: volume & fullscreen */}
-                  <div className="flex items-center gap-3 justify-end">
+                  <div className="flex items-center gap-3 justify-center md:justify-end">
                     <button onClick={() => { const next = !isMuted; setIsMuted(next); if (videoRef.current) videoRef.current.muted = next; }} className={`p-2 rounded-full ${isDark ? 'bg-white/10 hover:bg-white/20 text-white' : 'bg-black/5 hover:bg-black/10 text-gray-800'}`}>
                       {isMuted || volume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}
                     </button>
@@ -2352,7 +2355,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
                         if (videoRef.current) { videoRef.current.volume = value; videoRef.current.muted = value === 0; }
                         setIsMuted(value === 0);
                       }}
-                      className={`w-24 ${isDark ? 'accent-white' : 'accent-black'}`}
+                      className={`w-20 md:w-24 ${isDark ? 'accent-white' : 'accent-black'}`}
                     />
                     <button onClick={toggleFullscreen} className={`p-2 rounded-full ${isDark ? 'bg-white/10 hover:bg-white/20 text-white' : 'bg-black/5 hover:bg-black/10 text-gray-800'}`}>
                       {isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
@@ -2365,22 +2368,54 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
           </div>
         </div>
         {showComments && (
-        <div className={`flex-shrink-0 overflow-hidden w-[360px] min-h-[93vh]`} style={{ minHeight: '93vh' }}>
-          <CommentsPane 
-            comments={comments}
-            currentFrame={currentFrame}
-            onAddComment={handleAddComment}
-            onToggleResolve={handleToggleCommentResolved}
-            onJumpToFrame={jumpToFrame}
-            activeCommentId={activeCommentId}
-            setActiveCommentId={setActiveCommentId}
-          onDeleteComment={handleDeleteComment}
-          isDark={isDark}
-          highlightCommentId={highlightedCommentId}
-          highlightTerm={mentionHighlight}
-          mentionOptions={mentionableOptions ?? []}
-        />
-        </div>
+          <>
+            <div className="hidden md:block flex-shrink-0 overflow-hidden w-[360px] min-h-[93vh]" style={{ minHeight: '93vh' }}>
+              <CommentsPane
+                comments={comments}
+                currentFrame={currentFrame}
+                onAddComment={handleAddComment}
+                onToggleResolve={handleToggleCommentResolved}
+                onJumpToFrame={jumpToFrame}
+                activeCommentId={activeCommentId}
+                setActiveCommentId={setActiveCommentId}
+                onDeleteComment={handleDeleteComment}
+                isDark={isDark}
+                highlightCommentId={highlightedCommentId}
+                highlightTerm={mentionHighlight}
+                mentionOptions={mentionableOptions ?? []}
+              />
+            </div>
+            <div className="md:hidden fixed inset-0 z-40">
+              <div className="absolute inset-0 bg-black/60" onClick={() => setShowComments(false)} />
+              <div
+                className={`absolute inset-x-0 bottom-0 h-[75vh] max-h-[80vh] rounded-t-3xl border ${isDark ? 'bg-black/90 border-white/10 text-white' : 'bg-white border-gray-200 text-gray-900'} shadow-2xl`}
+              >
+                <div className="absolute left-1/2 top-2 h-1.5 w-12 -translate-x-1/2 rounded-full bg-white/30" />
+                <button
+                  onClick={() => setShowComments(false)}
+                  className={`${isDark ? 'text-white/60 hover:text-white' : 'text-gray-600 hover:text-gray-900'} absolute right-3 top-2 text-sm`}
+                >
+                  Close
+                </button>
+                <div className="h-full pt-6">
+                  <CommentsPane
+                    comments={comments}
+                    currentFrame={currentFrame}
+                    onAddComment={handleAddComment}
+                    onToggleResolve={handleToggleCommentResolved}
+                    onJumpToFrame={jumpToFrame}
+                    activeCommentId={activeCommentId}
+                    setActiveCommentId={setActiveCommentId}
+                    onDeleteComment={handleDeleteComment}
+                    isDark={isDark}
+                    highlightCommentId={highlightedCommentId}
+                    highlightTerm={mentionHighlight}
+                    mentionOptions={mentionableOptions ?? []}
+                  />
+                </div>
+              </div>
+            </div>
+          </>
         )}
       </div>
       {shareOpen && shareGroups && (

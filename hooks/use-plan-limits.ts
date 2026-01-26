@@ -1,0 +1,47 @@
+"use client";
+
+export function usePlanLimits() {
+  return {
+    userPlan: "free",
+    planLimits: {
+      boards: -1,
+      referencesStorage: Infinity,
+      maxFileSize: Infinity,
+      todoLists: -1,
+      privateGalleries: -1,
+      collaborators: -1,
+      watermark: false,
+    },
+    boardsCount: 0,
+    currentStorageUsed: 0,
+    storageLimit: Infinity,
+    canCreateBoard: true,
+    canUploadFile: true,
+    canUploadFileSize: () => true,
+    hasCollaboration: true,
+    hasExport: true,
+    canCreateTodoList: true,
+    remainingBoards: -1,
+    remainingStorage: Infinity,
+    remainingTodoLists: -1,
+    getUpgradeMessage: () => "",
+    isLoading: false,
+    storagePercentage: 0,
+    referencesStorage: Infinity,
+    maxFileSize: Infinity,
+    todoLists: -1,
+    privateGalleries: -1,
+    collaborators: -1,
+    watermark: false,
+    trackBoardCreation: async () => {},
+    trackFileUpload: async () => {},
+    trackTodoListCreation: async () => {},
+    trackPrivateGalleryCreation: async () => {},
+    upgradePrompt: {
+      isOpen: false,
+      limitType: "",
+      limitValue: undefined,
+    },
+    closeUpgradePrompt: () => {},
+  };
+}

@@ -330,7 +330,10 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit, o
   const saves = useQuery((api as any).edits.listSavesByVideo, (data as any)?.composition?.sourceVideoId ? { videoId: (data as any).composition.sourceVideoId } : undefined) as Array<any> | undefined;
   // Panels
   const [infoModalOpen, setInfoModalOpen] = useState(false);
-  const [propertiesOpen, setPropertiesOpen] = useState(true);
+  const [propertiesOpen, setPropertiesOpen] = useState(() => {
+    if (typeof window === 'undefined') return true;
+    return window.innerWidth >= 768;
+  });
   const [savesOpen, setSavesOpen] = useState(false);
   
   const [saveName, setSaveName] = useState('');
@@ -1049,7 +1052,7 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit, o
 
   return (
     <div className="flex h-screen flex-col">
-      <header className="flex items-center justify-between border-b border-white/10 px-6 py-3">
+      <header className="flex flex-col gap-3 border-b border-white/10 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6">
         <div className="flex items-center gap-3 min-w-0">
           <button
             className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/20 text-white/80 hover:bg-white/10"
@@ -1064,7 +1067,7 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit, o
           </button>
           <h1 className="truncate text-lg font-semibold">{composition.title}</h1>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
           {/* Save icon-only */}
           <button
             className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/20 text-white/80 hover:bg-white/10"
@@ -1116,9 +1119,9 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit, o
           </button>
         </div>
       </header>
-      <main className="flex-1 min-h-0 flex flex-col gap-6 overflow-hidden px-10 py-6">
-        <div className="flex flex-1 min-h-0 gap-6">
-          <section className={`flex min-h-0 flex-1 flex-col gap-4 ${propertiesOpen ? 'pr-2' : ''}`}>
+      <main className="flex-1 min-h-0 flex flex-col gap-4 overflow-hidden px-4 py-4 sm:gap-6 sm:px-6 sm:py-6 lg:px-10">
+        <div className="flex flex-1 min-h-0 gap-4 sm:gap-6">
+          <section className={`flex min-h-0 flex-1 flex-col gap-4 ${propertiesOpen ? 'md:pr-2' : ''}`}>
             <div ref={previewOuterRef} className="flex-1 min-h-[260px] border border-white/10 bg-black overflow-hidden">
               <div className="flex h-full w-full items-center justify-center">
                 <div className="relative overflow-hidden bg-black" style={{ width: stageSize.w || undefined, height: stageSize.h || undefined }}>
@@ -1161,7 +1164,14 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit, o
           </section>
           {/* Clip Properties Sidebar */}
           {propertiesOpen && (
-            <aside className="w-[360px] shrink-0 border-l border-white/10 backdrop-blur pl-4 pr-3 py-3 overflow-y-auto">
+            <aside className="fixed inset-x-0 bottom-0 z-40 h-[75vh] max-h-[80vh] w-full overflow-y-auto rounded-t-3xl border-t border-white/10 bg-black/95 backdrop-blur px-4 py-4 relative md:static md:z-auto md:h-auto md:max-h-none md:w-[360px] md:shrink-0 md:rounded-none md:border-l md:border-t-0 md:bg-transparent md:px-0 md:py-3 md:pl-4 md:pr-3">
+              <div className="md:hidden absolute left-1/2 top-2 h-1.5 w-12 -translate-x-1/2 rounded-full bg-white/30" />
+              <button
+                onClick={() => setPropertiesOpen(false)}
+                className="md:hidden absolute right-4 top-2 text-sm text-white/60 hover:text-white"
+              >
+                Close
+              </button>
               <div className="text-white">
                 {!selectedClip ? (
                   <div className="text-xs text-white/60">Select a clip to edit its properties.</div>
@@ -1454,7 +1464,10 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit, o
             </aside>
           )}
         </div>
-        <div className="rounded-3xl border border-white/10 bg-black/70 px-6 py-4 shadow-inner">
+        {propertiesOpen && (
+          <div className="md:hidden fixed inset-0 z-30 bg-black/60" onClick={() => setPropertiesOpen(false)} />
+        )}
+        <div className="rounded-3xl border border-white/10 bg-black/70 px-4 py-4 shadow-inner sm:px-6">
           <EditorTimeline
             clips={data.clips}
             durationFrames={composition.settings.durationFrames}

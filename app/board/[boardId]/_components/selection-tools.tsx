@@ -1,0 +1,2573 @@
+"use client";
+
+import { 
+  ArrowUp, 
+  ArrowDown, 
+  Trash2, 
+  AlignHorizontalDistributeCenter,
+  AlignVerticalDistributeCenter,
+  AlignCenterHorizontal,
+  AlignCenterVertical,
+  AlignLeft,
+  AlignRight,
+  AlignStartVertical,
+  AlignEndVertical,
+  ChevronDown,
+  Type,
+  Bold,
+  Italic,
+  LayoutGrid,
+  ChevronUp,
+  Plus,
+  Minus,
+  AlignJustify,
+  Underline,
+  Strikethrough,
+  AlignCenter,
+  RefreshCw,
+  Maximize2,
+  RotateCcw,
+  User,
+  Play,
+  Download,
+  FileText,
+  Image,
+  Video,
+  File as FileIcon,
+  Layers,
+  Box,
+  Copy
+} from "lucide-react";
+import { memo, useState, useEffect, useRef } from "react";
+import React from "react";
+
+import { useDeleteLayers } from "@/hooks/use-delete-layers";
+import { useLayerOrdering } from "@/hooks/use-layer-ordering";
+import { useSelectionBounds } from "@/hooks/use-selection-bounds";
+import { useMutation, useSelf, useStorage } from "@/liveblocks.config";
+import { useQuery } from "convex/react";
+import { api } from "@/convex/_generated/api";
+import { CanvasMode, LayerType } from "@/types/canvas";
+import type { Camera, Color } from "@/types/canvas";
+import { useSelection } from "@/hooks/useSelection";
+import { 
+  alignLeft, 
+  alignCenter, 
+  alignRight, 
+  alignTop, 
+  alignMiddle, 
+  alignBottom,
+  distributeHorizontally,
+  distributeVertically
+} from "@/utils/alignment";
+import { colorToCSS } from "@/lib/utils";
+
+import { ColorPicker } from "./color-picker";
+import { MasonryGridDialog } from "@/components/MasonryGridDialog";
+import { ReviewSessionModal } from "@/components/review/ReviewSessionModal";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
+// Download icon already imported above
+
+const ENABLE_REVIEW = false;
+
+type SelectionToolsProps = {
+  camera: Camera;
+  setLastUsedColor: (color: Color) => void;
+  onShowColorPicker?: (show: boolean) => void;
+  onActionHover?: (label: string) => void;
+  onActionHoverEnd?: () => void;
+  containerRef?: React.RefObject<HTMLDivElement>;
+  pencilStrokeWidth?: number;
+  setPencilStrokeWidth?: (width: number) => void;
+  canvasState?: any;
+  lastUsedColor?: Color;
+  // Note text formatting functions
+  setLastUsedFontSize?: (fontSize: number) => void;
+  setLastUsedFontWeight?: (fontWeight: string) => void;
+  // Frame control functions
+  onToggleFrameAutoResize?: (frameId: string) => void;
+  onManualFrameResize?: (frameId: string) => void;
+  // Mobile support
+  isTouchDevice?: boolean;
+  // Board ID for review mode
+  boardId?: string;
+};
+
+// Numeric input component with increment/decrement arrows and manual input
+const NumericInput = memo(({ 
+  value, 
+  onChange, 
+  min = 1, 
+  max = 100, 
+  step = 1, 
+  unit = "", 
+  placeholder = "",
+  icon: Icon,
+  className = ""
+}: {
+  value: number;
+  onChange: (value: number) => void;
+  min?: number;
+  max?: number;
+  step?: number;
+  unit?: string;
+  placeholder?: string;
+  icon?: any;
+  className?: string;
+}) => {
+  const [inputValue, setInputValue] = useState(value.toString());
+  const [isEditing, setIsEditing] = useState(false);
+
+  // Update input when value changes externally
+  useEffect(() => {
+    if (!isEditing) {
+      setInputValue(value.toString());
+    }
+  }, [value, isEditing]);
+
+  const handleIncrement = () => {
+    const newValue = Math.min(max, value + step);
+    onChange(newValue);
+  };
+
+  const handleDecrement = () => {
+    const newValue = Math.max(min, value - step);
+    onChange(newValue);
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setInputValue(e.target.value);
+  };
+
+  const handleInputBlur = () => {
+    setIsEditing(false);
+    const numValue = parseInt(inputValue);
+    if (!isNaN(numValue)) {
+      const clampedValue = Math.max(min, Math.min(max, numValue));
+      onChange(clampedValue);
+      setInputValue(clampedValue.toString());
+    } else {
+      setInputValue(value.toString());
+    }
+  };
+
+  const handleInputFocus = () => {
+    setIsEditing(true);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.currentTarget.blur();
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      handleIncrement();
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      handleDecrement();
+    }
+  };
+
+  return (
+    <div className={`flex items-center bg-white/60 hover:bg-white/80 rounded-xl border border-transparent hover:border-slate-200/60 transition-all duration-300 shadow-sm hover:shadow-lg hover:shadow-black/5 hover:scale-105 ${className}`}>
+      {Icon && <Icon className="w-4 h-4 text-slate-500 ml-3 flex-shrink-0" />}
+      
+      <input
+        type="text"
+        value={inputValue}
+        onChange={handleInputChange}
+        onBlur={handleInputBlur}
+        onFocus={handleInputFocus}
+        onKeyDown={handleKeyDown}
+        placeholder={placeholder}
+        className="flex-1 px-2 py-2.5 text-sm font-medium text-slate-700 bg-transparent border-0 outline-none min-w-12 text-center"
+      />
+      
+      {unit && <span className="text-xs text-slate-500 mr-2 flex-shrink-0">{unit}</span>}
+      
+      <div className="flex flex-col border-l border-slate-200/60 ml-1">
+        <button
+          onClick={handleIncrement}
+          type="button"
+          className="px-2.5 py-1 hover:bg-slate-100/60 transition-colors duration-150 rounded-tr-xl active:bg-slate-200/60"
+          title={`Increase by ${step}`}
+        >
+          <ChevronUp className="w-3 h-3 text-slate-500" />
+        </button>
+        <button
+          onClick={handleDecrement}
+          type="button"
+          className="px-2.5 py-1 hover:bg-slate-100/60 transition-colors duration-150 rounded-br-xl active:bg-slate-200/60"
+          title={`Decrease by ${step}`}
+        >
+          <ChevronDown className="w-3 h-3 text-slate-500" />
+        </button>
+      </div>
+    </div>
+  );
+});
+
+// Pencil stroke width selector for pencil tool
+const PencilStrokeWidthSelector = memo(({ 
+  strokeWidth, 
+  onStrokeWidthChange 
+}: { 
+  strokeWidth: number;
+  onStrokeWidthChange: (width: number) => void;
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [isCustom, setIsCustom] = useState(false);
+  
+  const strokeOptions = [
+    { value: 8, label: "8px - Fine" },
+    { value: 12, label: "12px - Normal" },
+    { value: 16, label: "16px - Medium" },
+    { value: 24, label: "24px - Thick" },
+    { value: 32, label: "32px - Extra Thick" },
+    { value: 48, label: "48px - Heavy" }
+  ];
+
+  const isPresetValue = strokeOptions.some(option => option.value === strokeWidth);
+
+  if (isCustom) {
+    return (
+      <div className="flex items-center gap-1">
+        <NumericInput
+          value={strokeWidth}
+          onChange={onStrokeWidthChange}
+          min={4}
+          max={80}
+          step={2}
+          unit="px"
+          placeholder="16"
+          className="min-w-24"
+        />
+        <button
+          onClick={() => setIsCustom(false)}
+          className="px-2 py-2.5 text-xs text-gray-500 hover:text-gray-700 transition-colors"
+          title="Switch to presets"
+        >
+          ⋯
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="flex items-center gap-2 px-4 py-2.5 text-sm bg-gray-50/80 hover:bg-gray-100/80 rounded-xl border border-gray-200/60 hover:border-gray-300/60 transition-all duration-200 shadow-sm hover:shadow-md"
+        title="Stroke width"
+      >
+        <div className="flex items-center gap-2">
+          <div 
+            className="w-6 h-1 bg-gray-700 rounded"
+            style={{ height: `${Math.min(strokeWidth / 4, 6)}px` }}
+          />
+          <span className="font-medium text-gray-700">
+            {isPresetValue ? strokeOptions.find(opt => opt.value === strokeWidth)?.label : `${strokeWidth}px - Custom`}
+          </span>
+        </div>
+        <ChevronDown className="w-3 h-3 text-gray-500" />
+      </button>
+      
+      {isOpen && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
+          <div className="absolute bottom-full left-0 mb-2 bg-white/95 backdrop-blur-xl border border-gray-200/60 rounded-xl shadow-xl z-50 min-w-48 max-w-xs overflow-visible">
+            <div className="py-2">
+              {strokeOptions.map((option) => (
+                <button
+                  key={option.value}
+                  onClick={() => {
+                    onStrokeWidthChange(option.value);
+                    setIsOpen(false);
+                  }}
+                  className={`w-full px-4 py-2.5 text-sm text-left transition-colors duration-150 flex items-center gap-3 ${
+                    strokeWidth === option.value 
+                      ? 'bg-gray-900 text-white font-medium' 
+                      : 'text-gray-700 hover:bg-gray-100/80'
+                  }`}
+                >
+                  <div 
+                    className="w-5 bg-current rounded flex-shrink-0"
+                    style={{ height: `${Math.min(option.value / 4, 6)}px` }}
+                  />
+                  <span className="truncate">{option.label}</span>
+                </button>
+              ))}
+              <div className="border-t border-gray-100/80 my-1" />
+              <button
+                onClick={() => {
+                  setIsCustom(true);
+                  setIsOpen(false);
+                }}
+                className="w-full px-4 py-2.5 text-sm text-left hover:bg-gray-100/80 transition-colors duration-150 flex items-center gap-3 text-gray-700"
+              >
+                <Type className="w-4 h-4 flex-shrink-0" />
+                <span className="truncate">Custom size...</span>
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+});
+
+// Stroke width selector with dropdown and custom input
+const StrokeWidthSelector = memo(({ selectedLayerIds }: { selectedLayerIds: string[] }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [isCustom, setIsCustom] = useState(false);
+  
+  const currentStrokeWidth = useStorage((root) => {
+    const strokeWidths = selectedLayerIds
+      .map(id => root.layers.get(id))
+      .filter(layer => layer && (layer.type === "arrow" || layer.type === "line"))
+      .map(layer => (layer as any).strokeWidth || 2);
+    
+    return strokeWidths.length > 0 && strokeWidths.every(w => w === strokeWidths[0]) 
+      ? strokeWidths[0] 
+      : 2;
+  });
+
+  const updateStrokeWidth = useMutation(
+    ({ storage }, newWidth: number) => {
+      const liveLayers = storage.get("layers");
+      selectedLayerIds.forEach(id => {
+        const layer = liveLayers.get(id);
+        if (layer && (layer.get("type") === "arrow" || layer.get("type") === "line")) {
+          layer.update({ strokeWidth: newWidth });
+        }
+      });
+    },
+    [selectedLayerIds]
+  );
+
+  const strokeOptions = [
+    { value: 1, label: "1px - Thin" },
+    { value: 2, label: "2px - Normal" },
+    { value: 3, label: "3px - Medium" },
+    { value: 4, label: "4px - Bold" },
+    { value: 6, label: "6px - Extra Bold" },
+    { value: 8, label: "8px - Heavy" }
+  ];
+
+  const isPresetValue = strokeOptions.some(option => option.value === currentStrokeWidth);
+
+  if (isCustom) {
+    return (
+      <div className="flex items-center gap-1">
+        <NumericInput
+          value={currentStrokeWidth}
+          onChange={updateStrokeWidth}
+          min={1}
+          max={80}
+          step={1}
+          unit="px"
+          placeholder="2"
+          className="min-w-24"
+        />
+        <button
+          onClick={() => setIsCustom(false)}
+          className="px-2 py-2.5 text-xs text-gray-500 hover:text-gray-700 transition-colors"
+          title="Switch to presets"
+        >
+          ⋯
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="flex items-center gap-2 px-4 py-2.5 text-sm bg-gray-50/80 hover:bg-gray-100/80 rounded-xl border border-gray-200/60 hover:border-gray-300/60 transition-all duration-200 shadow-sm hover:shadow-md"
+        title="Stroke width"
+      >
+        <span className="font-medium text-gray-700">
+          {isPresetValue ? strokeOptions.find(opt => opt.value === currentStrokeWidth)?.label : `${currentStrokeWidth}px - Custom`}
+        </span>
+        <ChevronDown className="w-3 h-3 text-gray-500" />
+      </button>
+      
+      {isOpen && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
+          <div className="absolute bottom-full left-0 mb-2 bg-white/95 backdrop-blur-xl border border-gray-200/60 rounded-xl shadow-xl z-50 min-w-48 max-w-xs overflow-visible">
+            <div className="py-2">
+              {strokeOptions.map((option) => (
+                <button
+                  key={option.value}
+                  onClick={() => {
+                    updateStrokeWidth(option.value);
+                    setIsOpen(false);
+                  }}
+                  className={`w-full px-4 py-2.5 text-sm text-left transition-colors duration-150 flex items-center gap-3 ${
+                    currentStrokeWidth === option.value 
+                      ? 'bg-gray-900 text-white font-medium' 
+                      : 'text-gray-700 hover:bg-gray-100/80'
+                  }`}
+                >
+                  <div 
+                    className="w-5 h-1 bg-current rounded flex-shrink-0"
+                    style={{ height: `${Math.min(option.value, 4)}px` }}
+                  />
+                  <span className="truncate">{option.label}</span>
+                </button>
+              ))}
+              <div className="border-t border-gray-100/80 my-1" />
+              <button
+                onClick={() => {
+                  setIsCustom(true);
+                  setIsOpen(false);
+                }}
+                className="w-full px-4 py-2.5 text-sm text-left hover:bg-gray-100/80 transition-colors duration-150 flex items-center gap-3 text-gray-700"
+              >
+                <Type className="w-4 h-4 flex-shrink-0" />
+                <span className="truncate">Custom size...</span>
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+});
+
+// Font size selector with dropdown and custom input
+const FontSizeSelector = memo(({ selectedLayerIds, onDropdownChange, setLastUsedFontSize }: { 
+  selectedLayerIds: string[];
+  onDropdownChange?: (open: boolean, dropdownId: string) => void;
+  setLastUsedFontSize?: (fontSize: number) => void;
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [isCustom, setIsCustom] = useState(false);
+  
+  // Notify parent about dropdown state changes
+  const handleOpenChange = (open: boolean) => {
+    setIsOpen(open);
+    if (onDropdownChange) {
+      onDropdownChange(open, "font-size");
+    }
+  };
+
+  const currentFontSize = useStorage((root) => {
+    const fontSizes = selectedLayerIds
+      .map(id => root.layers.get(id))
+      .filter(layer => layer && (layer.type === LayerType.Text || layer.type === LayerType.Note))
+      .map(layer => (layer as any).fontSize || 16);
+    
+    return fontSizes.length > 0 && fontSizes.every(size => size === fontSizes[0]) 
+      ? fontSizes[0] 
+      : 16;
+  });
+
+  const updateFontSize = useMutation(
+    ({ storage }, newSize: number) => {
+      const liveLayers = storage.get("layers");
+      selectedLayerIds.forEach(id => {
+        const layer = liveLayers.get(id);
+        if (layer && (layer.get("type") === LayerType.Text || layer.get("type") === LayerType.Note)) {
+          layer.update({ fontSize: newSize });
+        }
+      });
+      // Aggiorna lastUsedFontSize per le note future
+      if (setLastUsedFontSize) {
+        setLastUsedFontSize(newSize);
+      }
+    },
+    [selectedLayerIds, setLastUsedFontSize]
+  );
+
+  const fontSizes = [
+    { value: 12, label: "12px - Small" },
+    { value: 14, label: "14px - Body" },
+    { value: 16, label: "16px - Regular" },
+    { value: 18, label: "18px - Large" },
+    { value: 20, label: "20px - Subtitle" },
+    { value: 24, label: "24px - Heading" },
+    { value: 32, label: "32px - Title" },
+    { value: 48, label: "48px - Display" }
+  ];
+
+  const isPresetValue = fontSizes.some(size => size.value === currentFontSize);
+
+  if (isCustom) {
+    return (
+      <div className="flex items-center gap-1">
+        <NumericInput
+          value={currentFontSize}
+          onChange={updateFontSize}
+          min={8}
+          max={288}
+          step={1}
+          unit="px"
+          placeholder="16"
+          icon={Type}
+          className="min-w-28"
+        />
+        <button
+          onClick={() => setIsCustom(false)}
+          className="px-2 py-2.5 text-xs text-gray-500 hover:text-gray-700 transition-colors"
+          title="Switch to presets"
+        >
+          ⋯
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => handleOpenChange(!isOpen)}
+        className="flex items-center gap-2 px-4 py-2.5 text-sm bg-white/60 hover:bg-white/80 rounded-xl border border-transparent hover:border-slate-200/60 transition-all duration-300 shadow-sm hover:shadow-lg hover:shadow-black/5 hover:scale-105"
+        title="Font size"
+      >
+        <Type className="w-4 h-4 text-slate-500" />
+        <span className="font-medium text-slate-700">
+          {isPresetValue ? fontSizes.find(size => size.value === currentFontSize)?.label : `${currentFontSize}px - Custom`}
+        </span>
+        <ChevronDown className="w-3 h-3 text-slate-500" />
+      </button>
+      
+      {isOpen && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => handleOpenChange(false)} />
+          <div className="absolute bottom-full left-0 mb-2 bg-white/95 backdrop-blur-xl border border-gray-200/60 rounded-xl shadow-xl z-50 min-w-52 max-w-xs max-h-64 overflow-visible">
+            <div className="py-2 overflow-y-auto max-h-60">
+              {fontSizes.map((size) => (
+                <button
+                  key={size.value}
+                  onClick={() => {
+                    updateFontSize(size.value);
+                    handleOpenChange(false);
+                  }}
+                  className={`w-full px-4 py-2.5 text-sm text-left transition-colors duration-150 flex items-center gap-3 ${
+                    currentFontSize === size.value 
+                      ? 'bg-gray-900 text-white font-medium' 
+                      : 'text-gray-700 hover:bg-gray-100/80'
+                  }`}
+                >
+                  <span className="text-xs text-gray-400 min-w-6 flex-shrink-0 font-mono">{size.value}</span>
+                  <span className="truncate">{size.label}</span>
+                </button>
+              ))}
+              <div className="border-t border-gray-100/80 my-1" />
+              <button
+                onClick={() => {
+                  setIsCustom(true);
+                  handleOpenChange(false);
+                }}
+                className="w-full px-4 py-2.5 text-sm text-left hover:bg-gray-100/80 transition-colors duration-150 flex items-center gap-3 text-gray-700"
+              >
+                <Type className="w-4 h-4 flex-shrink-0" />
+                <span className="truncate">Custom size...</span>
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+});
+
+// Font weight dropdown for text elements
+const FontWeightDropdown = memo(({ selectedLayerIds, onDropdownChange, setLastUsedFontWeight }: { 
+  selectedLayerIds: string[];
+  onDropdownChange?: (open: boolean, dropdownId: string) => void;
+  setLastUsedFontWeight?: (fontWeight: string) => void;
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+  
+  // Notify parent about dropdown state changes
+  const handleOpenChange = (open: boolean) => {
+    setIsOpen(open);
+    if (onDropdownChange) {
+      onDropdownChange(open, "font-weight");
+    }
+  };
+  
+  const currentFontWeight = useStorage((root) => {
+    const fontWeights = selectedLayerIds
+      .map(id => root.layers.get(id))
+      .filter(layer => layer && (layer.type === LayerType.Text || layer.type === LayerType.Note))
+      .map(layer => (layer as any).fontWeight || "normal");
+    
+    return fontWeights.length > 0 && fontWeights.every(weight => weight === fontWeights[0]) 
+      ? fontWeights[0] 
+      : "normal";
+  });
+
+  const updateFontWeight = useMutation(
+    ({ storage }, newWeight: string) => {
+      // Controlla se c'è una nota in editing e usa la formattazione del testo selezionato
+      if ((window as any).applyNoteFormatting) {
+        // Se c'è una nota in editing, applica la formattazione al testo selezionato
+        (window as any).applyNoteFormatting(newWeight === "bold" ? "bold" : "removeFormat");
+        return;
+      }
+      
+      // Altrimenti, applica la formattazione all'intera nota/testo
+      const liveLayers = storage.get("layers");
+      selectedLayerIds.forEach(id => {
+        const layer = liveLayers.get(id);
+        if (layer && (layer.get("type") === LayerType.Text || layer.get("type") === LayerType.Note)) {
+          layer.update({ fontWeight: newWeight });
+        }
+      });
+      // Aggiorna lastUsedFontWeight per le note future
+      if (setLastUsedFontWeight) {
+        setLastUsedFontWeight(newWeight);
+      }
+    },
+    [selectedLayerIds, setLastUsedFontWeight]
+  );
+
+  const fontWeights = [
+    { value: "normal", label: "Regular", icon: Type },
+    { value: "bold", label: "Bold", icon: Bold }
+  ];
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => handleOpenChange(!isOpen)}
+        className={`flex items-center gap-2 px-4 py-2.5 text-sm bg-white/60 hover:bg-white/80 rounded-xl border border-transparent hover:border-slate-200/60 transition-all duration-300 shadow-sm hover:shadow-lg hover:shadow-black/5 hover:scale-105 ${
+          currentFontWeight === "bold" ? "font-bold" : ""
+        }`}
+        title="Font weight"
+      >
+        <Bold className="w-4 h-4 text-slate-500" />
+        <ChevronDown className="w-3 h-3 text-slate-500" />
+      </button>
+      
+      {isOpen && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => handleOpenChange(false)} />
+          <div className="absolute bottom-full left-0 mb-2 bg-white/95 backdrop-blur-xl border border-gray-200/60 rounded-xl shadow-xl z-50 min-w-36 max-w-xs overflow-visible">
+            <div className="py-2">
+              {fontWeights.map((weight) => (
+                <button
+                  key={weight.value}
+                  onClick={() => {
+                    updateFontWeight(weight.value);
+                    handleOpenChange(false);
+                  }}
+                  className={`w-full px-4 py-2.5 text-sm text-left transition-colors duration-150 flex items-center gap-3 ${
+                    currentFontWeight === weight.value 
+                      ? 'bg-gray-900 text-white font-medium' 
+                      : 'text-gray-700 hover:bg-gray-100/80'
+                  } ${weight.value === "bold" ? "font-bold" : ""}`}
+                >
+                  <weight.icon className="w-4 h-4 flex-shrink-0" />
+                  <span className="truncate">{weight.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+});
+
+// Text alignment button
+const TextAlignmentButton = memo(({ selectedLayerIds, alignment, icon: IconComponent }: { 
+  selectedLayerIds: string[];
+  alignment: "left" | "center" | "right" | "justify";
+  icon: any;
+}) => {
+  const currentAlignment = useStorage((root) => {
+    const alignments = selectedLayerIds
+      .map(id => root.layers.get(id))
+      .filter(layer => layer && (layer.type === LayerType.Text || layer.type === LayerType.Note))
+      .map(layer => (layer as any).textAlign || "left");
+    
+    return alignments.length > 0 && alignments.every(align => align === alignments[0]) 
+      ? alignments[0] 
+      : "left";
+  });
+  
+  const updateAlignment = useMutation(
+    ({ storage }, newAlignment: "left" | "center" | "right" | "justify") => {
+      const liveLayers = storage.get("layers");
+      selectedLayerIds.forEach(id => {
+        const layer = liveLayers.get(id);
+        if (layer && (layer.get("type") === LayerType.Text || layer.get("type") === LayerType.Note)) {
+          layer.update({ textAlign: newAlignment });
+        }
+      });
+    },
+    [selectedLayerIds]
+  );
+
+  const isActive = currentAlignment === alignment;
+
+  return (
+    <button
+      onClick={() => updateAlignment(alignment)}
+      className={`p-2.5 rounded-xl transition-all duration-200 ${
+        isActive
+          ? "bg-blue-100 text-blue-600 border border-blue-200"
+          : "bg-gray-50/80 hover:bg-gray-100/80 text-gray-600 border border-gray-200/60"
+      }`}
+      title={`Align ${alignment}`}
+    >
+      <IconComponent className="w-4 h-4" />
+    </button>
+  );
+});
+
+// Text style button
+const TextStyleButton = memo(({ selectedLayerIds, styleType, icon: IconComponent }: { 
+  selectedLayerIds: string[];
+  styleType: "italic" | "underline" | "strikethrough";
+  icon: any;
+}) => {
+  const currentStyle = useStorage((root) => {
+    const styles = selectedLayerIds
+      .map(id => root.layers.get(id))
+      .filter(layer => layer && (layer.type === LayerType.Text || layer.type === LayerType.Note))
+      .map(layer => {
+        if (styleType === "italic") return (layer as any).fontStyle || "normal";
+        if (styleType === "underline") return (layer as any).textDecoration === "underline";
+        if (styleType === "strikethrough") return (layer as any).textDecoration === "line-through";
+        return false;
+      });
+    
+    if (styleType === "italic") {
+      return styles.length > 0 && styles.every(style => style === styles[0]) ? styles[0] : "normal";
+    } else {
+      return styles.length > 0 && styles.every(style => style === styles[0]) ? styles[0] : false;
+    }
+  });
+  
+  const updateStyle = useMutation(
+    ({ storage }) => {
+      const liveLayers = storage.get("layers");
+      selectedLayerIds.forEach(id => {
+        const layer = liveLayers.get(id);
+        if (layer && (layer.get("type") === LayerType.Text || layer.get("type") === LayerType.Note)) {
+          if (styleType === "italic") {
+            const newStyle = currentStyle === "italic" ? "normal" : "italic";
+            layer.update({ fontStyle: newStyle });
+          } else if (styleType === "underline") {
+            const newDecoration = currentStyle ? "none" : "underline";
+            layer.update({ textDecoration: newDecoration });
+          } else if (styleType === "strikethrough") {
+            const newDecoration = currentStyle ? "none" : "line-through";
+            layer.update({ textDecoration: newDecoration });
+          }
+        }
+      });
+    },
+    [selectedLayerIds, styleType, currentStyle]
+  );
+
+  const isActive = styleType === "italic" ? currentStyle === "italic" : currentStyle === true;
+
+  return (
+    <button
+      onClick={updateStyle}
+      className={`p-2.5 rounded-xl transition-all duration-200 ${
+        isActive
+          ? "bg-blue-100 text-blue-600 border border-blue-200"
+          : "bg-gray-50/80 hover:bg-gray-100/80 text-gray-600 border border-gray-200/60"
+      }`}
+      title={styleType.charAt(0).toUpperCase() + styleType.slice(1)}
+    >
+      <IconComponent className="w-4 h-4" />
+    </button>
+  );
+});
+
+// Compact color picker
+const CompactColorPicker = memo(({ 
+  onColorChange, 
+  currentColor,
+  isVisible,
+  onToggle,
+  onStateChange
+}: { 
+  onColorChange: (color: Color) => void;
+  currentColor?: Color;
+  isVisible: boolean;
+  onToggle: () => void;
+  onStateChange?: (isOpen: boolean) => void;
+}) => {
+  const handleToggle = () => {
+    const newState = !isVisible;
+    onToggle();
+    if (onStateChange) {
+      onStateChange(newState);
+    }
+  };
+
+  const handleColorChange = (color: Color) => {
+    onColorChange(color);
+    onToggle(); // Close the popup after color selection
+    if (onStateChange) {
+      onStateChange(false);
+    }
+  };
+
+  return (
+    <div className="relative">
+      <button
+        onClick={handleToggle}
+        className="w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-300 ease-out border bg-white/60 border-transparent hover:border-slate-200/60 hover:scale-105 active:scale-95 shadow-sm hover:shadow-md"
+        style={{ 
+          backgroundColor: currentColor ? colorToCSS(currentColor) : '#3b82f6' 
+        }}
+        title="Change color"
+      />
+      
+      {isVisible && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={handleToggle} />
+          <div 
+            className="absolute bottom-full left-0 mb-2 bg-white/95 backdrop-blur-xl border border-gray-200/60 rounded-xl shadow-xl p-3 z-50"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <ColorPicker onChange={handleColorChange} currentColor={currentColor} />
+          </div>
+        </>
+      )}
+    </div>
+  );
+});
+
+// Action button component
+const ActionButton = memo(({ 
+  icon: Icon, 
+  onClick, 
+  onMouseEnter, 
+  onMouseLeave, 
+  title,
+  variant = 'default',
+  size = 'sm'
+}: {
+  icon: any;
+  onClick: () => void;
+  onMouseEnter?: () => void;
+  onMouseLeave?: () => void;
+  title: string;
+  variant?: 'default' | 'danger' | 'outline';
+  size?: 'xs' | 'sm' | 'md';
+}) => {
+  const sizeClasses = size === 'xs' ? "w-7 h-7" : size === 'md' ? "w-11 h-11" : "w-10 h-10";
+  const iconSizeClasses = size === 'xs' ? "w-3 h-3" : size === 'md' ? "w-5 h-5" : "w-4 h-4";
+  const variantClasses = variant === 'danger' 
+    ? "text-red-600 hover:bg-red-50/80 hover:text-red-700 hover:shadow-lg hover:shadow-red-500/10" 
+    : variant === 'outline'
+    ? "text-slate-500 hover:bg-slate-50/80 hover:text-slate-700 border-slate-200/60 hover:shadow-lg hover:shadow-black/5"
+    : "text-slate-600 hover:bg-white/80 hover:text-slate-900 hover:shadow-lg hover:shadow-black/5";
+
+  const backgroundClasses = variant === 'outline' 
+    ? "bg-transparent border-slate-200/60" 
+    : "bg-white/60 border-transparent hover:border-slate-200/60";
+
+  return (
+    <button
+      onClick={onClick}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+      className={`${sizeClasses} rounded-xl flex items-center justify-center transition-all duration-300 ease-out border hover:scale-105 active:scale-95 ${backgroundClasses} ${variantClasses}`}
+      title={title}
+    >
+      <Icon className={iconSizeClasses} />
+    </button>
+  );
+});
+
+// Text Controls Dropdown - Compact design combining alignment and styles
+const TextControlsDropdown = memo(({ selectedLayerIds, onDropdownChange }: { 
+  selectedLayerIds: string[];
+  onDropdownChange?: (open: boolean, dropdownId: string) => void;
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+  
+  // Notify parent about dropdown state changes
+  const handleOpenChange = (open: boolean) => {
+    setIsOpen(open);
+    if (onDropdownChange) {
+      onDropdownChange(open, "text-controls");
+    }
+  };
+  
+  return (
+    <div className="relative">
+      <button
+        onClick={() => handleOpenChange(!isOpen)}
+        className="flex items-center gap-2 px-3 py-2.5 text-sm bg-white/60 hover:bg-white/80 rounded-xl border border-transparent hover:border-slate-200/60 transition-all duration-300 shadow-sm hover:shadow-lg hover:shadow-black/5 hover:scale-105"
+        title="Text formatting"
+      >
+        <Type className="w-4 h-4 text-slate-500" />
+        <span className="font-medium text-slate-700">Text</span>
+        <ChevronDown className="w-3 h-3 text-slate-500" />
+      </button>
+      
+      {isOpen && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => handleOpenChange(false)} />
+          <div className="absolute bottom-full left-0 mb-2 bg-white/95 backdrop-blur-xl border border-gray-200/60 rounded-xl shadow-xl z-50 min-w-64 overflow-visible">
+            <div className="py-2">
+              <div className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-100/80 bg-gray-50/50">
+                Text Alignment
+              </div>
+              <div className="px-2 py-2 flex items-center gap-1">
+                <TextAlignmentButton selectedLayerIds={selectedLayerIds} alignment="left" icon={AlignLeft} />
+                <TextAlignmentButton selectedLayerIds={selectedLayerIds} alignment="center" icon={AlignCenter} />
+                <TextAlignmentButton selectedLayerIds={selectedLayerIds} alignment="right" icon={AlignRight} />
+                <TextAlignmentButton selectedLayerIds={selectedLayerIds} alignment="justify" icon={AlignJustify} />
+              </div>
+              
+              <div className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider border-b border-t border-gray-100/80 bg-gray-50/50">
+                Text Style
+              </div>
+              <div className="px-2 py-2 flex items-center gap-1">
+                <TextStyleButton selectedLayerIds={selectedLayerIds} styleType="italic" icon={Italic} />
+                <TextStyleButton selectedLayerIds={selectedLayerIds} styleType="underline" icon={Underline} />
+                <TextStyleButton selectedLayerIds={selectedLayerIds} styleType="strikethrough" icon={Strikethrough} />
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+});
+
+// Compact Alignment dropdown - simplified version
+const CompactAlignmentDropdown = memo(({ selectedLayers, updateLayerPositions, onActionHover, onActionHoverEnd, onDropdownChange }: { 
+  selectedLayers: any[];
+  updateLayerPositions: (updates: any) => void;
+  onActionHover?: (label: string) => void;
+  onActionHoverEnd?: () => void;
+  onDropdownChange?: (open: boolean, dropdownId: string) => void;
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+  
+  const handleOpenChange = (open: boolean) => {
+    setIsOpen(open);
+    onDropdownChange?.(open, "alignment");
+  };
+  
+  const alignmentOptions = [
+    { icon: AlignLeft, label: "Align Left", action: () => updateLayerPositions(alignLeft(selectedLayers)) },
+    { icon: AlignCenterHorizontal, label: "Align Center", action: () => updateLayerPositions(alignCenter(selectedLayers)) },
+    { icon: AlignRight, label: "Align Right", action: () => updateLayerPositions(alignRight(selectedLayers)) },
+    { icon: AlignStartVertical, label: "Align Top", action: () => updateLayerPositions(alignTop(selectedLayers)) },
+    { icon: AlignCenterVertical, label: "Align Middle", action: () => updateLayerPositions(alignMiddle(selectedLayers)) },
+    { icon: AlignEndVertical, label: "Align Bottom", action: () => updateLayerPositions(alignBottom(selectedLayers)) },
+  ];
+
+  const distributionOptions = selectedLayers.length >= 3 ? [
+    { icon: AlignHorizontalDistributeCenter, label: "Distribute Horizontally", action: () => updateLayerPositions(distributeHorizontally(selectedLayers)) },
+    { icon: AlignVerticalDistributeCenter, label: "Distribute Vertically", action: () => updateLayerPositions(distributeVertically(selectedLayers)) },
+  ] : [];
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => handleOpenChange(!isOpen)}
+        onMouseEnter={() => onActionHover?.("Alignment & Distribution")}
+        onMouseLeave={onActionHoverEnd}
+        className="flex items-center gap-2 px-3 py-2.5 text-sm bg-white/60 hover:bg-white/80 rounded-xl border border-transparent hover:border-slate-200/60 transition-all duration-300 shadow-sm hover:shadow-lg hover:shadow-black/5 hover:scale-105"
+        title="Alignment & Distribution"
+      >
+        <LayoutGrid className="w-4 h-4 text-slate-500" />
+        <span className="font-medium text-slate-700">Align</span>
+        <ChevronDown className="w-3 h-3 text-slate-500" />
+      </button>
+      
+      {isOpen && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => handleOpenChange(false)} />
+          <div className="absolute bottom-full left-0 mb-2 bg-white/95 backdrop-blur-xl border border-gray-200/60 rounded-xl shadow-xl z-50 min-w-52 max-w-sm overflow-visible">
+            <div className="py-2">
+              <div className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-100/80 bg-gray-50/50">
+                Alignment
+              </div>
+              {alignmentOptions.map((option, index) => (
+                <button
+                  key={index}
+                  onClick={() => {
+                    option.action();
+                    handleOpenChange(false);
+                  }}
+                  className="w-full px-4 py-2.5 text-sm text-left hover:bg-gray-100/80 transition-colors duration-150 flex items-center gap-3 text-gray-700 hover:text-gray-900"
+                >
+                  <option.icon className="w-4 h-4 flex-shrink-0" />
+                  <span className="truncate">{option.label}</span>
+                </button>
+              ))}
+              {distributionOptions.length > 0 && (
+                <>
+                  <div className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider border-b border-t border-gray-100/80 bg-gray-50/50">
+                    Distribution
+                  </div>
+                  {distributionOptions.map((option, index) => (
+                    <button
+                      key={index}
+                      onClick={() => {
+                        option.action();
+                        handleOpenChange(false);
+                      }}
+                      className="w-full px-4 py-2.5 text-sm text-left hover:bg-gray-100/80 transition-colors duration-150 flex items-center gap-3 text-gray-700 hover:text-gray-900"
+                    >
+                      <option.icon className="w-4 h-4 flex-shrink-0" />
+                      <span className="truncate">{option.label}</span>
+                    </button>
+                  ))}
+                </>
+              )}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+});
+
+// Frame Control Components
+const FrameAutoResizeToggle = memo(({ 
+  frameId, 
+  isAutoResize, 
+  onToggle 
+}: { 
+  frameId: string;
+  isAutoResize: boolean;
+  onToggle: (frameId: string) => void;
+}) => {
+  return (
+    <button
+      onClick={() => onToggle(frameId)}
+      className={`
+        flex items-center gap-2 px-3 py-2.5 rounded-xl transition-all duration-300 ease-out
+        border border-transparent hover:border-slate-200/60 hover:scale-105 active:scale-95
+        ${isAutoResize 
+          ? 'bg-blue-50/80 text-blue-700 hover:bg-blue-100/80 border-blue-200/60 shadow-lg shadow-blue-500/10' 
+          : 'bg-white/60 text-slate-600 hover:bg-white/80 hover:text-slate-900 shadow-sm hover:shadow-lg hover:shadow-black/5'
+        }
+      `}
+      title={isAutoResize ? "Disable auto-resize" : "Enable auto-resize"}
+    >
+      <RefreshCw className={`w-4 h-4 ${isAutoResize ? 'text-blue-600' : 'text-slate-500'}`} />
+      <span className="text-sm font-medium">
+        {isAutoResize ? "Auto-resize ON" : "Auto-resize OFF"}
+      </span>
+    </button>
+  );
+});
+
+const FrameResizeToFitButton = memo(({ 
+  frameId, 
+  onResize 
+}: { 
+  frameId: string;
+  onResize: (frameId: string) => void;
+}) => {
+  return (
+    <button
+      onClick={() => onResize(frameId)}
+      className="
+        flex items-center gap-2 px-3 py-2.5 rounded-xl transition-all duration-300 ease-out
+        bg-white/60 text-slate-600 hover:bg-white/80 hover:text-slate-900
+        border border-transparent hover:border-slate-200/60
+        shadow-sm hover:shadow-lg hover:shadow-black/5 hover:scale-105 active:scale-95
+      "
+      title="Resize frame to fit content"
+    >
+      <Maximize2 className="w-4 h-4" />
+      <span className="text-sm font-medium">Resize to fit</span>
+    </button>
+  );
+});
+
+// Download Options Dropdown
+const DownloadOptionsDropdown = memo(({ 
+  selectedDownloadableData,
+  selection,
+  onDownloadFiles,
+  onExportJSON,
+  onDropdownChange 
+}: { 
+  selectedDownloadableData: Array<{ id: string; type: "file" | "image" | "video"; url: string; fileName: string; fileType: string; title: string; }>;
+  selection: string[];
+  onDownloadFiles: () => void;
+  onExportJSON: () => void;
+  onDropdownChange?: (open: boolean, dropdownId: string) => void;
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+  
+  const handleOpenChange = (open: boolean) => {
+    setIsOpen(open);
+    onDropdownChange?.(open, "download-options");
+  };
+
+  const hasFiles = selectedDownloadableData.some(item => item.type === "file");
+  const hasImages = selectedDownloadableData.some(item => item.type === "image");
+  const hasVideos = selectedDownloadableData.some(item => item.type === "video");
+  const hasMultipleTypes = [hasFiles, hasImages, hasVideos].filter(Boolean).length > 1;
+
+  const getMainIcon = () => {
+    if (hasMultipleTypes) return Download;
+    if (hasFiles) return FileIcon;
+    if (hasImages) return Image;
+    if (hasVideos) return Video;
+    return Download;
+  };
+
+  const getMainLabel = () => {
+    const count = selectedDownloadableData.length;
+    if (hasMultipleTypes) return `Download ${count} items`;
+    if (hasFiles) return count === 1 ? "Download file" : `Download ${count} files`;
+    if (hasImages) return count === 1 ? "Download image" : `Download ${count} images`;
+    if (hasVideos) return count === 1 ? "Download video" : `Download ${count} videos`;
+    return "Download";
+  };
+
+  const MainIcon = getMainIcon();
+  const mainLabel = getMainLabel();
+
+  // If only one type and one item, use compact icon-only button
+  if (!hasMultipleTypes && selectedDownloadableData.length === 1) {
+    return (
+      <button
+        onClick={onDownloadFiles}
+        className="w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-300 ease-out border bg-white/60 border-transparent hover:border-slate-200/60 hover:scale-105 active:scale-95 shadow-sm hover:shadow-lg hover:shadow-black/5 text-slate-600 hover:text-slate-900"
+        title={mainLabel}
+      >
+        <Download className="w-4 h-4" />
+      </button>
+    );
+  }
+
+  return (
+    <div className="relative">
+      <DropdownMenu open={isOpen} onOpenChange={handleOpenChange}>
+        <DropdownMenuTrigger asChild>
+          <button
+            className="w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-300 ease-out border bg-white/60 border-transparent hover:border-slate-200/60 hover:scale-105 active:scale-95 shadow-sm hover:shadow-lg hover:shadow-black/5 text-slate-600 hover:text-slate-900 relative group"
+            title="Download options"
+          >
+            <Download className="w-4 h-4" />
+            <ChevronDown className="w-2 h-2 absolute -bottom-0.5 -right-0.5 opacity-60 group-hover:opacity-100 transition-opacity" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent 
+          align="center" 
+          className="w-64 bg-white/95 backdrop-blur-xl border border-gray-200/60 rounded-xl shadow-xl z-50 overflow-visible"
+          sideOffset={8}
+        >
+          <div className="py-2">
+            {/* Download files/assets */}
+            <DropdownMenuItem
+              onClick={() => {
+                onDownloadFiles();
+                handleOpenChange(false);
+              }}
+              className="flex items-center gap-3 rounded-lg mx-2 px-3 py-3 transition-all duration-200 cursor-pointer hover:bg-blue-50/80 text-gray-700 hover:text-blue-900 hover:shadow-sm"
+            >
+              <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center flex-shrink-0">
+                <Download className="h-4 w-4 text-blue-600" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-semibold text-gray-900 truncate">{mainLabel}</div>
+                <div className="text-xs text-gray-500 mt-0.5">
+                  {hasFiles && `${selectedDownloadableData.filter(i => i.type === "file").length} files`}
+                  {hasFiles && (hasImages || hasVideos) && ", "}
+                  {hasImages && `${selectedDownloadableData.filter(i => i.type === "image").length} images`}
+                  {hasImages && hasVideos && ", "}
+                  {hasVideos && `${selectedDownloadableData.filter(i => i.type === "video").length} videos`}
+                </div>
+              </div>
+            </DropdownMenuItem>
+
+            <DropdownMenuSeparator className="my-2 mx-2" />
+
+            {/* Export as JSON */}
+            <DropdownMenuItem
+              onClick={() => {
+                onExportJSON();
+                handleOpenChange(false);
+              }}
+              className="flex items-center gap-3 rounded-lg mx-2 px-3 py-3 transition-all duration-200 cursor-pointer hover:bg-green-50/80 text-gray-700 hover:text-green-900 hover:shadow-sm"
+            >
+              <div className="w-8 h-8 rounded-lg bg-green-100 flex items-center justify-center flex-shrink-0">
+                <FileText className="h-4 w-4 text-green-600" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-semibold text-gray-900">Export as JSON</div>
+                <div className="text-xs text-gray-500 mt-0.5">
+                  Save selection data to file
+                </div>
+              </div>
+            </DropdownMenuItem>
+          </div>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  );
+});
+
+FrameAutoResizeToggle.displayName = "FrameAutoResizeToggle";
+FrameResizeToFitButton.displayName = "FrameResizeToFitButton";
+TextControlsDropdown.displayName = "TextControlsDropdown";
+CompactAlignmentDropdown.displayName = "CompactAlignmentDropdown";
+DownloadOptionsDropdown.displayName = "DownloadOptionsDropdown";
+
+// Selection tooltip component - appears above each tool individually
+const SelectionTooltip = ({ children, label, isVisible }: { 
+  children: React.ReactNode; 
+  label: string; 
+  isVisible: boolean 
+}) => {
+  return (
+    <div className="relative">
+      {children}
+      {isVisible && label && (
+        <div className="absolute -top-12 left-1/2 -translate-x-1/2 z-50 animate-in fade-in-0 slide-in-from-bottom-4 duration-200 ease-out">
+          <div className="relative">
+            {/* Background piatto senza glassmorphism */}
+            <div className="border border-gray-200/60 text-gray-900 px-3 py-2 rounded-lg shadow-lg text-xs font-medium whitespace-nowrap" style={{ backgroundColor: '#fcfcfc' }}>
+              {/* Content con testo nero */}
+              <span className="relative z-10 tracking-wide text-gray-900">{label}</span>
+            </div>
+            
+            {/* Arrow che punta verso il basso */}
+            <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-px">
+              <div className="w-0 h-0 border-l-[5px] border-r-[5px] border-t-[5px] border-transparent" style={{ borderTopColor: '#fcfcfc' }} />
+              <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-px w-0 h-0 border-l-[4px] border-r-[4px] border-t-[4px] border-transparent border-t-gray-200/60" />
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export const SelectionTools = memo(
+  ({ 
+    camera, 
+    setLastUsedColor, 
+    onShowColorPicker,
+    onActionHover,
+    onActionHoverEnd,
+    containerRef,
+    pencilStrokeWidth,
+    setPencilStrokeWidth,
+    canvasState,
+    lastUsedColor,
+    // Note text formatting functions
+    setLastUsedFontSize,
+    setLastUsedFontWeight,
+    // Frame control functions
+    onToggleFrameAutoResize,
+    onManualFrameResize,
+    // Mobile support
+    isTouchDevice,
+    // Board ID for review mode
+    boardId
+  }: SelectionToolsProps) => {
+    const selection = useSelf((me) => me.presence.selection);
+    const { bringToFront, sendToBack } = useLayerOrdering();
+    const [showColorPicker, setShowColorPicker] = useState(false);
+    const [hoveredSelection, setHoveredSelection] = useState<string>("");
+    // Stato per tracciare dropdown aperti
+    const [openDropdowns, setOpenDropdowns] = useState<Set<string>>(new Set());
+    const { hasMultipleSelection, selectedLayers, updateLayerPositions } = useSelection();
+
+    // Check if pencil is active
+    const isPencilActive = canvasState && canvasState.mode === CanvasMode.Pencil;
+
+    // Get current color of selected layers OR lastUsedColor when pencil is active
+    const currentColor = useStorage((root) => {
+      if (selection.length === 0) {
+        // If pencil is active but no elements selected, show lastUsedColor  
+        return isPencilActive ? lastUsedColor : undefined; // Let it use the default color
+      }
+      
+      const colors = selection
+        .map(id => root.layers.get(id))
+        .filter(layer => layer && layer.hasOwnProperty("fill"))
+        .map(layer => (layer as any).fill);
+      
+      return colors.length > 0 && colors.every(c => 
+        c.r === colors[0].r && c.g === colors[0].g && c.b === colors[0].b
+      ) ? colors[0] : undefined;
+    });
+
+    // Check element types
+    const hasArrowsOrLines = useStorage((root) => {
+      return selection.some(id => {
+        const layer = root.layers.get(id);
+        return layer && (layer.type === "arrow" || layer.type === "line");
+      });
+    });
+
+    const hasTextElements = useStorage((root) => {
+      // Controlla se ci sono elementi di testo selezionati
+      const hasSelectedText = selection.some(id => {
+        const layer = root.layers.get(id);
+        return layer && (layer.type === "text" || layer.type === "note");
+      });
+      
+      // Controlla anche se c'è una nota in editing (anche se non selezionata)
+      const hasEditingNote = (window as any).applyNoteFormatting !== undefined;
+      
+      return hasSelectedText || hasEditingNote;
+    });
+
+    // Font family selector (component scope)
+    const FONT_FAMILIES = [
+      { label: 'Inter', value: "'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial" },
+      { label: 'Roboto', value: "Roboto, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Helvetica, Arial" },
+      { label: 'Georgia', value: "Georgia, 'Times New Roman', Times, serif" },
+      { label: 'Mono', value: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace" },
+    ];
+
+    const setFontFamily = useMutation(({ storage }, fontFamily: string) => {
+      const liveLayers = storage.get('layers');
+      selection.forEach(id => {
+        const layer = liveLayers.get(id);
+        if (layer && (layer.get('type') === LayerType.Text || layer.get('type') === LayerType.Note)) {
+          layer.update({ fontFamily });
+        }
+      });
+    }, [selection]);
+
+  // Helper: export selected frame using presets from main toolbar module
+  const exportPresets = [
+    { label: "A4 Portrait", width: 742, height: 1050 },
+    { label: "16:9", width: 1920, height: 1080 },
+    { label: "4:3", width: 1440, height: 1080 },
+    { label: "1:1 Square", width: 1080, height: 1080 },
+    { label: "4K (16:9)", width: 3840, height: 2160 },
+  ];
+
+  // Direct export with frame native dimensions - find and render elements inside frame
+  const exportFrameWithNativeDimensions = async (
+    frameId: string,
+    frameWidth: number,
+    frameHeight: number
+  ) => {
+    try {
+      // Recupera dati frame selezionato
+      const frame = selectedFramesData.find(f => f.id === frameId);
+      if (!frame) return;
+      const { x: fx, y: fy } = frame;
+      
+      console.log('Exporting frame:', { frameId, fx, fy, frameWidth, frameHeight });
+      
+      // Trova l'SVG del canvas
+      const svgElement = document.querySelector('svg.h-\\[100vh\\].w-\\[100vw\\].select-none') as SVGElement;
+      if (!svgElement) {
+        console.error('SVG canvas not found');
+        return;
+      }
+
+      // Crea un nuovo SVG con solo il contenuto del frame
+      const exportSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      exportSvg.setAttribute('width', frameWidth.toString());
+      exportSvg.setAttribute('height', frameHeight.toString());
+      exportSvg.setAttribute('viewBox', `0 0 ${frameWidth} ${frameHeight}`);
+      exportSvg.style.backgroundColor = 'white';
+
+      // Aggiungi background bianco
+      const backgroundRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      backgroundRect.setAttribute('x', '0');
+      backgroundRect.setAttribute('y', '0');
+      backgroundRect.setAttribute('width', frameWidth.toString());
+      backgroundRect.setAttribute('height', frameHeight.toString());
+      backgroundRect.setAttribute('fill', 'white');
+      exportSvg.appendChild(backgroundRect);
+
+      // Nuova strategia: cattura tutto quello che è visualmente dentro il frame
+      const allGroups = svgElement.querySelectorAll('g[style*="transform"]');
+      console.log('Found groups:', allGroups.length);
+      
+      let foundElements = 0; // Dichiarazione della variabile mancante!
+      
+      allGroups.forEach((group, index) => {
+        const style = group.getAttribute('style') || '';
+        const transformMatch = style.match(/translate\(([^)]+)\)/);
+        
+        if (transformMatch) {
+          const coords = transformMatch[1].split(',').map(v => parseFloat(v.replace('px', '').trim()));
+          const [gx, gy] = coords;
+          
+          // Tolerance più grande per catturare elementi sui bordi
+          const tolerance = 100;
+          
+          // Estrai anche scale se presente
+          const scaleMatch = style.match(/scale\(([^)]+)\)/);
+          const scale = scaleMatch ? parseFloat(scaleMatch[1]) : 1;
+          
+          // Log per debug TUTTI i gruppi per vedere meglio
+          console.log(`Group ${index}:`, { 
+            gx, gy, scale,
+            withinX: gx >= (fx - tolerance) && gx <= (fx + frameWidth + tolerance), 
+            withinY: gy >= (fy - tolerance) && gy <= (fy + frameHeight + tolerance), 
+            style: style.substring(0, 150)
+          });
+          
+          // Strategia più precisa: solo elementi che hanno senso visualmente
+          // 1. Dentro il frame con tolerance ragionevole
+          const isWithinFrame = gx >= (fx - tolerance) && gx <= (fx + frameWidth + tolerance) && 
+                               gy >= (fy - tolerance) && gy <= (fy + frameHeight + tolerance);
+          
+          // 2. Overlap check per elementi parzialmente sovrapposti  
+          const elementSize = 300; 
+          const hasOverlap = !(gx > (fx + frameWidth) || (gx + elementSize) < fx || 
+                              gy > (fy + frameHeight) || (gy + elementSize) < fy);
+          
+          // 3. Filtro coordinate: esclude elementi troppo lontani che creerebbero coordinate negative enormi
+          const relativeX = gx - fx;
+          const relativeY = gy - fy;
+          const isReasonablyPositioned = relativeX >= -200 && relativeX <= frameWidth + 200 &&
+                                        relativeY >= -200 && relativeY <= frameHeight + 200;
+          
+          if ((isWithinFrame || hasOverlap) && isReasonablyPositioned) {
+            console.log(`Including group at (${gx}, ${gy}) - within: ${isWithinFrame}, overlap: ${hasOverlap}, relativePos: (${relativeX}, ${relativeY})`);
+            foundElements++;
+            
+            const groupClone = group.cloneNode(true) as Element;
+            
+            // Rimuovi solo elementi IMG realmente problematici
+            const problematicElements = groupClone.querySelectorAll('img[src^="http"], image[href^="http"], image[xlink\\:href^="http"]');
+            problematicElements.forEach(el => {
+              console.log('Removing problematic image element:', el);
+              const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+              rect.setAttribute('width', el.getAttribute('width') || '100');
+              rect.setAttribute('height', el.getAttribute('height') || '100');
+              rect.setAttribute('x', el.getAttribute('x') || '0');
+              rect.setAttribute('y', el.getAttribute('y') || '0');
+              rect.setAttribute('fill', '#e5e7eb');
+              rect.setAttribute('stroke', '#9ca3af');
+              rect.setAttribute('stroke-width', '1');
+              el.parentNode?.replaceChild(rect, el);
+            });
+            
+            // Correggi la trasformazione per posizionare relativamente al frame
+            const newTransform = `translate(${gx - fx}px, ${gy - fy}px)`;
+            groupClone.setAttribute('style', style.replace(/translate\([^)]+\)/, newTransform));
+            
+            exportSvg.appendChild(groupClone);
+          }
+        }
+      });
+      
+      console.log('Found elements inside frame:', foundElements);
+      
+      // Se non troviamo elementi, aggiungi almeno il frame stesso
+      if (foundElements === 0) {
+        // Cerca specificamente il frame stesso
+        const frameElement = svgElement.querySelector(`g[style*="translate(${fx}px, ${fy}px)"]`);
+        if (frameElement) {
+          console.log('Adding frame element itself');
+          const frameClone = frameElement.cloneNode(true) as Element;
+          const style = frameClone.getAttribute('style') || '';
+          frameClone.setAttribute('style', style.replace(/translate\([^)]+\)/, `translate(0px, 0px)`));
+          exportSvg.appendChild(frameClone);
+        } else {
+          // Fallback: crea un rettangolo di debug
+          const debugRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+          debugRect.setAttribute('x', '10');
+          debugRect.setAttribute('y', '10');
+          debugRect.setAttribute('width', (frameWidth - 20).toString());
+          debugRect.setAttribute('height', (frameHeight - 20).toString());
+          debugRect.setAttribute('fill', 'none');
+          debugRect.setAttribute('stroke', '#ff0000');
+          debugRect.setAttribute('stroke-width', '2');
+          exportSvg.appendChild(debugRect);
+          
+          const debugText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+          debugText.setAttribute('x', (frameWidth / 2).toString());
+          debugText.setAttribute('y', (frameHeight / 2).toString());
+          debugText.setAttribute('text-anchor', 'middle');
+          debugText.setAttribute('font-family', 'Arial');
+          debugText.setAttribute('font-size', '16');
+          debugText.setAttribute('fill', '#ff0000');
+          debugText.textContent = `Frame ${frameWidth}x${frameHeight}`;
+          exportSvg.appendChild(debugText);
+        }
+      }
+
+      // Export con html-to-image con gestione errori migliorata
+      try {
+        console.log('Preparing export SVG with', foundElements, 'elements');
+        
+        // Debug: stampa il contenuto SVG
+        console.log('Export SVG content:', exportSvg.outerHTML.substring(0, 500));
+        
+        const { toPng } = await import('html-to-image');
+        
+        // Crea container temporaneo
+        const container = document.createElement('div');
+        container.style.position = 'fixed';
+        container.style.left = '-10000px';
+        container.style.top = '0';
+        container.style.width = `${frameWidth}px`;
+        container.style.height = `${frameHeight}px`;
+        container.style.background = 'white';
+        container.style.zIndex = '-1000';
+        container.appendChild(exportSvg);
+        document.body.appendChild(container);
+        
+        console.log('Container created, starting export...');
+        
+        const dataUrl = await toPng(container, {
+          width: frameWidth,
+          height: frameHeight,
+          backgroundColor: 'white',
+          pixelRatio: 1,
+          quality: 1,
+          useCORS: true,
+          allowTaint: false,
+          skipFonts: true,
+          includeQueryParams: false,
+          filter: (node: any) => {
+            // Escludi elementi che potrebbero causare problemi
+            if (node.tagName === 'SCRIPT' || node.tagName === 'STYLE') {
+              return false;
+            }
+            return true;
+          }
+        });
+        
+        console.log('Export successful, cleaning up...');
+        document.body.removeChild(container);
+        
+        // Download
+        const a = document.createElement('a');
+        a.href = dataUrl;
+        a.download = `frame-${frameId}-${frameWidth}x${frameHeight}.png`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        
+        console.log('Download initiated successfully');
+        
+      } catch (exportError) {
+        console.error('HTML-to-image export failed:', exportError);
+        
+        // Cleanup container se esiste ancora
+        const container = document.querySelector('div[style*="left: -10000px"]');
+        if (container) {
+          document.body.removeChild(container);
+        }
+        
+        // Fallback: prova con Canvas API
+        try {
+          console.log('Trying Canvas API fallback...');
+          
+          const svgString = new XMLSerializer().serializeToString(exportSvg);
+          const svgBlob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+          const url = URL.createObjectURL(svgBlob);
+
+          const canvas = document.createElement('canvas');
+          canvas.width = frameWidth;
+          canvas.height = frameHeight;
+          const ctx = canvas.getContext('2d');
+          
+          if (!ctx) throw new Error('Cannot get canvas context');
+          
+          // Background bianco
+          ctx.fillStyle = 'white';
+          ctx.fillRect(0, 0, frameWidth, frameHeight);
+
+          const img = new Image();
+          
+          await new Promise<void>((resolve, reject) => {
+            img.onload = () => {
+              try {
+                ctx.drawImage(img, 0, 0, frameWidth, frameHeight);
+                
+                canvas.toBlob((blob) => {
+                  if (blob) {
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `frame-${frameId}-${frameWidth}x${frameHeight}.png`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                  }
+                  resolve();
+                }, 'image/png', 1.0);
+              } catch (e) {
+                reject(e);
+              }
+              URL.revokeObjectURL(url);
+            };
+            
+            img.onerror = () => {
+              URL.revokeObjectURL(url);
+              reject(new Error('Canvas SVG load failed'));
+            };
+            
+            img.src = url;
+          });
+          
+        } catch (canvasError) {
+          console.error('Canvas API fallback failed:', canvasError);
+          throw new Error('Both export methods failed');
+        }
+      }
+
+    } catch (e) {
+      console.error('Failed to export frame:', e);
+      alert('Export failed. Check console for details.');
+    }
+  };
+
+  const exportSelectedFrameAsImage = async (
+    frameId: string,
+    preset: { label: string; width: number; height: number }
+  ) => {
+    try {
+      // Recupera dati frame selezionato
+      const frame = selectedFramesData.find(f => f.id === frameId);
+      if (!frame) return;
+      const { x: fx, y: fy, width: fw, height: fh } = frame;
+      const boardCanvas = document.querySelector('.board-canvas') as HTMLElement | null;
+      if (!boardCanvas) return;
+
+      // Clona il contenuto del canvas in un container offscreen, applicando trasformazioni per isolare il frame
+      const clone = boardCanvas.cloneNode(true) as HTMLElement;
+
+      const container = document.createElement('div');
+      container.style.position = 'fixed';
+      container.style.left = '-10000px';
+      container.style.top = '0';
+      container.style.width = `${preset.width}px`;
+      container.style.height = `${preset.height}px`;
+      container.style.overflow = 'hidden';
+      container.style.background = 'white';
+      container.style.zIndex = '-1';
+
+      // Wrapper per le trasformazioni (centrare e scalare il frame nel preset selezionato)
+      const wrapper = document.createElement('div');
+      wrapper.style.position = 'relative';
+      wrapper.style.width = '100%';
+      wrapper.style.height = '100%';
+
+      // Calcola scala uniforme per far entrare il frame nel preset
+      const scale = Math.min(preset.width / fw, preset.height / fh);
+      const offsetX = (preset.width - fw * scale) / 2;
+      const offsetY = (preset.height - fh * scale) / 2;
+      // Applica: translate(offset) scale(scale) translate(-frameX, -frameY)
+      (clone.style as any).transform = `translate(${offsetX}px, ${offsetY}px) scale(${scale}) translate(${-fx}px, ${-fy}px)`;
+      (clone.style as any).transformOrigin = '0 0';
+      (clone.style as any).width = boardCanvas.clientWidth + 'px';
+      (clone.style as any).height = boardCanvas.clientHeight + 'px';
+
+      wrapper.appendChild(clone);
+      container.appendChild(wrapper);
+      document.body.appendChild(container);
+
+      const { toPng } = await import('html-to-image');
+      const dataUrl = await toPng(container, {
+        quality: 1,
+        pixelRatio: 2,
+        backgroundColor: 'white',
+        width: preset.width,
+        height: preset.height,
+        style: {
+          width: `${preset.width}px`,
+          height: `${preset.height}px`,
+        } as any,
+        skipAutoScale: true,
+        canvasWidth: preset.width,
+        canvasHeight: preset.height,
+        cacheBust: true,
+      });
+
+      // Cleanup
+      document.body.removeChild(container);
+
+      const a = document.createElement('a');
+      a.href = dataUrl;
+      a.download = `frame-${frameId}-${preset.label.replace(/\s+/g, '_')}.png`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    } catch (e) {
+      console.error('Failed to export frame', e);
+    }
+  };
+
+    // Verifica se ci sono shape/media con shadow disattivabile
+    const canToggleShadow = useStorage((root) => {
+      return selection.some(id => {
+        const layer = root.layers.get(id);
+        if (!layer) return false;
+        const type = layer.type;
+        return type === "rectangle" || type === "ellipse" || type === "arrow" || type === "line" || type === "image" || type === "video" || type === "file";
+      });
+    });
+
+    // Check if any notes are selected and get note data
+    const selectedNotesData = useStorage((root) => {
+      const notes = selection
+        .map(id => {
+          const layer = root.layers.get(id);
+          return layer && layer.type === LayerType.Note ? { 
+            id, 
+            showMetadata: (layer as any).showMetadata !== false, // default true
+            lastModifiedBy: (layer as any).lastModifiedBy || "User",
+            lastModifiedAt: (layer as any).lastModifiedAt,
+            type: layer.type
+          } : null;
+        })
+        .filter(Boolean) as Array<{ id: string; showMetadata: boolean; lastModifiedBy: string; lastModifiedAt?: string; [key: string]: any }>;
+      
+      return notes;
+    });
+    
+    const hasNotes = selectedNotesData.length > 0;
+    const singleNoteSelected = selectedNotesData.length === 1;
+
+    // Check if any frames are selected and get frame data
+    const selectedFramesData = useStorage((root) => {
+      const frames = selection
+        .map(id => {
+          const layer = root.layers.get(id);
+          return layer && layer.type === "frame" ? { 
+            id, 
+            autoResize: (layer as any).autoResize || false,
+            type: layer.type,
+            x: layer.x,
+            y: layer.y,
+            width: layer.width,
+            height: layer.height
+          } : null;
+        })
+        .filter(Boolean) as Array<{ id: string; autoResize: boolean; [key: string]: any }>;
+      
+      return frames;
+    });
+    
+    const hasFrames = selectedFramesData.length > 0;
+    const singleFrameSelected = selectedFramesData.length === 1;
+
+    // Check if any images or videos are selected and get their data
+    const selectedMediaData = useStorage((root) => {
+      const media = selection
+        .map(id => {
+          const layer = root.layers.get(id);
+          if (layer && (layer.type === "image" || layer.type === "video")) {
+            return { 
+              id, 
+              type: layer.type as "image" | "video",
+              url: (layer as any).url || "",
+              name: `${layer.type === "image" ? "Immagine" : "Video"} ${id.slice(-4)}`,
+              x: layer.x,
+              y: layer.y,
+              width: layer.width,
+              height: layer.height
+            };
+          }
+          return null;
+        })
+        .filter(Boolean) as Array<{ id: string; type: "image" | "video"; url: string; name: string; [key: string]: any }>;
+      
+      return media;
+    });
+    
+    const hasMediaAssets = selectedMediaData.length > 0;
+    const singleMediaSelected = selectedMediaData.length === 1;
+
+    // Check if any downloadable assets are selected (files, images, videos) and get their data
+    const selectedDownloadableData = useStorage((root) => {
+      const downloadables = selection
+        .map(id => {
+          const layer = root.layers.get(id);
+          if (layer && (layer.type === "file" || layer.type === "image" || layer.type === "video")) {
+            if (layer.type === "file") {
+              return { 
+                id, 
+                type: "file" as const,
+                url: (layer as any).url || "",
+                fileName: (layer as any).fileName || `File_${id.slice(-4)}.${(layer as any).fileType || "bin"}`,
+                fileType: (layer as any).fileType || "file",
+                title: (layer as any).title || (layer as any).fileName || `File ${id.slice(-4)}`,
+                x: layer.x,
+                y: layer.y,
+                width: layer.width,
+                height: layer.height
+              };
+            } else if (layer.type === "image") {
+              const url = (layer as any).url || "";
+              const fileExtension = url.split('.').pop()?.toLowerCase() || "jpg";
+              return {
+                id,
+                type: "image" as const,
+                url,
+                fileName: `Image_${id.slice(-4)}.${fileExtension}`,
+                fileType: fileExtension,
+                title: (layer as any).title || `Image ${id.slice(-4)}`,
+                x: layer.x,
+                y: layer.y,
+                width: layer.width,
+                height: layer.height
+              };
+            } else if (layer.type === "video") {
+              const url = (layer as any).url || "";
+              const fileExtension = url.split('.').pop()?.toLowerCase() || "mp4";
+              return {
+                id,
+                type: "video" as const,
+                url,
+                fileName: `Video_${id.slice(-4)}.${fileExtension}`,
+                fileType: fileExtension,
+                title: (layer as any).title || `Video ${id.slice(-4)}`,
+                x: layer.x,
+                y: layer.y,
+                width: layer.width,
+                height: layer.height
+              };
+            }
+          }
+          return null;
+        })
+        .filter(Boolean) as Array<{ id: string; type: "file" | "image" | "video"; url: string; fileName: string; fileType: string; title: string; [key: string]: any }>;
+      
+      return downloadables;
+    });
+    
+    const hasDownloadableAssets = selectedDownloadableData.length > 0;
+    const singleDownloadableSelected = selectedDownloadableData.length === 1;
+
+    // Legacy support - keep existing selectedFileData for backward compatibility
+    const selectedFileData = selectedDownloadableData.filter(item => item.type === "file");
+    const hasFileAssets = selectedFileData.length > 0;
+    const singleFileSelected = selectedFileData.length === 1;
+
+    // Review modal state
+    const [showReviewModal, setShowReviewModal] = useState(false);
+
+    // Get existing review sessions for selected media asset
+    const selectedAssetId = singleMediaSelected ? selectedMediaData[0].id : null;
+    const existingReviewSessions = useQuery(
+      api.review.getReviewSessionsForAsset,
+      selectedAssetId && boardId ? {
+        boardId: boardId as any,
+        primaryAssetId: selectedAssetId
+      } : "skip"
+    );
+
+    // Quick check for accessible sessions (more reactive)
+    const hasAccessibleReviewSessionsQuery = useQuery(
+      api.review.hasAccessibleReviewSessions,
+      selectedAssetId && boardId ? {
+        boardId: boardId as any,
+        primaryAssetId: selectedAssetId
+      } : "skip"
+    );
+
+    // Debug query to understand what's happening
+    const debugData = useQuery(
+      api.review.debugReviewSessionAccess,
+      selectedAssetId && boardId ? {
+        boardId: boardId as any,
+        primaryAssetId: selectedAssetId
+      } : "skip"
+    );
+
+    // Debug log when data changes
+    useEffect(() => {
+      if (debugData && selectedAssetId) {
+        console.log(`[DEBUG] Review sessions for asset ${selectedAssetId}:`, debugData);
+      }
+    }, [debugData, selectedAssetId]);
+
+    // Check if user can access any review sessions for this asset
+    const hasAccessibleReviewSessions = hasAccessibleReviewSessionsQuery || (existingReviewSessions && existingReviewSessions.length > 0);
+
+    const setFill = useMutation(
+      ({ storage }, fill: Color) => {
+        const liveLayers = storage.get("layers");
+        setLastUsedColor(fill);
+
+        selection.forEach((id) => {
+          const layer = liveLayers.get(id);
+          if (layer && layer.toObject().hasOwnProperty("fill")) {
+            (layer as any).set("fill", fill);
+          }
+        });
+      },
+      [selection, setLastUsedColor],
+    );
+
+    // Toggle metadata visibility for notes
+    const toggleNoteMetadata = useMutation(
+      ({ storage }, noteId: string) => {
+        const liveLayers = storage.get("layers");
+        const layer = liveLayers.get(noteId);
+        if (layer && layer.get("type") === "note") {
+          const currentShowMetadata = (layer as any).get("showMetadata");
+          (layer as any).set("showMetadata", !currentShowMetadata);
+        }
+      },
+      [],
+    );
+
+    // Toggle shadow per elementi selezionati
+    const toggleShadow = useMutation(({ storage }) => {
+      const liveLayers = storage.get("layers");
+      // Determina stato corrente: se tutti hanno shadow === false allora accendi, altrimenti spegni
+      const states = selection.map(id => {
+        const layer = liveLayers.get(id);
+        return layer ? ((layer as any).get("shadow") === false ? false : true) : true;
+      });
+      const willEnable = states.every(s => s === false);
+      selection.forEach(id => {
+        const layer = liveLayers.get(id);
+        if (!layer) return;
+        // Applica solo a tipi supportati
+        const type = (layer as any).get("type");
+        if (["rectangle","ellipse","arrow","line","image","video","file"].includes(type as any)) {
+          (layer as any).set("shadow", willEnable);
+        }
+      });
+    }, [selection]);
+
+    // Enhanced download function that forces download instead of opening in browser
+    const downloadFile = async (fileUrl: string, fileName: string) => {
+      // Validate URL
+      if (!fileUrl || fileUrl.trim() === '') {
+        console.error(`[Download] Invalid URL for ${fileName}: empty or null`);
+        alert(`Unable to download ${fileName}: Invalid file URL`);
+        return;
+      }
+
+      try {
+        console.log(`[Download] Attempting to download: ${fileName} from ${fileUrl}`);
+
+        // Method 1: Try fetch with blob (best for CORS-enabled files)
+        try {
+          const response = await fetch(fileUrl, {
+            mode: 'cors',
+            credentials: 'omit',
+            headers: {
+              'Accept': '*/*',
+            }
+          });
+          
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+          }
+          
+          const blob = await response.blob();
+          
+          // Validate blob
+          if (!blob || blob.size === 0) {
+            throw new Error('Empty file received');
+          }
+          
+          // Force download with blob URL
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = fileName;
+          a.style.display = 'none';
+          
+          // Force download behavior
+          a.setAttribute('download', fileName);
+          a.setAttribute('target', '_self');
+          
+          document.body.appendChild(a);
+          a.click();
+          
+          // Cleanup
+          setTimeout(() => {
+            window.URL.revokeObjectURL(url);
+            if (document.body.contains(a)) {
+              document.body.removeChild(a);
+            }
+          }, 100);
+          
+          console.log(`[Download] Successfully downloaded: ${fileName} (${blob.size} bytes)`);
+          return;
+        } catch (fetchError) {
+          console.warn(`[Download] Fetch method failed for ${fileName}:`, fetchError);
+        }
+
+        // Method 2: Skip iframe method (unreliable) and go directly to proxy
+
+        // Method 3: Server-side proxy download (if available)
+        try {
+          const proxyResponse = await fetch('/api/download-proxy', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              url: fileUrl,
+              fileName: fileName
+            })
+          });
+
+          if (proxyResponse.ok) {
+            const blob = await proxyResponse.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = fileName;
+            a.style.display = 'none';
+            document.body.appendChild(a);
+            a.click();
+            
+            setTimeout(() => {
+              window.URL.revokeObjectURL(url);
+              if (document.body.contains(a)) {
+                document.body.removeChild(a);
+              }
+            }, 100);
+            
+            console.log(`[Download] Successfully downloaded via proxy: ${fileName}`);
+            return;
+          }
+        } catch (proxyError) {
+          console.warn(`[Download] Proxy method not available:`, proxyError);
+        }
+
+        // Method 4: Direct link with forced download headers
+        try {
+          const a = document.createElement('a');
+          a.href = fileUrl;
+          a.download = fileName;
+          a.style.display = 'none';
+          
+          // Add additional attributes to force download
+          a.setAttribute('download', fileName);
+          a.setAttribute('target', '_self');
+          a.setAttribute('rel', 'noopener');
+          
+          document.body.appendChild(a);
+          
+          // Try to trigger download
+          const clickEvent = new MouseEvent('click', {
+            view: window,
+            bubbles: true,
+            cancelable: true
+          });
+          
+          a.dispatchEvent(clickEvent);
+          
+          setTimeout(() => {
+            if (document.body.contains(a)) {
+              document.body.removeChild(a);
+            }
+          }, 100);
+          
+          console.log(`[Download] Attempted direct download for: ${fileName}`);
+          return;
+        } catch (directError) {
+          console.warn(`[Download] Direct method failed for ${fileName}:`, directError);
+        }
+
+        // Last resort: Inform user and provide manual download option
+        throw new Error('All download methods failed');
+
+      } catch (error) {
+        console.error(`[Download] All download methods failed for ${fileName}:`, error);
+        
+        // Show user-friendly error with manual download option
+        const userResponse = confirm(
+          `Unable to automatically download "${fileName}". ` +
+          `This might be due to browser security restrictions or CORS policies.\n\n` +
+          `Would you like to try opening the file in a new tab so you can download it manually?`
+        );
+        
+        if (userResponse) {
+          // Open in new tab as last resort, but with download hint in URL if possible  
+          const downloadUrl = fileUrl.includes('?') 
+            ? `${fileUrl}&download=1&filename=${encodeURIComponent(fileName)}`
+            : `${fileUrl}?download=1&filename=${encodeURIComponent(fileName)}`;
+            
+          window.open(downloadUrl, '_blank', 'noopener,noreferrer');
+        }
+      }
+    };
+
+    // Export selected layers as JSON
+    const exportLayersAsJSON = useStorage((root) => {
+      return () => {};
+    });
+
+    const deleteLayers = useDeleteLayers();
+    const selectionBounds = useSelectionBounds();
+
+    // Tooltip handlers
+    const handleMouseEnter = (label: string) => {
+      setHoveredSelection(label);
+      if (onActionHover) onActionHover(label);
+    };
+    
+    const handleMouseLeave = () => {
+      setHoveredSelection("");
+      if (onActionHoverEnd) onActionHoverEnd();
+    };
+    
+    // Helper functions per gestire dropdown aperti
+    const addOpenDropdown = (dropdownId: string) => {
+      setOpenDropdowns(prev => new Set([...prev, dropdownId]));
+    };
+    
+    const removeOpenDropdown = (dropdownId: string) => {
+      setOpenDropdowns(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(dropdownId);
+        return newSet;
+      });
+    };
+    
+    // Funzione per verificare se mostrare tooltip (non mostrare se dropdown correlato è aperto)
+    const shouldShowSelectionTooltip = (tooltipId: string, dropdownId?: string) => {
+      // Special case for color picker - check both old state and new tracking system
+      if (tooltipId === "Change color" && (showColorPicker || openDropdowns.has("color-picker"))) {
+        return false;
+      }
+      
+      if (dropdownId && openDropdowns.has(dropdownId)) {
+        return false;
+      }
+      return hoveredSelection === tooltipId;
+    };
+    
+    // Color picker toggle
+    const toggleColorPicker = () => {
+      const newState = !showColorPicker;
+      setShowColorPicker(newState);
+      if (onShowColorPicker) onShowColorPicker(newState);
+    };
+
+    // Close color picker when selection changes (but not when pencil is active)
+    useEffect(() => {
+      if (selection.length === 0 && !isPencilActive) {
+        setShowColorPicker(false);
+        if (onShowColorPicker) onShowColorPicker(false);
+      }
+    }, [selection.length, onShowColorPicker, isPencilActive]);
+
+    // Show SelectionTools if there are selected elements OR if pencil is active
+    if ((!selectionBounds || selection.length === 0) && !isPencilActive) return null;
+    
+    return (
+      <div className="relative z-30">
+        {/* Contenitore principale con design piatto - OVERFLOW VISIBLE - Dimensioni ridotte */}
+        <div className="border border-gray-200/60 rounded-xl shadow-md p-2 mb-2 relative overflow-visible scale-90" style={{ backgroundColor: '#fcfcfc' }}>
+          
+          <div className="flex items-center gap-x-1.5 relative z-10 flex-wrap overflow-visible">{/* Overflow visible on flex container too */}
+                          {/* Style controls group - compact layout */}
+            <div className="flex items-center gap-x-1.5">
+              {/* Color control - show if elements are selected OR pencil is active */}
+              {((selectionBounds && selection.length > 0) || isPencilActive) && (
+                <SelectionTooltip label="Change color" isVisible={shouldShowSelectionTooltip("Change color")}>
+                  <div 
+                    onMouseEnter={() => handleMouseEnter("Change color")} 
+                    onMouseLeave={handleMouseLeave}
+                  >
+                    <CompactColorPicker
+                      onColorChange={setFill}
+                      currentColor={currentColor}
+                      isVisible={showColorPicker}
+                      onToggle={toggleColorPicker}
+                      onStateChange={(isOpen) => {
+                        if (isOpen) {
+                          addOpenDropdown("color-picker");
+                        } else {
+                          removeOpenDropdown("color-picker");
+                        }
+                      }}
+                    />
+                  </div>
+                </SelectionTooltip>
+              )}
+
+              {/* Shadow toggle */}
+              {canToggleShadow && (
+                <SelectionTooltip label="Shadow" isVisible={shouldShowSelectionTooltip("Shadow")}>
+                  <div 
+                    onMouseEnter={() => handleMouseEnter("Shadow")} 
+                    onMouseLeave={handleMouseLeave}
+                  >
+                    <button
+                      onClick={toggleShadow}
+                      className="px-3 py-1.5 text-xs font-medium bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-md transition-colors duration-200"
+                      title="Toggle shadow"
+                    >
+                      Shadows
+                    </button>
+                  </div>
+                </SelectionTooltip>
+              )}
+          
+              {/* Pencil stroke width control - show when pencil is active */}
+              {isPencilActive && pencilStrokeWidth !== undefined && setPencilStrokeWidth && (
+                <SelectionTooltip label="Pencil stroke width" isVisible={shouldShowSelectionTooltip("Pencil stroke width")}>
+                  <div 
+                    onMouseEnter={() => handleMouseEnter("Pencil stroke width")} 
+                    onMouseLeave={handleMouseLeave}
+                  >
+                    <PencilStrokeWidthSelector
+                      strokeWidth={pencilStrokeWidth}
+                      onStrokeWidthChange={setPencilStrokeWidth}
+                    />
+                  </div>
+                </SelectionTooltip>
+              )}
+            
+              {/* Text controls - more compact layout */}
+              {hasTextElements && (
+                <div className="flex items-center gap-x-2">
+                  {/* Font family */}
+                  <SelectionTooltip label="Font" isVisible={shouldShowSelectionTooltip("Font", "font-family") }>
+                    <div onMouseEnter={() => handleMouseEnter("Font")} onMouseLeave={handleMouseLeave}>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <button className="h-8 px-2 rounded-md border text-sm flex items-center gap-1">
+                            <Type className="w-4 h-4" /> Font
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent className="w-44" align="start" onCloseAutoFocus={(e) => e.preventDefault()}>
+                          {FONT_FAMILIES.map(ff => (
+                            <DropdownMenuItem key={ff.label} onClick={() => setFontFamily(ff.value)}>
+                              <span style={{ fontFamily: ff.value }}>{ff.label}</span>
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                  </SelectionTooltip>
+                  <SelectionTooltip label="Font size" isVisible={shouldShowSelectionTooltip("Font size", "font-size")}>
+                    <div 
+                      onMouseEnter={() => handleMouseEnter("Font size")} 
+                      onMouseLeave={handleMouseLeave}
+                    >
+                      <FontSizeSelector 
+                        selectedLayerIds={selection} 
+                        setLastUsedFontSize={setLastUsedFontSize}
+                        onDropdownChange={(open, dropdownId) => {
+                          if (open) {
+                            addOpenDropdown(dropdownId);
+                          } else {
+                            removeOpenDropdown(dropdownId);
+                          }
+                        }} 
+                      />
+                    </div>
+                  </SelectionTooltip>
+                  
+                  <SelectionTooltip label="Font weight" isVisible={shouldShowSelectionTooltip("Font weight", "font-weight")}>
+                    <div 
+                      onMouseEnter={() => handleMouseEnter("Font weight")} 
+                      onMouseLeave={handleMouseLeave}
+                    >
+                      <FontWeightDropdown 
+                        selectedLayerIds={selection}
+                        setLastUsedFontWeight={setLastUsedFontWeight}
+                        onDropdownChange={(open, dropdownId) => {
+                          if (open) {
+                            addOpenDropdown(dropdownId);
+                          } else {
+                            removeOpenDropdown(dropdownId);
+                          }
+                        }}
+                      />
+                    </div>
+                  </SelectionTooltip>
+                  
+                  {/* Text Alignment & Style Dropdown - NEW COMPACT DESIGN */}
+                  <SelectionTooltip label="Text formatting" isVisible={shouldShowSelectionTooltip("Text formatting", "text-controls")}>
+                    <div 
+                      onMouseEnter={() => handleMouseEnter("Text formatting")} 
+                      onMouseLeave={handleMouseLeave}
+                    >
+                      <TextControlsDropdown 
+                        selectedLayerIds={selection}
+                        onDropdownChange={(open, dropdownId) => {
+                          if (open) {
+                            addOpenDropdown(dropdownId);
+                          } else {
+                            removeOpenDropdown(dropdownId);
+                          }
+                        }}
+                      />
+                    </div>
+                  </SelectionTooltip>
+                </div>
+              )}
+
+              {/* Stroke width for arrows/lines */}
+              {hasArrowsOrLines && (
+                <SelectionTooltip label="Stroke width" isVisible={shouldShowSelectionTooltip("Stroke width")}>
+                  <div 
+                    onMouseEnter={() => handleMouseEnter("Stroke width")} 
+                    onMouseLeave={handleMouseLeave}
+                  >
+                    <StrokeWidthSelector selectedLayerIds={selection} />
+                  </div>
+                </SelectionTooltip>
+              )}
+
+              {/* Frame controls - compact layout */}
+              {hasFrames && onToggleFrameAutoResize && onManualFrameResize && (
+                <div className="flex items-center gap-x-2">
+                  {singleFrameSelected && (
+                    <div className="flex items-center gap-x-2">
+                      <SelectionTooltip label="Toggle auto-resize" isVisible={shouldShowSelectionTooltip("Toggle auto-resize")}>
+                        <div 
+                          onMouseEnter={() => handleMouseEnter("Toggle auto-resize")} 
+                          onMouseLeave={handleMouseLeave}
+                        >
+                          <FrameAutoResizeToggle
+                            frameId={selectedFramesData[0].id}
+                            isAutoResize={selectedFramesData[0].autoResize || false}
+                            onToggle={onToggleFrameAutoResize}
+                          />
+                        </div>
+                      </SelectionTooltip>
+                      
+                      {/* Direct PNG export with frame native dimensions - DISABLED */}
+                      {/* <SelectionTooltip label="Download PNG" isVisible={shouldShowSelectionTooltip("Download PNG")}>
+                        <div onMouseEnter={() => handleMouseEnter("Download PNG")} onMouseLeave={handleMouseLeave}>
+                          <button 
+                            className="h-10 px-3 rounded-xl border text-sm flex items-center gap-2 bg-white/60 hover:bg-white/80 transition-all duration-200"
+                            onClick={async () => {
+                              const frame = selectedFramesData[0];
+                              await exportFrameWithNativeDimensions(frame.id, frame.width, frame.height);
+                            }}
+                          >
+                            <Download className="w-4 h-4" /> Download
+                          </button>
+                        </div>
+                      </SelectionTooltip> */}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Note metadata controls */}
+              {hasNotes && (
+                <SelectionTooltip label={singleNoteSelected && selectedNotesData[0].showMetadata ? "Hide author info" : "Show author info"} 
+                  isVisible={shouldShowSelectionTooltip(singleNoteSelected && selectedNotesData[0].showMetadata ? "Hide author info" : "Show author info")}>
+                  <div 
+                    onMouseEnter={() => handleMouseEnter(singleNoteSelected && selectedNotesData[0].showMetadata ? "Hide author info" : "Show author info")} 
+                    onMouseLeave={handleMouseLeave}
+                  >
+                    <ActionButton
+                      icon={User}
+                      onClick={() => {
+                        if (singleNoteSelected) {
+                          toggleNoteMetadata(selectedNotesData[0].id);
+                        }
+                      }}
+                      title={singleNoteSelected && selectedNotesData[0].showMetadata ? "Hide author info" : "Show author info"}
+                      size="sm"
+                      variant={singleNoteSelected && selectedNotesData[0].showMetadata ? "default" : "outline"}
+                    />
+                  </div>
+                </SelectionTooltip>
+              )}
+
+              {/* Review mode control for images and videos */}
+              {((hasMediaAssets && singleMediaSelected) || hasAccessibleReviewSessions) && boardId && (
+                <SelectionTooltip label="Open in Review Mode" isVisible={shouldShowSelectionTooltip("Open in Review Mode")}>
+                  <div 
+                    onMouseEnter={() => handleMouseEnter("Open in Review Mode")} 
+                    onMouseLeave={handleMouseLeave}
+                  >
+                    <button
+                      onClick={() => setShowReviewModal(true)}
+                      title="Open in Review Mode"
+                      className="w-10 h-10 bg-gradient-to-br from-gray-800 to-black rounded-xl flex items-center justify-center text-white font-bold text-base shadow-lg hover:shadow-xl hover:scale-105 transition-all duration-200 border border-gray-700/50"
+                    >
+                      R
+                    </button>
+                  </div>
+                </SelectionTooltip>
+              )}
+
+              {/* Download button for all downloadable assets (files, images, videos) - JSON export removed */}
+              {hasDownloadableAssets && (
+                <SelectionTooltip 
+                  label={singleDownloadableSelected ? "Download" : "Download options"} 
+                  isVisible={shouldShowSelectionTooltip(singleDownloadableSelected ? "Download" : "Download options", "download-options")}
+                >
+                  <div 
+                    onMouseEnter={() => handleMouseEnter(singleDownloadableSelected ? "Download" : "Download options")} 
+                    onMouseLeave={handleMouseLeave}
+                  >
+                    <DownloadOptionsDropdown
+                      selectedDownloadableData={selectedDownloadableData}
+                      selection={selection}
+                      onDownloadFiles={async () => {
+                        const totalFiles = selectedDownloadableData.length;
+                        const downloadPromises = selectedDownloadableData.map((asset, index) => new Promise((resolve) => {
+                          setTimeout(async () => {
+                            try {
+                              await downloadFile(asset.url, asset.fileName);
+                              resolve(true);
+                            } catch (error) {
+                              resolve(false);
+                            }
+                          }, index * 100);
+                        }));
+                        await Promise.all(downloadPromises);
+                      }}
+                      onExportJSON={() => { /* disabled */ }}
+                      onDropdownChange={(open, dropdownId) => {
+                        if (open) {
+                          addOpenDropdown(dropdownId);
+                        } else {
+                          removeOpenDropdown(dropdownId);
+                        }
+                      }}
+                    />
+                  </div>
+                </SelectionTooltip>
+              )}
+            </div>
+            
+            {/* Only show the rest of the controls if there are actually selected elements */}
+            {(selectionBounds && selection.length > 0) && (
+              <>
+                {/* Separatore moderno con gradient matching toolbar */}
+                <div className="w-px h-8 bg-gradient-to-b from-transparent via-slate-300/60 to-transparent mx-2" />
+
+                {/* Layer order controls group */}
+                <div className="flex items-center gap-x-1">
+                  <SelectionTooltip label="Bring to front" isVisible={shouldShowSelectionTooltip("Bring to front")}>
+                    <ActionButton
+                      icon={ArrowUp}
+                      onClick={bringToFront}
+                      onMouseEnter={() => handleMouseEnter("Bring to front")}
+                      onMouseLeave={handleMouseLeave}
+                      title="Bring to front"
+                      size="sm"
+                    />
+                  </SelectionTooltip>
+                  
+                  <SelectionTooltip label="Send to back" isVisible={shouldShowSelectionTooltip("Send to back")}>
+                    <ActionButton
+                      icon={ArrowDown}
+                      onClick={sendToBack}
+                      onMouseEnter={() => handleMouseEnter("Send to back")}
+                      onMouseLeave={handleMouseLeave}
+                      title="Send to back"
+                      size="sm"
+                    />
+                  </SelectionTooltip>
+                </div>
+
+                {/* Alignment controls for multiple selection */}
+                {hasMultipleSelection && (
+                  <>
+                    {/* Separatore moderno con gradient matching toolbar */}
+                    <div className="w-px h-8 bg-gradient-to-b from-transparent via-slate-300/60 to-transparent mx-2" />
+                    
+                    {/* Compact Alignment dropdown */}
+                    <SelectionTooltip label="Alignment & Distribution" isVisible={shouldShowSelectionTooltip("Alignment & Distribution", "alignment")}>
+                      <div 
+                        onMouseEnter={() => handleMouseEnter("Alignment & Distribution")} 
+                        onMouseLeave={handleMouseLeave}
+                      >
+                        <CompactAlignmentDropdown
+                          selectedLayers={selectedLayers}
+                          updateLayerPositions={updateLayerPositions}
+                          onActionHover={onActionHover}
+                          onActionHoverEnd={onActionHoverEnd}
+                          onDropdownChange={(open, dropdownId) => {
+                            if (open) {
+                              addOpenDropdown(dropdownId);
+                            } else {
+                              removeOpenDropdown(dropdownId);
+                            }
+                          }}
+                        />
+                      </div>
+                    </SelectionTooltip>
+                    
+                    {/* Auto grid for 3+ elements */}
+                    {selectedLayers.length >= 3 && (
+                      <SelectionTooltip label="Auto grid" isVisible={shouldShowSelectionTooltip("Auto grid")}>
+                        <div 
+                          onMouseEnter={() => handleMouseEnter("Auto grid")} 
+                          onMouseLeave={handleMouseLeave}
+                        >
+                          <MasonryGridDialog />
+                        </div>
+                      </SelectionTooltip>
+                    )}
+                  </>
+                )}
+
+                {/* Separatore moderno con gradient matching toolbar */}
+                <div className="w-px h-8 bg-gradient-to-b from-transparent via-slate-300/60 to-transparent mx-2" />
+
+                {/* Delete action */}
+                <SelectionTooltip label="Delete" isVisible={shouldShowSelectionTooltip("Delete")}>
+                  <ActionButton
+                    icon={Trash2}
+                    onClick={deleteLayers}
+                    onMouseEnter={() => handleMouseEnter("Delete")}
+                    onMouseLeave={handleMouseLeave}
+                    title="Delete"
+                    variant="danger"
+                    size="sm"
+                  />
+                </SelectionTooltip>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Review Session Modal */}
+        {ENABLE_REVIEW && showReviewModal && ((hasMediaAssets && singleMediaSelected) || hasAccessibleReviewSessions) && boardId && (
+          <ReviewSessionModal
+            isOpen={showReviewModal}
+            onClose={() => setShowReviewModal(false)}
+            boardId={boardId as any}
+            primaryAsset={singleMediaSelected ? {
+              id: selectedMediaData[0].id,
+              type: selectedMediaData[0].type,
+              url: selectedMediaData[0].url,
+              name: selectedMediaData[0].name
+            } : undefined}
+            availableAssets={[]}
+            existingSessions={existingReviewSessions || []}
+          />
+        )}
+      </div>
+    );
+  },
+);
+
+SelectionTools.displayName = "SelectionTools"; 
+SelectionTooltip.displayName = "SelectionTooltip";
+PencilStrokeWidthSelector.displayName = "PencilStrokeWidthSelector";
+StrokeWidthSelector.displayName = "StrokeWidthSelector";
+FontSizeSelector.displayName = "FontSizeSelector";
+FontWeightDropdown.displayName = "FontWeightDropdown";
+CompactColorPicker.displayName = "CompactColorPicker";
+ActionButton.displayName = "ActionButton";
+TextControlsDropdown.displayName = "TextControlsDropdown";
+CompactAlignmentDropdown.displayName = "CompactAlignmentDropdown";
+NumericInput.displayName = "NumericInput";
+TextAlignmentButton.displayName = "TextAlignmentButton";
+TextStyleButton.displayName = "TextStyleButton"; 
