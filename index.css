@@ -1,7 +1,16 @@
 @import "tailwindcss";
 
 @source "./index.html";
-@source "./**/*.{ts,tsx,html}";
+@source "./app/**/*.{ts,tsx,html}";
+@source "./components/**/*.{ts,tsx,html}";
+@source "./hooks/**/*.{ts,tsx,html}";
+@source "./contexts/**/*.{ts,tsx,html}";
+@source "./lib/**/*.{ts,tsx,html}";
+@source "./utils/**/*.{ts,tsx,html}";
+@source "./store/**/*.{ts,tsx,html}";
+@source "./types/**/*.{ts,tsx,html}";
+@source "./services/**/*.{ts,tsx,html}";
+@source "./shims/**/*.{ts,tsx,html}";
 
 @theme {
   --color-gray-850: #18202F;
