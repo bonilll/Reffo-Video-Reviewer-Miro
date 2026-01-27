@@ -192,6 +192,7 @@ export default defineSchema({
     isEditAsset: v.optional(v.boolean()),
     title: v.string(),
     description: v.optional(v.string()),
+    reviewId: v.optional(v.string()),
     storageKey: v.string(),
     src: v.string(),
     width: v.number(),

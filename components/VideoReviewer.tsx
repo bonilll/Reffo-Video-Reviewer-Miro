@@ -221,10 +221,15 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
     return 'application/octet-stream';
   };
 
-  const uploadMultipart = async (file: File, contentType: string, onProgress: (p: number) => void) => {
+  const uploadMultipart = async (file: File, contentType: string, onProgress: (p: number) => void, reviewContextId: string) => {
     const partSize = 16 * 1024 * 1024; // 16MB parts
     const totalParts = Math.max(1, Math.ceil(file.size / partSize));
-    const { storageKey, uploadId, publicUrl } = await createMultipart({ contentType, fileName: file.name });
+    const { storageKey, uploadId, publicUrl } = await createMultipart({
+      contentType,
+      fileName: file.name,
+      context: "review",
+      contextId: reviewContextId,
+    });
     const partNumbers = Array.from({ length: totalParts }, (_, i) => i + 1);
     const { urls } = await getMultipartUrls({ storageKey, uploadId, partNumbers, contentType });
     const completed: Array<{ ETag: string; PartNumber: number }> = [];
@@ -1832,11 +1837,17 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
                         }))();
                         const contentType = resolveContentType(file);
                         const MULTIPART_THRESHOLD = 100 * 1024 * 1024; // 100MB, align with Dashboard
+                        const reviewContextId = (video as any).reviewId ?? video.id;
                         let result: { storageKey: string; publicUrl: string };
                         if (file.size >= MULTIPART_THRESHOLD) {
-                          result = await uploadMultipart(file, contentType, (p) => setReplaceProgress(p));
+                          result = await uploadMultipart(file, contentType, (p) => setReplaceProgress(p), reviewContextId);
                         } else {
-                          const creds = await generateVideoUploadUrl({ contentType, fileName: file.name });
+                          const creds = await generateVideoUploadUrl({
+                            contentType,
+                            fileName: file.name,
+                            context: "review",
+                            contextId: reviewContextId,
+                          });
                           await new Promise<void>((resolve, reject) => {
                             const xhr = new XMLHttpRequest();
                             xhr.open('PUT', creds.uploadUrl, true);

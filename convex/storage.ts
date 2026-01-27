@@ -54,12 +54,32 @@ const UPLOAD_TTL_SECONDS = (() => {
   return Number.isFinite(n) && n > 0 ? n : 3600;
 })();
 
-const buildStorageKey = (userId: string, fileName?: string) => {
-  const safeFileName = fileName?.replace(/[^a-zA-Z0-9_.-]/g, "");
+type UploadContext = "review" | "board" | "library";
+
+const sanitizePathSegment = (value: string) =>
+  value.replace(/[^a-zA-Z0-9_-]/g, "");
+
+const buildStorageKey = (
+  userId: string,
+  options?: { context?: UploadContext; contextId?: string; fileName?: string },
+) => {
+  const safeFileName = options?.fileName?.replace(/[^a-zA-Z0-9_.-]/g, "");
   const extension = safeFileName?.includes(".")
     ? safeFileName.slice(safeFileName.lastIndexOf("."))
     : "";
-  return `video_review/users/${userId}/caricamenti/${Date.now()}-${randomUUID()}${extension}`;
+  const safeUserId = sanitizePathSegment(userId);
+  const context = options?.context ?? "review";
+  const contextId = options?.contextId ? sanitizePathSegment(options.contextId) : null;
+  if ((context === "review" || context === "board") && !contextId) {
+    throw new ConvexError("MISSING_CONTEXT_ID");
+  }
+  const folder =
+    context === "review"
+      ? `reviews/${contextId}`
+      : context === "board"
+        ? `boards/${contextId}`
+        : "library";
+  return `uploads/${safeUserId}/${folder}/${Date.now()}-${randomUUID()}${extension}`;
 };
 
 const buildAvatarKey = (userId: string, fileName?: string) => {
@@ -112,8 +132,10 @@ export const generateVideoUploadUrl = action({
   args: {
     contentType: v.string(),
     fileName: v.optional(v.string()),
+    context: v.optional(v.union(v.literal("review"), v.literal("board"), v.literal("library"))),
+    contextId: v.optional(v.string()),
   },
-  async handler(ctx, { contentType, fileName }) {
+  async handler(ctx, { contentType, fileName, context, contextId }) {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) {
       throw new ConvexError("NOT_AUTHENTICATED");
@@ -124,7 +146,11 @@ export const generateVideoUploadUrl = action({
       throw new ConvexError("NOT_PROVISIONED");
     }
     const userId = current._id as string;
-    const storageKey = buildStorageKey(userId, fileName ?? undefined);
+    const storageKey = buildStorageKey(userId, {
+      context,
+      contextId,
+      fileName: fileName ?? undefined,
+    });
 
   const command = new PutObjectCommand({
     Bucket: BUCKET,
@@ -149,14 +175,20 @@ export const createMultipartUpload = action({
   args: {
     contentType: v.string(),
     fileName: v.optional(v.string()),
+    context: v.optional(v.union(v.literal("review"), v.literal("board"), v.literal("library"))),
+    contextId: v.optional(v.string()),
   },
-  async handler(ctx, { contentType, fileName }) {
+  async handler(ctx, { contentType, fileName, context, contextId }) {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new ConvexError("NOT_AUTHENTICATED");
     const current = await ctx.runQuery(api.users.current, {});
     if (!current?._id) throw new ConvexError("NOT_PROVISIONED");
     const userId = current._id as string;
-    const storageKey = buildStorageKey(userId, fileName ?? undefined);
+    const storageKey = buildStorageKey(userId, {
+      context,
+      contextId,
+      fileName: fileName ?? undefined,
+    });
     const cmd = new CreateMultipartUploadCommand({ Bucket: BUCKET, Key: storageKey, ContentType: contentType });
     const res = await s3Client.send(cmd);
     if (!res.UploadId) throw new ConvexError('FAILED_TO_CREATE_MULTIPART');

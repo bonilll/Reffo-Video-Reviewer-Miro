@@ -94,6 +94,8 @@ export const initMultipartUpload = httpAction(async (ctx, request) => {
     boardId?: unknown;
     isPrivate?: unknown;
     autoSaveToLibrary?: unknown;
+    context?: unknown;
+    contextId?: unknown;
   };
 
   const fileName = typeof payload.fileName === "string" ? payload.fileName : "";
@@ -103,6 +105,11 @@ export const initMultipartUpload = httpAction(async (ctx, request) => {
       : "application/octet-stream";
   const fileSize = typeof payload.fileSize === "number" ? payload.fileSize : null;
   const boardId = typeof payload.boardId === "string" ? payload.boardId : null;
+  const context =
+    payload.context === "review" || payload.context === "board" || payload.context === "library"
+      ? payload.context
+      : null;
+  const contextId = typeof payload.contextId === "string" ? payload.contextId : null;
 
   if (!fileName || !fileSize || fileSize <= 0) {
     return jsonResponse(400, { error: "Bad Request", details: "Missing or invalid file metadata" }, origin);
@@ -114,6 +121,8 @@ export const initMultipartUpload = httpAction(async (ctx, request) => {
   const result = await ctx.runAction(api.storage.createMultipartUpload, {
     contentType,
     fileName,
+    context: context ?? undefined,
+    contextId: contextId ?? undefined,
   });
 
   const partSize = DEFAULT_PART_SIZE;
@@ -130,6 +139,8 @@ export const initMultipartUpload = httpAction(async (ctx, request) => {
         boardId,
         isPrivate: Boolean(payload.isPrivate),
         autoSaveToLibrary: Boolean(payload.autoSaveToLibrary),
+        context,
+        contextId,
       },
     },
     origin

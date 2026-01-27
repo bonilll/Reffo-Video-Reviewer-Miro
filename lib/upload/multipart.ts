@@ -4,7 +4,13 @@ export interface InitResponse {
   bucket: string;
   endpoint: string;
   partSize: number;
-  meta: { boardId: string | null; isPrivate: boolean; autoSaveToLibrary: boolean };
+  meta: {
+    boardId: string | null;
+    isPrivate: boolean;
+    autoSaveToLibrary: boolean;
+    context?: "review" | "board" | "library" | null;
+    contextId?: string | null;
+  };
 }
 
 export interface CompletePart { partNumber: number; eTag: string }
@@ -19,6 +25,9 @@ const getConvexAuthToken = async () => {
 
 const getApiBase = () => {
   const env = import.meta.env;
+  if (typeof window !== "undefined" && env.VITE_UPLOAD_PROXY === "1") {
+    return window.location.origin;
+  }
   const rawBase =
     env.VITE_CONVEX_HTTP_URL ||
     env.VITE_CONVEX_SELF_HOSTED_URL ||
@@ -52,7 +61,16 @@ const fetchMultipart = async (path: string, body: unknown) => {
   return res.json();
 };
 
-export async function initMultipart(params: { fileName: string; contentType: string; fileSize: number; boardId?: string; isPrivate?: boolean; autoSaveToLibrary?: boolean }): Promise<InitResponse> {
+export async function initMultipart(params: {
+  fileName: string;
+  contentType: string;
+  fileSize: number;
+  boardId?: string;
+  isPrivate?: boolean;
+  autoSaveToLibrary?: boolean;
+  context?: "review" | "board" | "library";
+  contextId?: string;
+}): Promise<InitResponse> {
   return fetchMultipart("/api/upload/multipart/init", params);
 }
 
@@ -60,7 +78,19 @@ export async function signPart(params: { key: string; uploadId: string; partNumb
   return fetchMultipart("/api/upload/multipart/sign-part", params);
 }
 
-export async function completeMultipart(params: { key: string; uploadId: string; parts: CompletePart[]; contentType: string; fileName: string; fileSize: number; boardId?: string; isPrivate?: boolean; autoSaveToLibrary?: boolean }): Promise<{ success: boolean; url: string; assetId?: string; imageId?: string }> {
+export async function completeMultipart(params: {
+  key: string;
+  uploadId: string;
+  parts: CompletePart[];
+  contentType: string;
+  fileName: string;
+  fileSize: number;
+  boardId?: string;
+  isPrivate?: boolean;
+  autoSaveToLibrary?: boolean;
+  context?: "review" | "board" | "library";
+  contextId?: string;
+}): Promise<{ success: boolean; url: string; assetId?: string; imageId?: string }> {
   return fetchMultipart("/api/upload/multipart/complete", params);
 }
 
@@ -113,9 +143,29 @@ async function uploadPartWithRetry(
   throw new Error(`Part ${partNumber} failed after ${maxRetries} attempts: ${lastError?.message || 'unknown error'}`);
 }
 
-export async function uploadFileMultipart(file: File, opts: { boardId?: string; isPrivate?: boolean; autoSaveToLibrary?: boolean; onProgress?: (p: number) => void; concurrency?: number } = {}) {
+export async function uploadFileMultipart(
+  file: File,
+  opts: {
+    boardId?: string;
+    isPrivate?: boolean;
+    autoSaveToLibrary?: boolean;
+    context?: "review" | "board" | "library";
+    contextId?: string;
+    onProgress?: (p: number) => void;
+    concurrency?: number;
+  } = {}
+) {
   const contentType = file.type || "application/octet-stream";
-  const init = await initMultipart({ fileName: file.name, contentType, fileSize: file.size, boardId: opts.boardId, isPrivate: opts.isPrivate, autoSaveToLibrary: opts.autoSaveToLibrary });
+  const init = await initMultipart({
+    fileName: file.name,
+    contentType,
+    fileSize: file.size,
+    boardId: opts.boardId,
+    isPrivate: opts.isPrivate,
+    autoSaveToLibrary: opts.autoSaveToLibrary,
+    context: opts.context,
+    contextId: opts.contextId,
+  });
   const partSize = init.partSize;
   const totalParts = Math.ceil(file.size / partSize);
   const parts: CompletePart[] = [];
@@ -175,7 +225,19 @@ export async function uploadFileMultipart(file: File, opts: { boardId?: string; 
     parts.sort((a, b) => a.partNumber - b.partNumber);
 
     console.log(`✅ All parts uploaded successfully, completing multipart upload...`);
-    const completedResult = await completeMultipart({ key: init.key, uploadId: init.uploadId, parts, contentType, fileName: file.name, fileSize: file.size, boardId: opts.boardId, isPrivate: opts.isPrivate, autoSaveToLibrary: opts.autoSaveToLibrary });
+    const completedResult = await completeMultipart({
+      key: init.key,
+      uploadId: init.uploadId,
+      parts,
+      contentType,
+      fileName: file.name,
+      fileSize: file.size,
+      boardId: opts.boardId,
+      isPrivate: opts.isPrivate,
+      autoSaveToLibrary: opts.autoSaveToLibrary,
+      context: opts.context,
+      contextId: opts.contextId,
+    });
     console.log(`🎉 Upload completed: ${completedResult.url}`);
     return completedResult;
   } catch (e) {

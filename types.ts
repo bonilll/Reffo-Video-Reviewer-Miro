@@ -142,6 +142,7 @@ export interface Video {
   src: string;
   storageKey?: string;
   thumbnailUrl?: string;
+  reviewId?: string;
   width: number;
   height: number;
   fps: number;

@@ -69,6 +69,8 @@ export const UploadOverlay = ({ boardId, userRole }: UploadOverlayProps) => {
         // Nuovo uploader multipart diretto verso MinIO
         const uploadResult = await uploadFileMultipart(file, {
           boardId,
+          context: "board",
+          contextId: boardId,
           isPrivate: false,
           autoSaveToLibrary,
           onProgress: (p) => {

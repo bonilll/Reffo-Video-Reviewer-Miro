@@ -1,4 +1,5 @@
 import React, { useMemo, useState, useEffect, useCallback, useRef } from 'react';
+import { nanoid } from 'nanoid';
 import { Film, PlayCircle, ArrowLeft, X, AlertTriangle, Info, LayoutGrid, Plus, MoreHorizontal, Pencil, Trash2, UploadCloud } from 'lucide-react';
 import { Video, Project, ContentShare, Board } from '../types';
 import { useThemePreference } from '../useTheme';
@@ -140,6 +141,7 @@ interface UploadMetadata {
   duration: number;
   projectId: string;
   thumbnailUrl?: string;
+  reviewId?: string;
 }
 
 interface UploadState {
@@ -152,6 +154,7 @@ interface UploadState {
     fps: number;
   };
   thumbnailBlob?: Blob | null;
+  reviewId: string;
 }
 
 const ProjectWorkspace: React.FC<{
@@ -165,7 +168,7 @@ const ProjectWorkspace: React.FC<{
   onSetVideoProject: (videoId: string, projectId: string) => Promise<void>;
   onRemoveVideo: (videoId: string) => Promise<void>;
   onCompleteUpload: (payload: UploadMetadata) => Promise<Video>;
-  onGenerateUploadUrl: (args: { contentType: string; fileName?: string }) => Promise<{
+  onGenerateUploadUrl: (args: { contentType: string; fileName?: string; context?: "review" | "board" | "library"; contextId?: string }) => Promise<{
     storageKey: string;
     uploadUrl: string;
     publicUrl: string;
@@ -573,7 +576,7 @@ const ProjectWorkspace: React.FC<{
     };
 
     const thumbnailBlob = await captureFrame();
-    setPendingUpload({ file, objectUrl, metadata, thumbnailBlob });
+    setPendingUpload({ file, objectUrl, metadata, thumbnailBlob, reviewId: nanoid() });
     setShowUploadModal(true);
   };
 
@@ -602,12 +605,14 @@ const ProjectWorkspace: React.FC<{
     }
   };
 
-  const persistThumbnail = async (blob: Blob | null, fileName: string) => {
+  const persistThumbnail = async (blob: Blob | null, fileName: string, reviewId: string) => {
     if (!blob) return undefined;
     try {
       const thumbMeta = await onGenerateUploadUrl({
         contentType: 'image/jpeg',
         fileName: `${fileName.replace(/\.[^.]+$/, '')}-thumbnail.jpg`,
+        context: "review",
+        contextId: reviewId,
       });
       await new Promise<void>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
@@ -635,10 +640,15 @@ const ProjectWorkspace: React.FC<{
     }
   };
 
-  const uploadMultipart = async (file: File, contentType: string, onProgress: (p: number) => void) => {
+  const uploadMultipart = async (file: File, contentType: string, onProgress: (p: number) => void, reviewId: string) => {
     const partSize = 16 * 1024 * 1024;
     const totalParts = Math.max(1, Math.ceil(file.size / partSize));
-    const { storageKey, uploadId, publicUrl } = await createMultipart({ contentType, fileName: file.name });
+    const { storageKey, uploadId, publicUrl } = await createMultipart({
+      contentType,
+      fileName: file.name,
+      context: "review",
+      contextId: reviewId,
+    });
     const partNumbers = Array.from({ length: totalParts }, (_, i) => i + 1);
     const { urls } = await getMultipartUrls({ storageKey, uploadId, partNumbers, contentType });
     const completed: Array<{ ETag: string; PartNumber: number }> = [];
@@ -695,9 +705,14 @@ const ProjectWorkspace: React.FC<{
       let uploadResult: { storageKey: string; publicUrl: string };
       if (pendingUpload.file.size >= MULTIPART_THRESHOLD) {
         setUploadLogs((cur) => [...cur, `Using multipart upload (${Math.ceil(pendingUpload.file.size / (16 * 1024 * 1024))} parts)…`]);
-        uploadResult = await uploadMultipart(pendingUpload.file, contentType, (p) => setUploadProgress(p));
+        uploadResult = await uploadMultipart(pendingUpload.file, contentType, (p) => setUploadProgress(p), pendingUpload.reviewId);
       } else {
-        const { storageKey, uploadUrl, publicUrl } = await onGenerateUploadUrl({ contentType, fileName: pendingUpload.file.name });
+        const { storageKey, uploadUrl, publicUrl } = await onGenerateUploadUrl({
+          contentType,
+          fileName: pendingUpload.file.name,
+          context: "review",
+          contextId: pendingUpload.reviewId,
+        });
         await new Promise<void>((resolve, reject) => {
           const xhr = new XMLHttpRequest();
           xhr.open('PUT', uploadUrl, true);
@@ -724,7 +739,11 @@ const ProjectWorkspace: React.FC<{
       }
 
       setUploadLogs((current) => [...current, 'Upload completed, saving review…']);
-      const thumbnailUrl = await persistThumbnail(pendingUpload.thumbnailBlob ?? null, pendingUpload.file.name);
+      const thumbnailUrl = await persistThumbnail(
+        pendingUpload.thumbnailBlob ?? null,
+        pendingUpload.file.name,
+        pendingUpload.reviewId,
+      );
 
       const created = await onCompleteUpload({
         storageKey: uploadResult.storageKey,
@@ -736,6 +755,7 @@ const ProjectWorkspace: React.FC<{
         duration: pendingUpload.metadata.duration,
         projectId: project.id,
         thumbnailUrl,
+        reviewId: pendingUpload.reviewId,
       });
 
       setUploadLogs((current) => [...current, 'Review created successfully.']);

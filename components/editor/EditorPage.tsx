@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { nanoid } from 'nanoid';
 import { useAction, useMutation, useQuery } from 'convex/react';
 import { api } from '../../convex/_generated/api';
 import type { Id } from '../../convex/_generated/dataModel';
@@ -373,10 +374,15 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit, o
     videoEl.src = URL.createObjectURL(file);
   });
 
-  const uploadMultipart = async (file: File, contentType: string, onProgress: (p: number) => void) => {
+  const uploadMultipart = async (file: File, contentType: string, onProgress: (p: number) => void, reviewId: string) => {
     const partSize = 16 * 1024 * 1024; // 16MB
     const totalParts = Math.max(1, Math.ceil(file.size / partSize));
-    const { storageKey, uploadId, publicUrl } = await createMultipart({ contentType, fileName: file.name });
+    const { storageKey, uploadId, publicUrl } = await createMultipart({
+      contentType,
+      fileName: file.name,
+      context: "review",
+      contextId: reviewId,
+    });
     const partNumbers = Array.from({ length: totalParts }, (_, i) => i + 1);
     const { urls } = await getMultipartUrls({ storageKey, uploadId, partNumbers, contentType });
     let uploadedBytes = 0;
@@ -1020,9 +1026,10 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit, o
       try { if (lastExportUrl) URL.revokeObjectURL(lastExportUrl); } catch {}
       setLastExportUrl(URL.createObjectURL(blob));
       setLastExportName(filename);
+      const reviewContextId = (data?.composition?.sourceVideoId as string | undefined) ?? nanoid();
       const upload = await uploadMultipart(file, file.type || 'video/mp4', (percent) => {
         setClientExportProgress({ value: 0.95 + (percent / 100) * 0.05, label: 'Uploading…' });
-      });
+      }, reviewContextId);
       const exportId = await recordClientExport({
         compositionId: composition._id as any,
         format: blob.type || (useFast ? 'video/webm' : 'video/mp4'),
@@ -1661,12 +1668,18 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit, o
                    try {
                      const contentType = resolveContentType(file);
                      const meta = await loadVideoMetadata(file);
+                     const reviewContextId = nanoid();
                      let storageKey: string, publicUrl: string;
                      if (file.size >= 100 * 1024 * 1024) {
-                       const res = await uploadMultipart(file, contentType, (p) => setUploadProgress(p));
+                       const res = await uploadMultipart(file, contentType, (p) => setUploadProgress(p), reviewContextId);
                        storageKey = res.storageKey; publicUrl = res.publicUrl as any;
                      } else {
-                       const creds = await generateVideoUploadUrl({ contentType, fileName: file.name });
+                       const creds = await generateVideoUploadUrl({
+                         contentType,
+                         fileName: file.name,
+                         context: "review",
+                         contextId: reviewContextId,
+                       });
                        await new Promise<void>((resolve, reject) => {
                          const xhr = new XMLHttpRequest();
                          xhr.open('PUT', creds.uploadUrl, true);
@@ -1692,6 +1705,7 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit, o
                        projectId: (data.composition as any).projectId ?? undefined,
                        thumbnailUrl: undefined,
                        isEditAsset: true,
+                       reviewId: reviewContextId,
                      });
                      // Add as clip at playhead
                      const highestZ = data.clips.length ? Math.max(...data.clips.map((c) => c.zIndex ?? 0)) : 0;

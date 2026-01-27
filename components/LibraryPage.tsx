@@ -445,6 +445,7 @@ const LibraryPage: React.FC = () => {
       try {
         setUploadStatus(id, "uploading");
         const result = await uploadFileMultipart(item.file, {
+          context: "library",
           autoSaveToLibrary: true,
           onProgress: (progress) => setUploadProgress(id, progress),
         });

@@ -38,6 +38,7 @@ type UploadPayload = {
   duration: number;
   projectId: string;
   thumbnailUrl?: string;
+  reviewId?: string;
 };
 
 type LegalPage = 'privacy' | 'cookies' | 'terms';
@@ -207,6 +208,7 @@ const App: React.FC = () => {
           src: video.src,
           storageKey: video.storageKey,
           thumbnailUrl: (video as any).thumbnailUrl ?? undefined,
+          reviewId: (video as any).reviewId ?? undefined,
           width: video.width,
           height: video.height,
           fps: video.fps,
@@ -224,6 +226,7 @@ const App: React.FC = () => {
           src: video.src,
           storageKey: video.storageKey,
           thumbnailUrl: (video as any).thumbnailUrl ?? undefined,
+          reviewId: (video as any).reviewId ?? undefined,
           width: video.width,
           height: video.height,
           fps: video.fps,
@@ -371,6 +374,7 @@ const App: React.FC = () => {
         duration: payload.duration,
         projectId: payload.projectId as Id<'projects'>,
         thumbnailUrl: payload.thumbnailUrl,
+        reviewId: payload.reviewId,
       });
 
       return {
@@ -379,6 +383,7 @@ const App: React.FC = () => {
         src: created.src,
         storageKey: created.storageKey ?? undefined,
         thumbnailUrl: (created as any).thumbnailUrl ?? undefined,
+        reviewId: (created as any).reviewId ?? undefined,
         width: created.width,
         height: created.height,
         fps: created.fps,
@@ -1222,7 +1227,7 @@ const App: React.FC = () => {
                   onSetVideoProject={handleSetVideoProject}
                   onRemoveVideo={handleRemoveVideo}
                   onCompleteUpload={handleCompleteUpload}
-                  onGenerateUploadUrl={generateUploadUrl}
+                  onGenerateUploadUrl={generateUploadUrl as any}
                   onOpenBoard={(boardId) => {
                     setActiveBoardId(boardId);
                     navigate(`/board/${boardId}`);
@@ -1253,7 +1258,7 @@ const App: React.FC = () => {
                   onRenameVideo={handleRenameVideo}
                   onCompleteUpload={handleCompleteUpload}
                   onRemoveVideo={handleRemoveVideo}
-                  onGenerateUploadUrl={generateUploadUrl}
+                  onGenerateUploadUrl={generateUploadUrl as any}
                   onGetDownloadUrl={getDownloadUrl}
                   onOpenProject={(projectId) => {
                     setActiveProjectId(projectId);
