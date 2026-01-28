@@ -5,10 +5,10 @@ import { getServicesByCategory } from '../../legal/services';
 
 const ServiceList: React.FC<{ services?: string[] }> = ({ services }) => {
   if (!services || services.length === 0) {
-    return <p className="text-xs text-white/60">TODO – list third-party services in this category.</p>;
+    return <p className="text-xs text-gray-500">TODO – list third-party services in this category.</p>;
   }
   return (
-    <ul className="list-disc pl-5 text-xs text-white/80">
+    <ul className="list-disc pl-5 text-xs text-gray-600">
       {services.map((service) => (
         <li key={service}>{service}</li>
       ))}
@@ -38,11 +38,11 @@ export const CookiePreferencesModal: React.FC = () => {
     disabled = false,
     items?: { name: string; provider: string; purpose: string }[],
   ) => (
-    <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+    <div className="rounded-2xl border border-gray-200 bg-white p-4">
       <div className="flex items-center justify-between">
         <div>
-          <p className="text-sm font-semibold text-white">{label}</p>
-          <p className="text-xs text-white/70">{summary}</p>
+          <p className="text-sm font-semibold text-gray-900">{label}</p>
+          <p className="text-xs text-gray-600">{summary}</p>
         </div>
         <label className="inline-flex items-center gap-2">
           <input
@@ -50,11 +50,11 @@ export const CookiePreferencesModal: React.FC = () => {
             checked={draft[key]}
             disabled={disabled}
             onChange={() => toggle(key)}
-            className="h-4 w-4 rounded border-white/40 bg-black/30"
+            className="h-4 w-4 rounded border-gray-300 bg-white"
           />
         </label>
       </div>
-      <div className="mt-2 text-xs text-white/60">
+      <div className="mt-2 text-xs text-gray-600">
         <span className="font-semibold">{text.cookieModal.servicesLabel}: </span>
         <ServiceList services={items?.map((i) => `${i.name} — ${i.provider}`)} />
       </div>
@@ -62,14 +62,14 @@ export const CookiePreferencesModal: React.FC = () => {
   );
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 py-8">
-      <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-3xl border border-white/10 bg-black/90 p-6 text-white shadow-2xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-8">
+      <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-3xl border border-gray-200 bg-white p-6 text-gray-900 shadow-2xl">
         <div className="flex items-start justify-between gap-4">
           <div>
             <h2 className="text-2xl font-semibold">{text.cookieModal.title}</h2>
-            <p className="mt-2 text-sm text-white/80">{text.cookieModal.description}</p>
+            <p className="mt-2 text-sm text-gray-600">{text.cookieModal.description}</p>
           </div>
-          <button onClick={closePreferences} className="text-sm text-white/70 hover:text-white">✕</button>
+          <button onClick={closePreferences} className="text-sm text-gray-500 hover:text-gray-900">✕</button>
         </div>
         <div className="mt-5 space-y-3 text-sm">
           {Row(text.cookieModal.necessaryTitle, text.cookieModal.necessarySummary, 'necessary', true, services.necessary)}
@@ -82,7 +82,7 @@ export const CookiePreferencesModal: React.FC = () => {
               setDraft({ necessary: true, preferences: false, analytics: false, marketing: false });
               rejectAll();
             }}
-            className="rounded-full border border-white/40 px-4 py-2 text-center text-white hover:bg-white/10"
+            className="rounded-full border border-gray-900 px-4 py-2 text-center text-gray-900 transition-colors hover:bg-gray-50"
           >
             {text.cookieModal.rejectAll}
           </button>
@@ -93,13 +93,13 @@ export const CookiePreferencesModal: React.FC = () => {
               // acceptAll also keeps marketing disabled
               acceptAll();
             }}
-            className="rounded-full border border-white/40 px-4 py-2 text-center text-white hover:bg-white/10"
+            className="rounded-full bg-gray-900 px-4 py-2 text-center text-white transition-colors hover:bg-black"
           >
             {text.cookieModal.acceptAll}
           </button>
           <button
             onClick={() => savePreferences(draft)}
-            className="rounded-full bg-white px-4 py-2 text-center text-black hover:bg-white/90"
+            className="rounded-full border border-gray-900 bg-white px-4 py-2 text-center text-gray-900 transition-colors hover:bg-gray-50"
           >
             {text.cookieModal.save}
           </button>

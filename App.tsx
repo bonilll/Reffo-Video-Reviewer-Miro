@@ -634,14 +634,14 @@ const App: React.FC = () => {
   const renderEmailAuthSection = (compact = false) => {
     const dividerTextClass = compact ? 'text-[10px]' : 'text-[11px]';
     const inputClass = compact
-      ? 'w-full rounded-xl border border-white/15 bg-black/20 px-3 py-2 text-sm text-white placeholder-white/60 focus:border-white/40 focus:outline-none'
-      : 'w-full rounded-xl border border-white/15 bg-black/30 px-4 py-2.5 text-sm text-white placeholder-white/60 focus:border-white/50 focus:outline-none';
+      ? 'w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-gray-400 focus:outline-none'
+      : 'w-full rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:border-gray-400 focus:outline-none';
     const buttonClass = compact
-      ? 'w-full rounded-xl bg-white/90 py-2.5 text-sm font-semibold text-black transition hover:bg-white'
-      : 'w-full rounded-full bg-white py-3 text-sm font-semibold text-black transition hover:bg-white/90';
+      ? 'w-full rounded-xl border border-gray-900 bg-white py-2.5 text-sm font-semibold text-gray-900 transition hover:bg-gray-50'
+      : 'w-full rounded-full border border-gray-900 bg-white py-3 text-sm font-semibold text-gray-900 transition hover:bg-gray-50';
     const secondaryButtonClass = compact
-      ? 'text-[11px] font-semibold text-white hover:text-white/80'
-      : 'text-xs font-semibold text-white hover:text-white/80';
+      ? 'text-[11px] font-semibold text-gray-700 hover:text-gray-900'
+      : 'text-xs font-semibold text-gray-700 hover:text-gray-900';
     const submitDisabled = authMode === 'signin'
       ? !authEmail.trim() || !authPassword || authLoading
       : authMode === 'signup'
@@ -653,14 +653,14 @@ const App: React.FC = () => {
     return (
       <div className={sectionSpacing}>
         <div className="flex items-center gap-3">
-          <span className="h-px flex-1 bg-white/15" />
-          <span className={`text-white/60 uppercase tracking-[0.35em] ${dividerTextClass}`}>or email</span>
-          <span className="h-px flex-1 bg-white/15" />
+          <span className="h-px flex-1 bg-gray-200" />
+          <span className={`text-gray-500 uppercase tracking-[0.35em] ${dividerTextClass}`}>or email</span>
+          <span className="h-px flex-1 bg-gray-200" />
         </div>
         <form onSubmit={handleAuthSubmit} className="space-y-3">
           {authMode === 'verify' ? (
             <>
-              <p className="text-xs text-white/70">
+              <p className="text-xs text-gray-600">
                 We sent a 6-digit code to {pendingVerificationEmail ?? authEmail}. Enter it below to finish creating your account.
               </p>
               <input
@@ -676,7 +676,7 @@ const App: React.FC = () => {
               <button type="submit" className={buttonClass} disabled={verificationDisabled}>
                 {authLoading ? 'Verifying…' : 'Verify and continue'}
               </button>
-              <div className="flex items-center justify-between text-[11px] text-white/60">
+              <div className="flex items-center justify-between text-[11px] text-gray-500">
                 <button type="button" className="underline underline-offset-4" onClick={handleResendVerification} disabled={authLoading}>
                   Resend code
                 </button>
@@ -688,7 +688,7 @@ const App: React.FC = () => {
           ) : (
             <>
               <div className="space-y-1">
-                <label className={compact ? 'text-xs text-white/70' : 'text-sm text-white/80'} htmlFor={`auth-email-${compact ? 'compact' : 'full'}`}>
+                <label className={compact ? 'text-xs text-gray-600' : 'text-sm text-gray-700'} htmlFor={`auth-email-${compact ? 'compact' : 'full'}`}>
                   Email
                 </label>
                 <input
@@ -702,7 +702,7 @@ const App: React.FC = () => {
                 />
               </div>
               <div className="space-y-1">
-                <label className={compact ? 'text-xs text-white/70' : 'text-sm text-white/80'} htmlFor={`auth-password-${compact ? 'compact' : 'full'}`}>
+                <label className={compact ? 'text-xs text-gray-600' : 'text-sm text-gray-700'} htmlFor={`auth-password-${compact ? 'compact' : 'full'}`}>
                   Password
                 </label>
                 <input
@@ -717,7 +717,7 @@ const App: React.FC = () => {
               </div>
               {authMode === 'signup' && (
                 <div className="space-y-1">
-                  <label className={compact ? 'text-xs text-white/70' : 'text-sm text-white/80'} htmlFor={`auth-confirm-${compact ? 'compact' : 'full'}`}>
+                  <label className={compact ? 'text-xs text-gray-600' : 'text-sm text-gray-700'} htmlFor={`auth-confirm-${compact ? 'compact' : 'full'}`}>
                     Confirm password
                   </label>
                   <input
@@ -736,10 +736,10 @@ const App: React.FC = () => {
               </button>
             </>
           )}
-          {authError && <p className="text-xs text-rose-300">{authError}</p>}
+          {authError && <p className="text-xs text-rose-600">{authError}</p>}
         </form>
         {authMode !== 'verify' && (
-          <p className="text-center text-xs text-white/60">
+          <p className="text-center text-xs text-gray-500">
             {authMode === 'signin' ? "Don't have an account?" : 'Already have an account?'}{' '}
             <button
               type="button"
@@ -1036,24 +1036,24 @@ const App: React.FC = () => {
     <div className={"min-h-screen flex flex-col transition-colors"}>
       <SignedOut>
         {isMiroEmbed ? (
-          <div className="min-h-screen w-full px-4 py-6">
-            <div className="mx-auto w-full max-w-sm rounded-2xl border border-white/10 bg-black/40 p-5 text-center shadow-2xl backdrop-blur">
-              <div className="mb-2 flex items-center justify-center gap-2 text-white">
+          <div className="min-h-screen w-full bg-gray-50 px-4 py-6">
+            <div className="mx-auto w-full max-w-sm rounded-2xl border border-gray-200 bg-white p-5 text-center shadow-2xl">
+              <div className="mb-2 flex items-center justify-center gap-2 text-gray-900">
                 <img src={logo} alt="Reffo" className="h-7 w-auto" />
                 <span className="text-base font-semibold">Reffo Reviewer</span>
               </div>
-              <p className="mb-5 text-xs text-white/60">Fast, focused video feedback.</p>
+              <p className="mb-5 text-xs text-gray-600">Fast, focused video feedback.</p>
               <div className="flex flex-col items-stretch gap-3">
                 <button
                   onClick={handleGoogleSignIn}
-                  className="inline-flex items-center justify-center gap-3 rounded-full bg-white px-6 py-3 text-sm font-semibold text-black shadow-lg transition hover:bg-white/90"
+                  className="inline-flex items-center justify-center gap-3 rounded-full border border-gray-900 bg-white px-6 py-3 text-sm font-semibold text-gray-900 transition hover:bg-gray-50"
                 >
                   <img src={googleLogo} alt="Google" className="h-5 w-5" />
                   Continue with Google
                 </button>
                 {renderEmailAuthSection(true)}
               </div>
-              <p className="mt-4 text-[11px] text-white/60">
+              <p className="mt-4 text-[11px] text-gray-500">
                 By continuing you agree to our{' '}
                 <button onClick={() => navigate('/terms')} className="underline">
                   {consentText.footer.terms}
@@ -1067,27 +1067,27 @@ const App: React.FC = () => {
             </div>
           </div>
         ) : (
-          <div className="min-h-screen flex items-center justify-center px-6 py-12">
+          <div className="min-h-screen flex items-center justify-center bg-gray-50 px-6 py-12">
             <div className="w-full max-w-xl space-y-8">
               <div className="text-center">
                 <div className="mx-auto mb-2 flex items-center justify-center gap-2">
                   <img src={logo} alt="Reffo" className="h-8 w-auto" />
-                  <h1 className="text-2xl font-semibold text-white sm:text-3xl">Reffo Reviewer</h1>
+                  <h1 className="text-2xl font-semibold text-gray-900 sm:text-3xl">Reffo Reviewer</h1>
                 </div>
-                <p className="text-sm text-white/70 sm:text-base">Fast, focused video feedback for teams.</p>
+                <p className="text-sm text-gray-600 sm:text-base">Fast, focused video feedback for teams.</p>
               </div>
-              <div className="mx-auto w-full max-w-md rounded-2xl border border-white/10 bg-white/5 p-6 shadow-2xl backdrop-blur">
+              <div className="mx-auto w-full max-w-md rounded-2xl border border-gray-200 bg-white p-6 shadow-2xl">
                 <div className="space-y-3">
                   <button
                     onClick={handleGoogleSignIn}
-                    className="w-full inline-flex items-center justify-center gap-3 rounded-full bg-white px-6 py-3 text-sm font-semibold text-black shadow-lg transition hover:bg-white/90"
+                    className="w-full inline-flex items-center justify-center gap-3 rounded-full border border-gray-900 bg-white px-6 py-3 text-sm font-semibold text-gray-900 transition hover:bg-gray-50"
                   >
                     <img src={googleLogo} alt="Google" className="h-5 w-5" />
                     Continue with Google
                   </button>
                   {renderEmailAuthSection()}
                 </div>
-                <p className="mt-4 text-center text-xs text-white/60">
+                <p className="mt-4 text-center text-xs text-gray-500">
                   By continuing you agree to our{' '}
                   <button onClick={() => navigate('/terms')} className="underline">
                     {consentText.footer.terms}
@@ -1100,16 +1100,16 @@ const App: React.FC = () => {
                 </p>
               </div>
               <div className="hidden md:grid md:grid-cols-2 md:gap-4">
-                <div className="rounded-2xl border border-white/10 bg-black/30 p-4 text-sm text-white/70">
-                  <p className="text-xs uppercase text-white/40">Trusted workflows</p>
-                  <p className="mt-1 text-white/80">Import, comment, and ship faster with a pipeline built for editors, directors, and producers.</p>
+                <div className="rounded-2xl border border-gray-200 bg-white p-4 text-sm text-gray-600">
+                  <p className="text-xs uppercase text-gray-500">Trusted workflows</p>
+                  <p className="mt-1 text-gray-700">Import, comment, and ship faster with a pipeline built for editors, directors, and producers.</p>
                 </div>
-                <div className="rounded-2xl border border-white/10 bg-black/30 p-4 text-sm text-white/70">
-                  <p className="text-xs uppercase text-white/40">Launch ready</p>
-                  <p className="mt-1 text-white/80">Invite your crew in minutes and keep feedback in sync across every project.</p>
+                <div className="rounded-2xl border border-gray-200 bg-white p-4 text-sm text-gray-600">
+                  <p className="text-xs uppercase text-gray-500">Launch ready</p>
+                  <p className="mt-1 text-gray-700">Invite your crew in minutes and keep feedback in sync across every project.</p>
                 </div>
               </div>
-              <footer className="flex flex-col items-center gap-2 text-center text-xs text-white/60">
+              <footer className="flex flex-col items-center gap-2 text-center text-xs text-gray-500">
                 <button onClick={() => navigate('/privacy')} className="underline underline-offset-2">{consentText.footer.privacy}</button>
                 {' · '}
                 <button onClick={() => navigate('/cookie-policy')} className="underline underline-offset-2">{consentText.footer.cookies}</button>
@@ -1135,13 +1135,13 @@ const App: React.FC = () => {
             </div>
           </div>
         ) : currentUser === null ? (
-          <div className="flex-1 flex items-center justify-center p-6">
-            <div className="bg-black/70 border border-white/10 rounded-3xl p-10 w-full max-w-md text-center space-y-4 shadow-2xl backdrop-blur">
-              <h2 className="text-xl font-semibold text-white">Sync error</h2>
-              <p className="text-white/60">{ensureError ?? 'We could not connect your account right now.'}</p>
+          <div className="flex-1 flex items-center justify-center bg-gray-50 p-6">
+            <div className="bg-white border border-gray-200 rounded-3xl p-10 w-full max-w-md text-center space-y-4 shadow-2xl">
+              <h2 className="text-xl font-semibold text-gray-900">Sync error</h2>
+              <p className="text-gray-600">{ensureError ?? 'We could not connect your account right now.'}</p>
               <button
                 onClick={handleRetryEnsureUser}
-                className="w-full bg-white text-black font-semibold py-2.5 rounded-full transition hover:bg-white/90"
+                className="w-full border border-gray-900 bg-white text-gray-900 font-semibold py-2.5 rounded-full transition hover:bg-gray-50"
                 disabled={isEnsuringUser}
               >
                 Try again

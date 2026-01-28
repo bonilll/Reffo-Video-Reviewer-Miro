@@ -118,12 +118,18 @@ export const initMultipartUpload = httpAction(async (ctx, request) => {
   const permissionCheck = await ensureBoardWriteAccess(ctx, boardId, origin);
   if (permissionCheck.response) return permissionCheck.response;
 
-  const result = await ctx.runAction(api.storage.createMultipartUpload, {
-    contentType,
-    fileName,
-    context: context ?? undefined,
-    contextId: contextId ?? undefined,
-  });
+  let result: { uploadId: string; storageKey: string; publicUrl: string };
+  try {
+    result = await ctx.runAction(api.storage.createMultipartUpload, {
+      contentType,
+      fileName,
+      context: context ?? undefined,
+      contextId: contextId ?? undefined,
+    });
+  } catch (error) {
+    const details = error instanceof Error ? error.message : String(error);
+    return jsonResponse(500, { error: "UPLOAD_INIT_FAILED", details }, origin);
+  }
 
   const partSize = DEFAULT_PART_SIZE;
 
@@ -133,7 +139,7 @@ export const initMultipartUpload = httpAction(async (ctx, request) => {
       uploadId: result.uploadId,
       key: result.storageKey,
       bucket: getEnv("MINIO_BUCKET"),
-      endpoint: getEnv("MINIO_ENDPOINT"),
+      endpoint: getEnv("MINIO_PUBLIC_ENDPOINT", getEnv("MINIO_ENDPOINT")),
       partSize,
       meta: {
         boardId,
@@ -175,12 +181,18 @@ export const signMultipartUploadPart = httpAction(async (ctx, request) => {
     return jsonResponse(400, { error: "Bad Request", details: "Missing multipart identifiers" }, origin);
   }
 
-  const result = await ctx.runAction(api.storage.getMultipartUploadUrls, {
-    storageKey: key,
-    uploadId,
-    partNumbers: [partNumber],
-    contentType,
-  });
+  let result: { urls: Array<{ partNumber: number; url: string }> };
+  try {
+    result = await ctx.runAction(api.storage.getMultipartUploadUrls, {
+      storageKey: key,
+      uploadId,
+      partNumbers: [partNumber],
+      contentType,
+    });
+  } catch (error) {
+    const details = error instanceof Error ? error.message : String(error);
+    return jsonResponse(500, { error: "UPLOAD_SIGN_FAILED", details }, origin);
+  }
 
   const signed = result.urls[0];
   if (!signed?.url) {
@@ -229,11 +241,17 @@ export const completeMultipartUploadRequest = httpAction(async (ctx, request) =>
     return jsonResponse(400, { error: "Bad Request", details: "Invalid multipart parts" }, origin);
   }
 
-  const result = await ctx.runAction(api.storage.completeMultipartUpload, {
-    storageKey: key,
-    uploadId,
-    parts: mappedParts,
-  });
+  let result: { publicUrl: string };
+  try {
+    result = await ctx.runAction(api.storage.completeMultipartUpload, {
+      storageKey: key,
+      uploadId,
+      parts: mappedParts,
+    });
+  } catch (error) {
+    const details = error instanceof Error ? error.message : String(error);
+    return jsonResponse(500, { error: "UPLOAD_COMPLETE_FAILED", details }, origin);
+  }
 
   return jsonResponse(200, { success: true, url: result.publicUrl }, origin);
 });
@@ -258,6 +276,11 @@ export const abortMultipartUploadRequest = httpAction(async (ctx, request) => {
     return jsonResponse(400, { error: "Bad Request", details: "Missing multipart identifiers" }, origin);
   }
 
-  await ctx.runAction(api.storage.abortMultipartUpload, { storageKey: key, uploadId });
+  try {
+    await ctx.runAction(api.storage.abortMultipartUpload, { storageKey: key, uploadId });
+  } catch (error) {
+    const details = error instanceof Error ? error.message : String(error);
+    return jsonResponse(500, { error: "UPLOAD_ABORT_FAILED", details }, origin);
+  }
   return jsonResponse(200, { aborted: true }, origin);
 });

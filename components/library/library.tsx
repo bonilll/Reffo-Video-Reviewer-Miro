@@ -22,6 +22,7 @@ import {
   CheckSquare,
   Square,
   ExternalLink,
+  X,
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
@@ -63,6 +64,100 @@ const formatBytes = (bytes?: number) => {
 };
 
 const normalize = (value: string) => value.toLowerCase().trim();
+
+const normalizeTag = (tag: string) => {
+  const cleaned = tag
+    .replace(/[_-]+/g, " ")
+    .replace(/[^\w\s]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+  if (!cleaned) return "";
+  return cleaned
+    .split(" ")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+};
+
+const mergeTags = (existing: string[], next: string[]) => {
+  const seen = new Set<string>();
+  const merged: string[] = [];
+  [...existing, ...next].forEach((raw) => {
+    const tag = normalizeTag(raw);
+    if (!tag) return;
+    const key = tag.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    merged.push(tag);
+  });
+  return merged;
+};
+
+const TagInput: React.FC<{
+  tags: string[];
+  draft: string;
+  onDraftChange: (value: string) => void;
+  onTagsChange: (tags: string[]) => void;
+  placeholder?: string;
+}> = ({ tags, draft, onDraftChange, onTagsChange, placeholder }) => {
+  const commitDraft = useCallback(() => {
+    const parts = draft
+      .split(",")
+      .map((tag) => tag.trim())
+      .filter(Boolean);
+    if (parts.length === 0) return;
+    const next = mergeTags(tags, parts);
+    onTagsChange(next);
+    onDraftChange("");
+  }, [draft, onDraftChange, onTagsChange, tags]);
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm">
+      {tags.map((tag) => (
+        <span
+          key={tag}
+          className="flex items-center gap-1 rounded-full border border-gray-200 bg-white px-2 py-1 text-xs text-gray-700"
+        >
+          {tag}
+          <button
+            type="button"
+            className="text-gray-400 hover:text-gray-700"
+            onClick={() => onTagsChange(tags.filter((t) => t !== tag))}
+          >
+            <X className="h-3 w-3" />
+          </button>
+        </span>
+      ))}
+      <input
+        value={draft}
+        onChange={(event) => onDraftChange(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === ",") {
+            event.preventDefault();
+            commitDraft();
+          }
+          if (event.key === "Backspace" && draft.length === 0 && tags.length > 0) {
+            onTagsChange(tags.slice(0, -1));
+          }
+          if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+            event.stopPropagation();
+          }
+        }}
+        onBlur={() => commitDraft()}
+        onPaste={(event) => {
+          const text = event.clipboardData.getData("text");
+          if (!text) return;
+          event.preventDefault();
+          const parts = text.split(",").map((tag) => tag.trim()).filter(Boolean);
+          const next = mergeTags(tags, parts);
+          onTagsChange(next);
+        }}
+        placeholder={tags.length === 0 ? placeholder : ""}
+        className="min-w-[120px] flex-1 bg-transparent text-sm outline-none"
+      />
+    </div>
+  );
+};
 
 const filterByTags = (asset: Doc<"assets">, tags: string[]) => {
   if (tags.length === 0) return true;
@@ -137,7 +232,8 @@ export const Library: React.FC<LibraryProps> = ({
   const [editForm, setEditForm] = useState({
     title: "",
     description: "",
-    tokens: "",
+    tags: [] as string[],
+    tagDraft: "",
     externalLink: "",
     isPrivate: false,
   });
@@ -192,6 +288,16 @@ export const Library: React.FC<LibraryProps> = ({
       .filter((tag) => (query ? normalize(tag.label).includes(query) : true))
       .filter((tag) => !selectedSet.has(normalize(tag.label)));
   }, [availableTags, selectedTagFilters, tagSearch]);
+
+  const editTagSuggestions = useMemo(() => {
+    const query = normalize(editForm.tagDraft);
+    const selectedSet = new Set(editForm.tags.map(normalize));
+    return availableTags
+      .filter((tag) => (query ? normalize(tag.label).includes(query) : true))
+      .filter((tag) => !selectedSet.has(normalize(tag.label)))
+      .map((tag) => tag.label)
+      .slice(0, 12);
+  }, [availableTags, editForm.tagDraft, editForm.tags]);
 
   const colorClusters = useMemo(() => {
     if (!assets) return [] as { rep: string; colors: string[] }[];
@@ -271,6 +377,14 @@ export const Library: React.FC<LibraryProps> = ({
   useEffect(() => {
     if (!viewerAsset) return;
     const onKeyDown = (event: KeyboardEvent) => {
+      if (editingAsset) return;
+      const target = event.target as HTMLElement | null;
+      if (target) {
+        const tag = target.tagName;
+        if (tag === "INPUT" || tag === "TEXTAREA" || target.isContentEditable) {
+          return;
+        }
+      }
       if (event.key === "ArrowLeft") {
         event.preventDefault();
         handleViewerPrev();
@@ -282,7 +396,7 @@ export const Library: React.FC<LibraryProps> = ({
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [handleViewerNext, handleViewerPrev, viewerAsset]);
+  }, [handleViewerNext, handleViewerPrev, viewerAsset, editingAsset]);
 
   useEffect(() => {
     onFilteredDataChange?.({
@@ -298,7 +412,8 @@ export const Library: React.FC<LibraryProps> = ({
     setEditForm({
       title: asset.title ?? "",
       description: asset.description ?? "",
-      tokens: asset.tokens?.join(", ") ?? "",
+      tags: mergeTags([], asset.tokens ?? []),
+      tagDraft: "",
       externalLink: asset.externalLink ?? "",
       isPrivate: Boolean(asset.isPrivate),
     });
@@ -306,10 +421,7 @@ export const Library: React.FC<LibraryProps> = ({
 
   const handleSaveEdit = useCallback(async () => {
     if (!editingAsset) return;
-    const tokens = editForm.tokens
-      .split(",")
-      .map((tag) => tag.trim())
-      .filter(Boolean);
+    const tokens = mergeTags([], editForm.tags);
     try {
       await updateMetadata({
         id: editingAsset._id,
@@ -743,12 +855,37 @@ export const Library: React.FC<LibraryProps> = ({
             </div>
             <div className="space-y-2">
               <label className="text-xs font-semibold uppercase text-gray-500">Tags</label>
-              <Input
-                value={editForm.tokens}
-                onChange={(event) => setEditForm((prev) => ({ ...prev, tokens: event.target.value }))}
+              <TagInput
+                tags={editForm.tags}
+                draft={editForm.tagDraft}
+                onDraftChange={(value) => setEditForm((prev) => ({ ...prev, tagDraft: value }))}
+                onTagsChange={(tags) => setEditForm((prev) => ({ ...prev, tags }))}
                 placeholder="fashion, portrait, neon"
               />
             </div>
+            {editTagSuggestions.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs font-semibold uppercase text-gray-500">Recent used</p>
+                <div className="flex flex-wrap gap-2">
+                  {editTagSuggestions.map((tag) => (
+                    <button
+                      key={tag}
+                      type="button"
+                      className="rounded-full border border-gray-200 bg-white px-3 py-1 text-xs text-gray-600 hover:text-gray-900"
+                      onClick={() =>
+                        setEditForm((prev) => ({
+                          ...prev,
+                          tags: mergeTags(prev.tags, [tag]),
+                          tagDraft: "",
+                        }))
+                      }
+                    >
+                      {tag}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             <div className="space-y-2">
               <label className="text-xs font-semibold uppercase text-gray-500">External link</label>
               <Input

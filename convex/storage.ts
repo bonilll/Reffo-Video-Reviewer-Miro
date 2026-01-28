@@ -35,6 +35,19 @@ const PUBLIC_BASE = env(
   `${ENDPOINT.replace(/\/$/, "")}/${BUCKET}`,
 );
 
+const derivePublicEndpoint = (): string => {
+  const explicit = process.env.MINIO_PUBLIC_ENDPOINT;
+  if (explicit) return explicit;
+  try {
+    const u = new URL(PUBLIC_BASE);
+    return `${u.protocol}//${u.host}`;
+  } catch {
+    return ENDPOINT;
+  }
+};
+
+const PUBLIC_ENDPOINT = derivePublicEndpoint();
+
 const s3Client = new S3Client({
   region: REGION,
   endpoint: ENDPOINT,
@@ -44,6 +57,19 @@ const s3Client = new S3Client({
     secretAccessKey: env("MINIO_SECRET_KEY"),
   },
 });
+
+const signingClient =
+  PUBLIC_ENDPOINT === ENDPOINT
+    ? s3Client
+    : new S3Client({
+        region: REGION,
+        endpoint: PUBLIC_ENDPOINT,
+        forcePathStyle: true,
+        credentials: {
+          accessKeyId: env("MINIO_ACCESS_KEY"),
+          secretAccessKey: env("MINIO_SECRET_KEY"),
+        },
+      });
 
 // Configure how long pre-signed PUT/GET URLs remain valid.
 // Longer TTL helps slow connections and large files avoid mid-upload expiry.
@@ -158,7 +184,7 @@ export const generateVideoUploadUrl = action({
     ContentType: contentType,
   });
 
-  const uploadUrl = await getSignedUrl(s3Client, command, {
+  const uploadUrl = await getSignedUrl(signingClient, command, {
     expiresIn: UPLOAD_TTL_SECONDS,
   });
 
@@ -207,7 +233,7 @@ export const getMultipartUploadUrls = action({
     const urls = await Promise.all(
       partNumbers.map(async (n) => {
         const cmd = new UploadPartCommand({ Bucket: BUCKET, Key: storageKey, UploadId: uploadId, PartNumber: n, ContentMD5: undefined, Body: undefined, ContentLength: undefined, ChecksumAlgorithm: undefined, ChecksumCRC32: undefined, ChecksumCRC32C: undefined, ChecksumSHA1: undefined, ChecksumSHA256: undefined, SSECustomerAlgorithm: undefined, SSECustomerKey: undefined, SSECustomerKeyMD5: undefined, RequestPayer: undefined, ExpectedBucketOwner: undefined });
-        const url = await getSignedUrl(s3Client, cmd, { expiresIn: UPLOAD_TTL_SECONDS });
+        const url = await getSignedUrl(signingClient, cmd, { expiresIn: UPLOAD_TTL_SECONDS });
         return { partNumber: n, url };
       })
     );
@@ -267,7 +293,7 @@ export const generateProfileImageUploadUrl = action({
       ACL: undefined,
     });
 
-  const uploadUrl = await getSignedUrl(s3Client, command, { expiresIn: UPLOAD_TTL_SECONDS });
+  const uploadUrl = await getSignedUrl(signingClient, command, { expiresIn: UPLOAD_TTL_SECONDS });
     return { storageKey, uploadUrl, publicUrl: buildPublicUrl(storageKey) };
   },
 });
@@ -298,7 +324,7 @@ export const generateAnnotationAssetUploadUrl = action({
       ContentType: contentType,
     });
 
-  const uploadUrl = await getSignedUrl(s3Client, command, {
+  const uploadUrl = await getSignedUrl(signingClient, command, {
     expiresIn: UPLOAD_TTL_SECONDS,
   });
 
@@ -361,7 +387,7 @@ export const getDownloadUrl = action({
       Bucket: BUCKET,
       Key: storageKey,
     });
-    const url = await getSignedUrl(s3Client, command, {
+    const url = await getSignedUrl(signingClient, command, {
       expiresIn: expiresIn ?? 60 * 60,
     });
     return url;
