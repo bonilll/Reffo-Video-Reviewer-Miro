@@ -147,6 +147,15 @@
     animation: collapsible-up 200ms ease-in;
   }
 
+  .scrollbar-hidden {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .scrollbar-hidden::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+  }
+
   .library-masonry {
     column-gap: 20px;
     column-count: 1;

@@ -62,14 +62,14 @@ const COLUMN_TYPES = [
 ];
 
 const DEFAULT_COLORS: Color[] = [
-  { r: 239, g: 68, b: 68 },   // Red
-  { r: 245, g: 158, b: 11 },  // Orange
-  { r: 251, g: 191, b: 36 },  // Yellow
-  { r: 34, g: 197, b: 94 },   // Green
-  { r: 59, g: 130, b: 246 },  // Blue
-  { r: 147, g: 51, b: 234 },  // Purple
-  { r: 236, g: 72, b: 153 },  // Pink
-  { r: 156, g: 163, b: 175 }, // Gray
+  { r: 76, g: 109, b: 255 },  // Electric Blue
+  { r: 34, g: 211, b: 202 },  // Fresh Teal
+  { r: 255, g: 107, b: 107 }, // Coral
+  { r: 255, g: 193, b: 72 },  // Amber
+  { r: 183, g: 148, b: 255 }, // Violet
+  { r: 125, g: 193, b: 255 }, // Sky
+  { r: 255, g: 167, b: 120 }, // Peach
+  { r: 169, g: 232, b: 114 }, // Lime
 ];
 
 const ColorPicker = ({ 

@@ -97,7 +97,20 @@ type SelectionToolsProps = {
   isTouchDevice?: boolean;
   // Board ID for review mode
   boardId?: string;
+  // Render inside the main toolbar container
+  embedded?: boolean;
 };
+
+const CONTROL_BUTTON_CLASSES =
+  "flex items-center gap-2 h-9 px-3 min-w-[170px] text-sm bg-white/90 text-slate-700 hover:bg-white hover:text-slate-900 rounded-xl border border-slate-200/80 transition-all duration-200 shadow-sm hover:shadow-sm";
+const CONTROL_DROPDOWN_BASE =
+  "absolute bottom-full left-0 mb-2 min-w-full bg-white/98 backdrop-blur-xl border border-slate-200/80 shadow-xl shadow-slate-200/40 rounded-2xl z-50 overflow-hidden";
+const CONTROL_DROPDOWN_MENU =
+  "bg-white/98 backdrop-blur-xl border border-slate-200/80 shadow-xl shadow-slate-200/40 rounded-2xl min-w-[var(--radix-popper-anchor-width)] w-[var(--radix-popper-anchor-width)]";
+const CONTROL_MENU_ITEM =
+  "w-full min-w-full text-left flex items-center gap-3 rounded-xl px-3 py-2.5 text-xs transition-all duration-200 cursor-pointer hover:bg-slate-100/80 text-slate-700 hover:text-slate-900 hover:shadow-sm";
+const CONTROL_MENU_ITEM_ACTIVE =
+  "bg-blue-600/10 text-blue-700 font-semibold border border-blue-200 shadow-sm";
 
 // Numeric input component with increment/decrement arrows and manual input
 const NumericInput = memo(({ 
@@ -174,7 +187,7 @@ const NumericInput = memo(({
   };
 
   return (
-    <div className={`flex items-center bg-white/60 hover:bg-white/80 rounded-xl border border-transparent hover:border-slate-200/60 transition-all duration-300 shadow-sm hover:shadow-lg hover:shadow-black/5 hover:scale-105 ${className}`}>
+    <div className={`flex items-center h-9 bg-white/90 hover:bg-white rounded-xl border border-slate-200/80 transition-all duration-200 shadow-sm hover:shadow-md hover:scale-[1.02] ${className}`}>
       {Icon && <Icon className="w-4 h-4 text-slate-500 ml-3 flex-shrink-0" />}
       
       <input
@@ -185,7 +198,7 @@ const NumericInput = memo(({
         onFocus={handleInputFocus}
         onKeyDown={handleKeyDown}
         placeholder={placeholder}
-        className="flex-1 px-2 py-2.5 text-sm font-medium text-slate-700 bg-transparent border-0 outline-none min-w-12 text-center"
+        className="flex-1 px-2 py-2 text-sm font-medium text-slate-700 bg-transparent border-0 outline-none min-w-12 text-center"
       />
       
       {unit && <span className="text-xs text-slate-500 mr-2 flex-shrink-0">{unit}</span>}
@@ -249,7 +262,7 @@ const PencilStrokeWidthSelector = memo(({
         />
         <button
           onClick={() => setIsCustom(false)}
-          className="px-2 py-2.5 text-xs text-gray-500 hover:text-gray-700 transition-colors"
+          className="h-9 w-9 flex items-center justify-center rounded-lg border border-slate-200/70 bg-white/90 text-slate-500 hover:text-slate-700 hover:bg-white transition-colors"
           title="Switch to presets"
         >
           ⋯
@@ -262,26 +275,26 @@ const PencilStrokeWidthSelector = memo(({
     <div className="relative">
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 px-4 py-2.5 text-sm bg-gray-50/80 hover:bg-gray-100/80 rounded-xl border border-gray-200/60 hover:border-gray-300/60 transition-all duration-200 shadow-sm hover:shadow-md"
+        className={`${CONTROL_BUTTON_CLASSES} justify-between`}
         title="Stroke width"
       >
         <div className="flex items-center gap-2">
           <div 
-            className="w-6 h-1 bg-gray-700 rounded"
+            className="w-6 h-1 bg-slate-700 rounded"
             style={{ height: `${Math.min(strokeWidth / 4, 6)}px` }}
           />
-          <span className="font-medium text-gray-700">
+          <span className="font-medium text-slate-700">
             {isPresetValue ? strokeOptions.find(opt => opt.value === strokeWidth)?.label : `${strokeWidth}px - Custom`}
           </span>
         </div>
-        <ChevronDown className="w-3 h-3 text-gray-500" />
+        <ChevronDown className="w-3 h-3 text-slate-500" />
       </button>
       
       {isOpen && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
-          <div className="absolute bottom-full left-0 mb-2 bg-white/95 backdrop-blur-xl border border-gray-200/60 rounded-xl shadow-xl z-50 min-w-48 max-w-xs overflow-visible">
-            <div className="py-2">
+          <div className={`${CONTROL_DROPDOWN_BASE} min-w-48 max-w-xs p-3`}>
+            <div className="py-1">
               {strokeOptions.map((option) => (
                 <button
                   key={option.value}
@@ -289,10 +302,8 @@ const PencilStrokeWidthSelector = memo(({
                     onStrokeWidthChange(option.value);
                     setIsOpen(false);
                   }}
-                  className={`w-full px-4 py-2.5 text-sm text-left transition-colors duration-150 flex items-center gap-3 ${
-                    strokeWidth === option.value 
-                      ? 'bg-gray-900 text-white font-medium' 
-                      : 'text-gray-700 hover:bg-gray-100/80'
+                  className={`${CONTROL_MENU_ITEM} ${
+                    strokeWidth === option.value ? CONTROL_MENU_ITEM_ACTIVE : ""
                   }`}
                 >
                   <div 
@@ -302,13 +313,13 @@ const PencilStrokeWidthSelector = memo(({
                   <span className="truncate">{option.label}</span>
                 </button>
               ))}
-              <div className="border-t border-gray-100/80 my-1" />
+              <div className="border-t border-slate-100/80 my-1" />
               <button
                 onClick={() => {
                   setIsCustom(true);
                   setIsOpen(false);
                 }}
-                className="w-full px-4 py-2.5 text-sm text-left hover:bg-gray-100/80 transition-colors duration-150 flex items-center gap-3 text-gray-700"
+                className={CONTROL_MENU_ITEM}
               >
                 <Type className="w-4 h-4 flex-shrink-0" />
                 <span className="truncate">Custom size...</span>
@@ -376,7 +387,7 @@ const StrokeWidthSelector = memo(({ selectedLayerIds }: { selectedLayerIds: stri
         />
         <button
           onClick={() => setIsCustom(false)}
-          className="px-2 py-2.5 text-xs text-gray-500 hover:text-gray-700 transition-colors"
+          className="h-9 w-9 flex items-center justify-center rounded-lg border border-slate-200/70 bg-white/90 text-slate-500 hover:text-slate-700 hover:bg-white transition-colors"
           title="Switch to presets"
         >
           ⋯
@@ -389,20 +400,26 @@ const StrokeWidthSelector = memo(({ selectedLayerIds }: { selectedLayerIds: stri
     <div className="relative">
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 px-4 py-2.5 text-sm bg-gray-50/80 hover:bg-gray-100/80 rounded-xl border border-gray-200/60 hover:border-gray-300/60 transition-all duration-200 shadow-sm hover:shadow-md"
+        className={`${CONTROL_BUTTON_CLASSES} justify-between`}
         title="Stroke width"
       >
-        <span className="font-medium text-gray-700">
-          {isPresetValue ? strokeOptions.find(opt => opt.value === currentStrokeWidth)?.label : `${currentStrokeWidth}px - Custom`}
+        <span className="flex items-center gap-2">
+          <Minus className="w-4 h-4 text-slate-500" />
+          <span className="font-medium text-slate-700">Line Stroke</span>
         </span>
-        <ChevronDown className="w-3 h-3 text-gray-500" />
+        <span className="flex items-center gap-2 text-xs text-slate-500">
+          <span className="font-mono">
+            {isPresetValue ? strokeOptions.find(opt => opt.value === currentStrokeWidth)?.value : currentStrokeWidth}px
+          </span>
+          <ChevronDown className="w-3 h-3 text-slate-500" />
+        </span>
       </button>
       
       {isOpen && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
-          <div className="absolute bottom-full left-0 mb-2 bg-white/95 backdrop-blur-xl border border-gray-200/60 rounded-xl shadow-xl z-50 min-w-48 max-w-xs overflow-visible">
-            <div className="py-2">
+          <div className={`${CONTROL_DROPDOWN_BASE} min-w-48 max-w-xs p-3`}>
+            <div className="py-1">
               {strokeOptions.map((option) => (
                 <button
                   key={option.value}
@@ -410,10 +427,8 @@ const StrokeWidthSelector = memo(({ selectedLayerIds }: { selectedLayerIds: stri
                     updateStrokeWidth(option.value);
                     setIsOpen(false);
                   }}
-                  className={`w-full px-4 py-2.5 text-sm text-left transition-colors duration-150 flex items-center gap-3 ${
-                    currentStrokeWidth === option.value 
-                      ? 'bg-gray-900 text-white font-medium' 
-                      : 'text-gray-700 hover:bg-gray-100/80'
+                  className={`${CONTROL_MENU_ITEM} ${
+                    currentStrokeWidth === option.value ? CONTROL_MENU_ITEM_ACTIVE : ""
                   }`}
                 >
                   <div 
@@ -423,13 +438,13 @@ const StrokeWidthSelector = memo(({ selectedLayerIds }: { selectedLayerIds: stri
                   <span className="truncate">{option.label}</span>
                 </button>
               ))}
-              <div className="border-t border-gray-100/80 my-1" />
+              <div className="border-t border-slate-100/80 my-1" />
               <button
                 onClick={() => {
                   setIsCustom(true);
                   setIsOpen(false);
                 }}
-                className="w-full px-4 py-2.5 text-sm text-left hover:bg-gray-100/80 transition-colors duration-150 flex items-center gap-3 text-gray-700"
+                className={CONTROL_MENU_ITEM}
               >
                 <Type className="w-4 h-4 flex-shrink-0" />
                 <span className="truncate">Custom size...</span>
@@ -488,14 +503,14 @@ const FontSizeSelector = memo(({ selectedLayerIds, onDropdownChange, setLastUsed
   );
 
   const fontSizes = [
-    { value: 12, label: "12px - Small" },
-    { value: 14, label: "14px - Body" },
-    { value: 16, label: "16px - Regular" },
-    { value: 18, label: "18px - Large" },
-    { value: 20, label: "20px - Subtitle" },
-    { value: 24, label: "24px - Heading" },
-    { value: 32, label: "32px - Title" },
-    { value: 48, label: "48px - Display" }
+    { value: 12, label: "Small" },
+    { value: 14, label: "Body" },
+    { value: 16, label: "Regular" },
+    { value: 18, label: "Large" },
+    { value: 20, label: "Subtitle" },
+    { value: 24, label: "Heading" },
+    { value: 32, label: "Title" },
+    { value: 48, label: "Display" }
   ];
 
   const isPresetValue = fontSizes.some(size => size.value === currentFontSize);
@@ -516,7 +531,7 @@ const FontSizeSelector = memo(({ selectedLayerIds, onDropdownChange, setLastUsed
         />
         <button
           onClick={() => setIsCustom(false)}
-          className="px-2 py-2.5 text-xs text-gray-500 hover:text-gray-700 transition-colors"
+          className="px-2 py-2.5 text-xs text-slate-500 hover:text-slate-700 transition-colors"
           title="Switch to presets"
         >
           ⋯
@@ -529,49 +544,54 @@ const FontSizeSelector = memo(({ selectedLayerIds, onDropdownChange, setLastUsed
     <div className="relative">
       <button
         onClick={() => handleOpenChange(!isOpen)}
-        className="flex items-center gap-2 px-4 py-2.5 text-sm bg-white/60 hover:bg-white/80 rounded-xl border border-transparent hover:border-slate-200/60 transition-all duration-300 shadow-sm hover:shadow-lg hover:shadow-black/5 hover:scale-105"
+        className={`${CONTROL_BUTTON_CLASSES} justify-between`}
         title="Font size"
       >
-        <Type className="w-4 h-4 text-slate-500" />
-        <span className="font-medium text-slate-700">
-          {isPresetValue ? fontSizes.find(size => size.value === currentFontSize)?.label : `${currentFontSize}px - Custom`}
+        <span className="flex items-center gap-2">
+          <Type className="w-4 h-4 text-slate-500" />
+          <span className="font-medium text-slate-700">size</span>
         </span>
-        <ChevronDown className="w-3 h-3 text-slate-500" />
+        <span className="flex items-center gap-2 text-xs text-slate-500">
+          <span className="font-mono">
+            {isPresetValue ? fontSizes.find(size => size.value === currentFontSize)?.value : currentFontSize}px
+          </span>
+          <ChevronDown className="w-3 h-3 text-slate-500" />
+        </span>
       </button>
       
       {isOpen && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => handleOpenChange(false)} />
-          <div className="absolute bottom-full left-0 mb-2 bg-white/95 backdrop-blur-xl border border-gray-200/60 rounded-xl shadow-xl z-50 min-w-52 max-w-xs max-h-64 overflow-visible">
-            <div className="py-2 overflow-y-auto max-h-60">
-              {fontSizes.map((size) => (
+          <div className={`${CONTROL_DROPDOWN_BASE} min-w-52 max-w-xs p-3`}>
+            <div className="max-h-60 overflow-y-auto overscroll-contain scrollbar-hidden pr-1">
+              <div className="py-1">
+                {fontSizes.map((size) => (
+                  <button
+                    key={size.value}
+                    onClick={() => {
+                      updateFontSize(size.value);
+                      handleOpenChange(false);
+                    }}
+                    className={`${CONTROL_MENU_ITEM} ${
+                      currentFontSize === size.value ? CONTROL_MENU_ITEM_ACTIVE : ""
+                    }`}
+                  >
+                    <span className="text-xs text-slate-400 min-w-6 flex-shrink-0 font-mono">{size.value}</span>
+                    <span className="truncate">{size.label}</span>
+                  </button>
+                ))}
+                <div className="border-t border-slate-100/80 my-1" />
                 <button
-                  key={size.value}
                   onClick={() => {
-                    updateFontSize(size.value);
+                    setIsCustom(true);
                     handleOpenChange(false);
                   }}
-                  className={`w-full px-4 py-2.5 text-sm text-left transition-colors duration-150 flex items-center gap-3 ${
-                    currentFontSize === size.value 
-                      ? 'bg-gray-900 text-white font-medium' 
-                      : 'text-gray-700 hover:bg-gray-100/80'
-                  }`}
+                  className={CONTROL_MENU_ITEM}
                 >
-                  <span className="text-xs text-gray-400 min-w-6 flex-shrink-0 font-mono">{size.value}</span>
-                  <span className="truncate">{size.label}</span>
+                  <Type className="w-4 h-4 flex-shrink-0" />
+                  <span className="truncate">Custom size...</span>
                 </button>
-              ))}
-              <div className="border-t border-gray-100/80 my-1" />
-              <button
-                onClick={() => {
-                  setIsCustom(true);
-                  handleOpenChange(false);
-                }}
-                className="w-full px-4 py-2.5 text-sm text-left hover:bg-gray-100/80 transition-colors duration-150 flex items-center gap-3 text-gray-700"
-              >
-                <Type className="w-4 h-4 flex-shrink-0" />
-                <span className="truncate">Custom size...</span>
-              </button>
+              </div>
             </div>
           </div>
         </>
@@ -641,20 +661,26 @@ const FontWeightDropdown = memo(({ selectedLayerIds, onDropdownChange, setLastUs
     <div className="relative">
       <button
         onClick={() => handleOpenChange(!isOpen)}
-        className={`flex items-center gap-2 px-4 py-2.5 text-sm bg-white/60 hover:bg-white/80 rounded-xl border border-transparent hover:border-slate-200/60 transition-all duration-300 shadow-sm hover:shadow-lg hover:shadow-black/5 hover:scale-105 ${
-          currentFontWeight === "bold" ? "font-bold" : ""
-        }`}
+        className={`${CONTROL_BUTTON_CLASSES} justify-between ${currentFontWeight === "bold" ? "font-bold" : ""}`}
         title="Font weight"
       >
-        <Bold className="w-4 h-4 text-slate-500" />
-        <ChevronDown className="w-3 h-3 text-slate-500" />
+        <span className="flex items-center gap-2">
+          <Bold className="w-4 h-4 text-slate-500" />
+          <span className="font-medium text-slate-700">weight</span>
+        </span>
+        <span className="flex items-center gap-2 text-xs text-slate-500">
+          <span className="font-mono">
+            {currentFontWeight === "bold" ? "Bold" : "Regular"}
+          </span>
+          <ChevronDown className="w-3 h-3 text-slate-500" />
+        </span>
       </button>
       
       {isOpen && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => handleOpenChange(false)} />
-          <div className="absolute bottom-full left-0 mb-2 bg-white/95 backdrop-blur-xl border border-gray-200/60 rounded-xl shadow-xl z-50 min-w-36 max-w-xs overflow-visible">
-            <div className="py-2">
+          <div className={`${CONTROL_DROPDOWN_BASE} min-w-36 max-w-xs p-3`}>
+            <div className="py-1">
               {fontWeights.map((weight) => (
                 <button
                   key={weight.value}
@@ -662,10 +688,8 @@ const FontWeightDropdown = memo(({ selectedLayerIds, onDropdownChange, setLastUs
                     updateFontWeight(weight.value);
                     handleOpenChange(false);
                   }}
-                  className={`w-full px-4 py-2.5 text-sm text-left transition-colors duration-150 flex items-center gap-3 ${
-                    currentFontWeight === weight.value 
-                      ? 'bg-gray-900 text-white font-medium' 
-                      : 'text-gray-700 hover:bg-gray-100/80'
+                  className={`${CONTROL_MENU_ITEM} ${
+                    currentFontWeight === weight.value ? CONTROL_MENU_ITEM_ACTIVE : ""
                   } ${weight.value === "bold" ? "font-bold" : ""}`}
                 >
                   <weight.icon className="w-4 h-4 flex-shrink-0" />
@@ -717,8 +741,8 @@ const TextAlignmentButton = memo(({ selectedLayerIds, alignment, icon: IconCompo
       onClick={() => updateAlignment(alignment)}
       className={`p-2.5 rounded-xl transition-all duration-200 ${
         isActive
-          ? "bg-blue-100 text-blue-600 border border-blue-200"
-          : "bg-gray-50/80 hover:bg-gray-100/80 text-gray-600 border border-gray-200/60"
+          ? "bg-blue-600/10 text-blue-700 border border-blue-200 shadow-sm"
+          : "bg-white/90 hover:bg-slate-100 text-slate-600 border border-slate-200/80"
       }`}
       title={`Align ${alignment}`}
     >
@@ -780,8 +804,8 @@ const TextStyleButton = memo(({ selectedLayerIds, styleType, icon: IconComponent
       onClick={updateStyle}
       className={`p-2.5 rounded-xl transition-all duration-200 ${
         isActive
-          ? "bg-blue-100 text-blue-600 border border-blue-200"
-          : "bg-gray-50/80 hover:bg-gray-100/80 text-gray-600 border border-gray-200/60"
+          ? "bg-blue-600/10 text-blue-700 border border-blue-200 shadow-sm"
+          : "bg-white/90 hover:bg-slate-100 text-slate-600 border border-slate-200/80"
       }`}
       title={styleType.charAt(0).toUpperCase() + styleType.slice(1)}
     >
@@ -824,7 +848,7 @@ const CompactColorPicker = memo(({
     <div className="relative">
       <button
         onClick={handleToggle}
-        className="w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-300 ease-out border bg-white/60 border-transparent hover:border-slate-200/60 hover:scale-105 active:scale-95 shadow-sm hover:shadow-md"
+        className="w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-200 ease-out border border-slate-200/70 bg-white/90 hover:bg-white hover:border-slate-200 hover:scale-[1.03] active:scale-95 shadow-sm"
         style={{ 
           backgroundColor: currentColor ? colorToCSS(currentColor) : '#3b82f6' 
         }}
@@ -835,7 +859,7 @@ const CompactColorPicker = memo(({
         <>
           <div className="fixed inset-0 z-40" onClick={handleToggle} />
           <div 
-            className="absolute bottom-full left-0 mb-2 bg-white/95 backdrop-blur-xl border border-gray-200/60 rounded-xl shadow-xl p-3 z-50"
+            className={`${CONTROL_DROPDOWN_BASE} p-3`}
             onClick={(e) => e.stopPropagation()}
           >
             <ColorPicker onChange={handleColorChange} currentColor={currentColor} />
@@ -864,24 +888,24 @@ const ActionButton = memo(({
   variant?: 'default' | 'danger' | 'outline';
   size?: 'xs' | 'sm' | 'md';
 }) => {
-  const sizeClasses = size === 'xs' ? "w-7 h-7" : size === 'md' ? "w-11 h-11" : "w-10 h-10";
+  const sizeClasses = size === 'xs' ? "w-7 h-7" : "w-9 h-9";
   const iconSizeClasses = size === 'xs' ? "w-3 h-3" : size === 'md' ? "w-5 h-5" : "w-4 h-4";
   const variantClasses = variant === 'danger' 
-    ? "text-red-600 hover:bg-red-50/80 hover:text-red-700 hover:shadow-lg hover:shadow-red-500/10" 
+    ? "text-rose-600 hover:bg-rose-50/80 hover:text-rose-700 hover:shadow-md hover:shadow-rose-500/10" 
     : variant === 'outline'
-    ? "text-slate-500 hover:bg-slate-50/80 hover:text-slate-700 border-slate-200/60 hover:shadow-lg hover:shadow-black/5"
-    : "text-slate-600 hover:bg-white/80 hover:text-slate-900 hover:shadow-lg hover:shadow-black/5";
+    ? "text-slate-600 hover:bg-slate-50/80 hover:text-slate-700 border-slate-200/80 hover:shadow-md hover:shadow-black/5"
+    : "text-slate-600 hover:bg-white hover:text-slate-900 hover:shadow-md hover:shadow-black/5";
 
   const backgroundClasses = variant === 'outline' 
-    ? "bg-transparent border-slate-200/60" 
-    : "bg-white/60 border-transparent hover:border-slate-200/60";
+    ? "bg-white/80 border-slate-200/80" 
+    : "bg-white/90 border-slate-200/70 hover:border-slate-200";
 
   return (
     <button
       onClick={onClick}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
-      className={`${sizeClasses} rounded-xl flex items-center justify-center transition-all duration-300 ease-out border hover:scale-105 active:scale-95 ${backgroundClasses} ${variantClasses}`}
+      className={`${sizeClasses} rounded-xl flex items-center justify-center transition-all duration-200 ease-out border hover:scale-[1.03] active:scale-95 ${backgroundClasses} ${variantClasses}`}
       title={title}
     >
       <Icon className={iconSizeClasses} />
@@ -908,20 +932,22 @@ const TextControlsDropdown = memo(({ selectedLayerIds, onDropdownChange }: {
     <div className="relative">
       <button
         onClick={() => handleOpenChange(!isOpen)}
-        className="flex items-center gap-2 px-3 py-2.5 text-sm bg-white/60 hover:bg-white/80 rounded-xl border border-transparent hover:border-slate-200/60 transition-all duration-300 shadow-sm hover:shadow-lg hover:shadow-black/5 hover:scale-105"
+        className={`${CONTROL_BUTTON_CLASSES} justify-between`}
         title="Text formatting"
       >
-        <Type className="w-4 h-4 text-slate-500" />
-        <span className="font-medium text-slate-700">Text</span>
+        <span className="flex items-center gap-2">
+          <Type className="w-4 h-4 text-slate-500" />
+          <span className="font-medium text-slate-700">format</span>
+        </span>
         <ChevronDown className="w-3 h-3 text-slate-500" />
       </button>
       
       {isOpen && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => handleOpenChange(false)} />
-          <div className="absolute bottom-full left-0 mb-2 bg-white/95 backdrop-blur-xl border border-gray-200/60 rounded-xl shadow-xl z-50 min-w-64 overflow-visible">
-            <div className="py-2">
-              <div className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-100/80 bg-gray-50/50">
+          <div className={`${CONTROL_DROPDOWN_BASE} min-w-64 p-3`}>
+            <div className="py-1">
+              <div className="px-3 py-2 text-xs font-semibold text-slate-500 uppercase tracking-wider border-b border-slate-100/80">
                 Text Alignment
               </div>
               <div className="px-2 py-2 flex items-center gap-1">
@@ -931,7 +957,7 @@ const TextControlsDropdown = memo(({ selectedLayerIds, onDropdownChange }: {
                 <TextAlignmentButton selectedLayerIds={selectedLayerIds} alignment="justify" icon={AlignJustify} />
               </div>
               
-              <div className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider border-b border-t border-gray-100/80 bg-gray-50/50">
+              <div className="px-3 py-2 text-xs font-semibold text-slate-500 uppercase tracking-wider border-b border-t border-slate-100/80">
                 Text Style
               </div>
               <div className="px-2 py-2 flex items-center gap-1">
@@ -982,20 +1008,22 @@ const CompactAlignmentDropdown = memo(({ selectedLayers, updateLayerPositions, o
         onClick={() => handleOpenChange(!isOpen)}
         onMouseEnter={() => onActionHover?.("Alignment & Distribution")}
         onMouseLeave={onActionHoverEnd}
-        className="flex items-center gap-2 px-3 py-2.5 text-sm bg-white/60 hover:bg-white/80 rounded-xl border border-transparent hover:border-slate-200/60 transition-all duration-300 shadow-sm hover:shadow-lg hover:shadow-black/5 hover:scale-105"
+        className={`${CONTROL_BUTTON_CLASSES} justify-between`}
         title="Alignment & Distribution"
       >
-        <LayoutGrid className="w-4 h-4 text-slate-500" />
-        <span className="font-medium text-slate-700">Align</span>
+        <span className="flex items-center gap-2">
+          <LayoutGrid className="w-4 h-4 text-slate-500" />
+          <span className="font-medium text-slate-700">Align & Distribute</span>
+        </span>
         <ChevronDown className="w-3 h-3 text-slate-500" />
       </button>
       
       {isOpen && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => handleOpenChange(false)} />
-          <div className="absolute bottom-full left-0 mb-2 bg-white/95 backdrop-blur-xl border border-gray-200/60 rounded-xl shadow-xl z-50 min-w-52 max-w-sm overflow-visible">
-            <div className="py-2">
-              <div className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-100/80 bg-gray-50/50">
+          <div className={`${CONTROL_DROPDOWN_BASE} min-w-52 max-w-sm p-3`}>
+            <div className="py-1">
+              <div className="px-3 py-2 text-xs font-semibold text-slate-500 uppercase tracking-wider border-b border-slate-100/80">
                 Alignment
               </div>
               {alignmentOptions.map((option, index) => (
@@ -1005,7 +1033,7 @@ const CompactAlignmentDropdown = memo(({ selectedLayers, updateLayerPositions, o
                     option.action();
                     handleOpenChange(false);
                   }}
-                  className="w-full px-4 py-2.5 text-sm text-left hover:bg-gray-100/80 transition-colors duration-150 flex items-center gap-3 text-gray-700 hover:text-gray-900"
+                  className={CONTROL_MENU_ITEM}
                 >
                   <option.icon className="w-4 h-4 flex-shrink-0" />
                   <span className="truncate">{option.label}</span>
@@ -1013,7 +1041,7 @@ const CompactAlignmentDropdown = memo(({ selectedLayers, updateLayerPositions, o
               ))}
               {distributionOptions.length > 0 && (
                 <>
-                  <div className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider border-b border-t border-gray-100/80 bg-gray-50/50">
+                  <div className="px-3 py-2 text-xs font-semibold text-slate-500 uppercase tracking-wider border-b border-t border-slate-100/80">
                     Distribution
                   </div>
                   {distributionOptions.map((option, index) => (
@@ -1023,7 +1051,7 @@ const CompactAlignmentDropdown = memo(({ selectedLayers, updateLayerPositions, o
                         option.action();
                         handleOpenChange(false);
                       }}
-                      className="w-full px-4 py-2.5 text-sm text-left hover:bg-gray-100/80 transition-colors duration-150 flex items-center gap-3 text-gray-700 hover:text-gray-900"
+                      className={CONTROL_MENU_ITEM}
                     >
                       <option.icon className="w-4 h-4 flex-shrink-0" />
                       <span className="truncate">{option.label}</span>
@@ -1053,11 +1081,11 @@ const FrameAutoResizeToggle = memo(({
     <button
       onClick={() => onToggle(frameId)}
       className={`
-        flex items-center gap-2 px-3 py-2.5 rounded-xl transition-all duration-300 ease-out
-        border border-transparent hover:border-slate-200/60 hover:scale-105 active:scale-95
+        flex items-center gap-2 h-9 px-3 rounded-xl transition-all duration-200 ease-out
+        border border-slate-200/70 hover:border-slate-200 hover:scale-[1.02] active:scale-95
         ${isAutoResize 
-          ? 'bg-blue-50/80 text-blue-700 hover:bg-blue-100/80 border-blue-200/60 shadow-lg shadow-blue-500/10' 
-          : 'bg-white/60 text-slate-600 hover:bg-white/80 hover:text-slate-900 shadow-sm hover:shadow-lg hover:shadow-black/5'
+          ? 'bg-blue-600/10 text-blue-700 hover:bg-blue-600/15 border-blue-200/80 shadow-sm' 
+          : 'bg-white/90 text-slate-600 hover:bg-white hover:text-slate-900 shadow-sm hover:shadow-md'
         }
       `}
       title={isAutoResize ? "Disable auto-resize" : "Enable auto-resize"}
@@ -1081,10 +1109,10 @@ const FrameResizeToFitButton = memo(({
     <button
       onClick={() => onResize(frameId)}
       className="
-        flex items-center gap-2 px-3 py-2.5 rounded-xl transition-all duration-300 ease-out
-        bg-white/60 text-slate-600 hover:bg-white/80 hover:text-slate-900
-        border border-transparent hover:border-slate-200/60
-        shadow-sm hover:shadow-lg hover:shadow-black/5 hover:scale-105 active:scale-95
+        flex items-center gap-2 h-9 px-3 rounded-xl transition-all duration-200 ease-out
+        bg-white/90 text-slate-600 hover:bg-white hover:text-slate-900
+        border border-slate-200/70 hover:border-slate-200
+        shadow-sm hover:shadow-md hover:scale-[1.02] active:scale-95
       "
       title="Resize frame to fit content"
     >
@@ -1145,7 +1173,7 @@ const DownloadOptionsDropdown = memo(({
     return (
       <button
         onClick={onDownloadFiles}
-        className="w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-300 ease-out border bg-white/60 border-transparent hover:border-slate-200/60 hover:scale-105 active:scale-95 shadow-sm hover:shadow-lg hover:shadow-black/5 text-slate-600 hover:text-slate-900"
+        className="w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-200 ease-out border border-slate-200/70 bg-white/90 hover:bg-white hover:border-slate-200 hover:scale-[1.02] active:scale-95 shadow-sm hover:shadow-md text-slate-600 hover:text-slate-900"
         title={mainLabel}
       >
         <Download className="w-4 h-4" />
@@ -1158,7 +1186,7 @@ const DownloadOptionsDropdown = memo(({
       <DropdownMenu open={isOpen} onOpenChange={handleOpenChange}>
         <DropdownMenuTrigger asChild>
           <button
-            className="w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-300 ease-out border bg-white/60 border-transparent hover:border-slate-200/60 hover:scale-105 active:scale-95 shadow-sm hover:shadow-lg hover:shadow-black/5 text-slate-600 hover:text-slate-900 relative group"
+            className="w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-200 ease-out border border-slate-200/70 bg-white/90 hover:bg-white hover:border-slate-200 hover:scale-[1.02] active:scale-95 shadow-sm hover:shadow-md text-slate-600 hover:text-slate-900 relative group"
             title="Download options"
           >
             <Download className="w-4 h-4" />
@@ -1167,7 +1195,7 @@ const DownloadOptionsDropdown = memo(({
         </DropdownMenuTrigger>
         <DropdownMenuContent 
           align="center" 
-          className="w-64 bg-white/95 backdrop-blur-xl border border-gray-200/60 rounded-xl shadow-xl z-50 overflow-visible"
+          className="w-64 bg-white/98 backdrop-blur-xl border border-slate-200/80 rounded-2xl shadow-xl shadow-slate-200/40 z-50 overflow-visible"
           sideOffset={8}
         >
           <div className="py-2">
@@ -1177,14 +1205,14 @@ const DownloadOptionsDropdown = memo(({
                 onDownloadFiles();
                 handleOpenChange(false);
               }}
-              className="flex items-center gap-3 rounded-lg mx-2 px-3 py-3 transition-all duration-200 cursor-pointer hover:bg-blue-50/80 text-gray-700 hover:text-blue-900 hover:shadow-sm"
+              className="flex items-center gap-3 rounded-lg mx-2 px-3 py-3 transition-all duration-200 cursor-pointer hover:bg-blue-50/80 text-slate-700 hover:text-blue-900 hover:shadow-sm"
             >
               <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center flex-shrink-0">
                 <Download className="h-4 w-4 text-blue-600" />
               </div>
               <div className="flex-1 min-w-0">
-                <div className="text-sm font-semibold text-gray-900 truncate">{mainLabel}</div>
-                <div className="text-xs text-gray-500 mt-0.5">
+                <div className="text-sm font-semibold text-slate-900 truncate">{mainLabel}</div>
+                <div className="text-xs text-slate-500 mt-0.5">
                   {hasFiles && `${selectedDownloadableData.filter(i => i.type === "file").length} files`}
                   {hasFiles && (hasImages || hasVideos) && ", "}
                   {hasImages && `${selectedDownloadableData.filter(i => i.type === "image").length} images`}
@@ -1202,14 +1230,14 @@ const DownloadOptionsDropdown = memo(({
                 onExportJSON();
                 handleOpenChange(false);
               }}
-              className="flex items-center gap-3 rounded-lg mx-2 px-3 py-3 transition-all duration-200 cursor-pointer hover:bg-green-50/80 text-gray-700 hover:text-green-900 hover:shadow-sm"
+              className="flex items-center gap-3 rounded-lg mx-2 px-3 py-3 transition-all duration-200 cursor-pointer hover:bg-green-50/80 text-slate-700 hover:text-green-900 hover:shadow-sm"
             >
               <div className="w-8 h-8 rounded-lg bg-green-100 flex items-center justify-center flex-shrink-0">
                 <FileText className="h-4 w-4 text-green-600" />
               </div>
               <div className="flex-1 min-w-0">
-                <div className="text-sm font-semibold text-gray-900">Export as JSON</div>
-                <div className="text-xs text-gray-500 mt-0.5">
+                <div className="text-sm font-semibold text-slate-900">Export as JSON</div>
+                <div className="text-xs text-slate-500 mt-0.5">
                   Save selection data to file
                 </div>
               </div>
@@ -1228,33 +1256,12 @@ CompactAlignmentDropdown.displayName = "CompactAlignmentDropdown";
 DownloadOptionsDropdown.displayName = "DownloadOptionsDropdown";
 
 // Selection tooltip component - appears above each tool individually
-const SelectionTooltip = ({ children, label, isVisible }: { 
+const SelectionTooltip = ({ children }: { 
   children: React.ReactNode; 
   label: string; 
-  isVisible: boolean 
+  isVisible: boolean; 
 }) => {
-  return (
-    <div className="relative">
-      {children}
-      {isVisible && label && (
-        <div className="absolute -top-12 left-1/2 -translate-x-1/2 z-50 animate-in fade-in-0 slide-in-from-bottom-4 duration-200 ease-out">
-          <div className="relative">
-            {/* Background piatto senza glassmorphism */}
-            <div className="border border-gray-200/60 text-gray-900 px-3 py-2 rounded-lg shadow-lg text-xs font-medium whitespace-nowrap" style={{ backgroundColor: '#fcfcfc' }}>
-              {/* Content con testo nero */}
-              <span className="relative z-10 tracking-wide text-gray-900">{label}</span>
-            </div>
-            
-            {/* Arrow che punta verso il basso */}
-            <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-px">
-              <div className="w-0 h-0 border-l-[5px] border-r-[5px] border-t-[5px] border-transparent" style={{ borderTopColor: '#fcfcfc' }} />
-              <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-px w-0 h-0 border-l-[4px] border-r-[4px] border-t-[4px] border-transparent border-t-gray-200/60" />
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
+  return <>{children}</>;
 };
 
 export const SelectionTools = memo(
@@ -1278,7 +1285,8 @@ export const SelectionTools = memo(
     // Mobile support
     isTouchDevice,
     // Board ID for review mode
-    boardId
+    boardId,
+    embedded = false
   }: SelectionToolsProps) => {
     const selection = useSelf((me) => me.presence.selection);
     const { bringToFront, sendToBack } = useLayerOrdering();
@@ -1336,6 +1344,8 @@ export const SelectionTools = memo(
       { label: 'Georgia', value: "Georgia, 'Times New Roman', Times, serif" },
       { label: 'Mono', value: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace" },
     ];
+    const normalizeFontKey = (value?: string) =>
+      (value ? value.split(",")[0].replace(/['"]/g, "").trim().toLowerCase() : "");
 
     const setFontFamily = useMutation(({ storage }, fontFamily: string) => {
       const liveLayers = storage.get('layers');
@@ -1346,6 +1356,22 @@ export const SelectionTools = memo(
         }
       });
     }, [selection]);
+
+    const currentFontFamily = useStorage((root) => {
+      const families = selection
+        .map(id => root.layers.get(id))
+        .filter(layer => layer && (layer.type === LayerType.Text || layer.type === LayerType.Note))
+        .map(layer => (layer as any).fontFamily as string | undefined)
+        .filter(Boolean);
+
+      return families.length > 0 && families.every(family => family === families[0])
+        ? (families[0] as string)
+        : undefined;
+    });
+    const currentFontKey = normalizeFontKey(currentFontFamily);
+    const currentFontLabel =
+      FONT_FAMILIES.find((ff) => normalizeFontKey(ff.value) === currentFontKey)?.label ||
+      (currentFontFamily ? currentFontFamily.split(",")[0].replace(/['"]/g, "") : "Mixed");
 
   // Helper: export selected frame using presets from main toolbar module
   const exportPresets = [
@@ -2169,10 +2195,15 @@ export const SelectionTools = memo(
     
     return (
       <div className="relative z-30">
-        {/* Contenitore principale con design piatto - OVERFLOW VISIBLE - Dimensioni ridotte */}
-        <div className="border border-gray-200/60 rounded-xl shadow-md p-2 mb-2 relative overflow-visible scale-90" style={{ backgroundColor: '#fcfcfc' }}>
-          
-          <div className="flex items-center gap-x-1.5 relative z-10 flex-wrap overflow-visible">{/* Overflow visible on flex container too */}
+        {/* Contenitore principale - moderno, leggero e allineato alla toolbar */}
+        <div
+          className={
+            embedded
+              ? "relative overflow-visible px-1 py-1"
+              : "border border-slate-200/80 bg-white/95 backdrop-blur-md rounded-2xl shadow-xl shadow-slate-200/40 px-3 py-2 mb-3 relative overflow-visible"
+          }
+        >
+          <div className="flex items-center gap-x-2 gap-y-1.5 relative z-10 flex-wrap overflow-visible">{/* Overflow visible on flex container too */}
                           {/* Style controls group - compact layout */}
             <div className="flex items-center gap-x-1.5">
               {/* Color control - show if elements are selected OR pencil is active */}
@@ -2208,7 +2239,7 @@ export const SelectionTools = memo(
                   >
                     <button
                       onClick={toggleShadow}
-                      className="px-3 py-1.5 text-xs font-medium bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-md transition-colors duration-200"
+                      className={`${CONTROL_BUTTON_CLASSES} font-medium`}
                       title="Toggle shadow"
                     >
                       Shadows
@@ -2240,13 +2271,26 @@ export const SelectionTools = memo(
                     <div onMouseEnter={() => handleMouseEnter("Font")} onMouseLeave={handleMouseLeave}>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <button className="h-8 px-2 rounded-md border text-sm flex items-center gap-1">
-                            <Type className="w-4 h-4" /> Font
+                          <button className={`${CONTROL_BUTTON_CLASSES} justify-between`}>
+                            <span className="flex items-center gap-2">
+                              <Type className="w-4 h-4 text-slate-500" />
+                              <span className="font-medium text-slate-700">font</span>
+                            </span>
+                            <span className="flex items-center gap-2 text-xs text-slate-500">
+                              <span className="font-mono">{currentFontLabel}</span>
+                              <ChevronDown className="w-3 h-3 text-slate-500" />
+                            </span>
                           </button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent className="w-44" align="start" onCloseAutoFocus={(e) => e.preventDefault()}>
+                        <DropdownMenuContent className={`${CONTROL_DROPDOWN_MENU} w-44 p-3`} align="start" onCloseAutoFocus={(e) => e.preventDefault()}>
                           {FONT_FAMILIES.map(ff => (
-                            <DropdownMenuItem key={ff.label} onClick={() => setFontFamily(ff.value)}>
+                            <DropdownMenuItem
+                              key={ff.label}
+                              onClick={() => setFontFamily(ff.value)}
+                              className={`${CONTROL_MENU_ITEM} ${
+                                normalizeFontKey(ff.value) === currentFontKey ? CONTROL_MENU_ITEM_ACTIVE : ""
+                              }`}
+                            >
                               <span style={{ fontFamily: ff.value }}>{ff.label}</span>
                             </DropdownMenuItem>
                           ))}
@@ -2347,7 +2391,7 @@ export const SelectionTools = memo(
                       {/* <SelectionTooltip label="Download PNG" isVisible={shouldShowSelectionTooltip("Download PNG")}>
                         <div onMouseEnter={() => handleMouseEnter("Download PNG")} onMouseLeave={handleMouseLeave}>
                           <button 
-                            className="h-10 px-3 rounded-xl border text-sm flex items-center gap-2 bg-white/60 hover:bg-white/80 transition-all duration-200"
+                            className="h-9 px-3 rounded-xl border text-sm flex items-center gap-2 bg-white/60 hover:bg-white/80 transition-all duration-200"
                             onClick={async () => {
                               const frame = selectedFramesData[0];
                               await exportFrameWithNativeDimensions(frame.id, frame.width, frame.height);
@@ -2395,7 +2439,7 @@ export const SelectionTools = memo(
                     <button
                       onClick={() => setShowReviewModal(true)}
                       title="Open in Review Mode"
-                      className="w-10 h-10 bg-gradient-to-br from-gray-800 to-black rounded-xl flex items-center justify-center text-white font-bold text-base shadow-lg hover:shadow-xl hover:scale-105 transition-all duration-200 border border-gray-700/50"
+                      className="w-9 h-9 bg-blue-600/10 rounded-xl flex items-center justify-center text-blue-700 font-semibold text-sm shadow-sm hover:shadow-md hover:scale-[1.03] transition-all duration-200 border border-blue-200"
                     >
                       R
                     </button>
@@ -2448,7 +2492,7 @@ export const SelectionTools = memo(
             {(selectionBounds && selection.length > 0) && (
               <>
                 {/* Separatore moderno con gradient matching toolbar */}
-                <div className="w-px h-8 bg-gradient-to-b from-transparent via-slate-300/60 to-transparent mx-2" />
+                <div className="w-px h-7 bg-gradient-to-b from-transparent via-slate-200/80 to-transparent mx-2" />
 
                 {/* Layer order controls group */}
                 <div className="flex items-center gap-x-1">
@@ -2479,7 +2523,7 @@ export const SelectionTools = memo(
                 {hasMultipleSelection && (
                   <>
                     {/* Separatore moderno con gradient matching toolbar */}
-                    <div className="w-px h-8 bg-gradient-to-b from-transparent via-slate-300/60 to-transparent mx-2" />
+                    <div className="w-px h-7 bg-gradient-to-b from-transparent via-slate-200/80 to-transparent mx-2" />
                     
                     {/* Compact Alignment dropdown */}
                     <SelectionTooltip label="Alignment & Distribution" isVisible={shouldShowSelectionTooltip("Alignment & Distribution", "alignment")}>
@@ -2518,7 +2562,7 @@ export const SelectionTools = memo(
                 )}
 
                 {/* Separatore moderno con gradient matching toolbar */}
-                <div className="w-px h-8 bg-gradient-to-b from-transparent via-slate-300/60 to-transparent mx-2" />
+                <div className="w-px h-7 bg-gradient-to-b from-transparent via-slate-200/80 to-transparent mx-2" />
 
                 {/* Delete action */}
                 <SelectionTooltip label="Delete" isVisible={shouldShowSelectionTooltip("Delete")}>

@@ -10,29 +10,29 @@ type ColorPickerProps = {
 };
 
 const COLORS = [
-  // Prima riga - colori primari
-  { r: 243, g: 82, b: 35 },   // Rosso
-  { r: 255, g: 198, b: 0 },   // Giallo
-  { r: 68, g: 202, b: 99 },   // Verde
-  { r: 39, g: 142, b: 237 },  // Blu
-  
-  // Seconda riga - colori pastello
-  { r: 255, g: 163, b: 177 }, // Rosa
-  { r: 255, g: 236, b: 153 }, // Giallo chiaro
-  { r: 154, g: 240, b: 184 }, // Verde chiaro
-  { r: 155, g: 105, b: 245 }, // Viola
-  
-  // Terza riga - Toni di grigio
-  { r: 0, g: 0, b: 0 },       // Nero
-  { r: 55, g: 65, b: 81 },    // Grigio molto scuro (gray-700)
-  { r: 107, g: 114, b: 128 }, // Grigio scuro (gray-500)
-  { r: 156, g: 163, b: 175 }, // Grigio medio (gray-400)
-  
-  // Quarta riga - Toni di grigio chiari
-  { r: 209, g: 213, b: 219 }, // Grigio chiaro (gray-300)
-  { r: 229, g: 231, b: 235 }, // Grigio molto chiaro (gray-200)
-  { r: 243, g: 244, b: 246 }, // Grigio chiarissimo (gray-100)
-  { r: 255, g: 255, b: 255 }, // Bianco
+  // Row 1 - vibrant accents
+  { r: 76, g: 109, b: 255 },  // Electric Blue
+  { r: 34, g: 211, b: 202 },  // Fresh Teal
+  { r: 255, g: 107, b: 107 }, // Coral
+  { r: 255, g: 193, b: 72 },  // Amber
+
+  // Row 2 - soft moderns
+  { r: 183, g: 148, b: 255 }, // Violet
+  { r: 125, g: 193, b: 255 }, // Sky
+  { r: 255, g: 167, b: 120 }, // Peach
+  { r: 169, g: 232, b: 114 }, // Lime
+
+  // Row 3 - neutral anchors
+  { r: 17, g: 24, b: 39 },    // Charcoal
+  { r: 51, g: 65, b: 85 },    // Slate
+  { r: 100, g: 116, b: 139 }, // Steel
+  { r: 148, g: 163, b: 184 }, // Mist
+
+  // Row 4 - light neutrals
+  { r: 203, g: 213, b: 225 }, // Light
+  { r: 226, g: 232, b: 240 }, // Cloud
+  { r: 241, g: 245, b: 249 }, // Fog
+  { r: 255, g: 255, b: 255 }, // White
 ];
 
 export const ColorPicker = ({ onChange, currentColor }: ColorPickerProps) => {

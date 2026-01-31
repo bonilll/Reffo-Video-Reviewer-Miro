@@ -21,8 +21,8 @@ export const MasonrySettingsModal = ({ onApply, onClose }: MasonrySettingsProps)
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg p-6 w-[320px] shadow-xl">
-        <h3 className="text-lg font-semibold mb-4">Impostazioni Masonry Grid</h3>
+      <div className="bg-white rounded-2xl border border-slate-200/80 p-6 w-[320px] shadow-xl">
+        <h3 className="text-lg font-semibold text-slate-900 mb-4">Impostazioni Masonry Grid</h3>
         
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
@@ -35,7 +35,7 @@ export const MasonrySettingsModal = ({ onApply, onClose }: MasonrySettingsProps)
               max={6}
               value={settings.columns}
               onChange={(e) => setSettings(prev => ({ ...prev, columns: parseInt(e.target.value) }))}
-              className="w-full px-3 py-2 border rounded-md"
+              className="w-full px-3 py-2 border border-slate-200 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/30"
             />
           </div>
 
@@ -49,7 +49,7 @@ export const MasonrySettingsModal = ({ onApply, onClose }: MasonrySettingsProps)
               max={100}
               value={settings.gapX}
               onChange={(e) => setSettings(prev => ({ ...prev, gapX: parseInt(e.target.value) }))}
-              className="w-full px-3 py-2 border rounded-md"
+              className="w-full px-3 py-2 border border-slate-200 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/30"
             />
           </div>
 
@@ -63,7 +63,7 @@ export const MasonrySettingsModal = ({ onApply, onClose }: MasonrySettingsProps)
               max={100}
               value={settings.gapY}
               onChange={(e) => setSettings(prev => ({ ...prev, gapY: parseInt(e.target.value) }))}
-              className="w-full px-3 py-2 border rounded-md"
+              className="w-full px-3 py-2 border border-slate-200 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/30"
             />
           </div>
 
@@ -84,13 +84,13 @@ export const MasonrySettingsModal = ({ onApply, onClose }: MasonrySettingsProps)
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-md"
+              className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-md"
             >
               Annulla
             </button>
             <button
               type="submit"
-              className="px-4 py-2 text-sm font-medium text-white bg-black hover:bg-black/90 rounded-md"
+              className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md"
             >
               Applica
             </button>

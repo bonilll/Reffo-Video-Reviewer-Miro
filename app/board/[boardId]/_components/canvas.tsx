@@ -3965,8 +3965,8 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
         } ${isTouchDevice ? 'mobile-canvas' : ''}`}
         style={{ backgroundColor: gridConfig.backgroundColor }}
       >
-      <Info boardId={boardId} />
-      <Participants />
+      <Info boardId={boardId} projectId={projectId} />
+      <Participants boardId={boardId} onOpenShare={onOpenShare} />
       <SecureToolbar
         canvasState={canvasState}
         setCanvasState={setCanvasState}

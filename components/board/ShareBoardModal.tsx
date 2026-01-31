@@ -149,7 +149,7 @@ export const ShareBoardModal = ({ boardId, isOpen, onClose }: ShareBoardModalPro
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => (!open ? onClose() : null)}>
-      <DialogContent className="max-w-xl">
+      <DialogContent className="max-w-xl bg-white text-slate-900 border border-slate-200/80 shadow-xl">
         <DialogHeader>
           <DialogTitle>Share board</DialogTitle>
           <DialogDescription>
@@ -158,10 +158,10 @@ export const ShareBoardModal = ({ boardId, isOpen, onClose }: ShareBoardModalPro
         </DialogHeader>
 
         <div className="space-y-4">
-          <div className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/5 px-4 py-3 text-sm">
+          <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200/70 bg-slate-50 px-4 py-3 text-sm">
             <div className="flex flex-col">
               <span className="text-xs text-muted-foreground">Share link</span>
-              <span className="font-medium text-white/80">{url || "—"}</span>
+              <span className="font-medium text-slate-700">{url || "—"}</span>
             </div>
             <Button variant="secondary" size="sm" onClick={onCopy} disabled={!url}>
               <Copy className="mr-2 h-4 w-4" /> Copy
@@ -207,10 +207,10 @@ export const ShareBoardModal = ({ boardId, isOpen, onClose }: ShareBoardModalPro
           <div className="space-y-3">
             <div>
               <p className="text-xs uppercase tracking-wide text-muted-foreground">Owner</p>
-              <div className="mt-2 flex items-center justify-between rounded-xl border border-white/10 bg-black/5 px-4 py-3">
+              <div className="mt-2 flex items-center justify-between rounded-xl border border-slate-200/70 bg-slate-50 px-4 py-3">
                 <div>
-                  <p className="text-sm font-semibold text-white/80">{sharingInfo?.owner?.name ?? "Owner"}</p>
-                  <p className="text-xs text-white/50">{sharingInfo?.owner?.email ?? ""}</p>
+                  <p className="text-sm font-semibold text-slate-800">{sharingInfo?.owner?.name ?? "Owner"}</p>
+                  <p className="text-xs text-slate-500">{sharingInfo?.owner?.email ?? ""}</p>
                 </div>
                 <Badge variant="secondary">Owner</Badge>
               </div>
@@ -220,18 +220,18 @@ export const ShareBoardModal = ({ boardId, isOpen, onClose }: ShareBoardModalPro
               <p className="text-xs uppercase tracking-wide text-muted-foreground">Members</p>
               <div className="mt-2 space-y-2">
                 {(sharingInfo?.members ?? []).length === 0 ? (
-                  <div className="rounded-xl border border-dashed border-white/10 bg-black/5 px-4 py-4 text-sm text-white/50">
+                  <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-500">
                     No members yet.
                   </div>
                 ) : (
                   (sharingInfo?.members ?? []).map((member) => (
                     <div
                       key={member.id}
-                      className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/5 px-4 py-3"
+                      className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200/70 bg-slate-50 px-4 py-3"
                     >
                       <div>
-                        <p className="text-sm font-semibold text-white/80">{member.name || member.email}</p>
-                        <p className="text-xs text-white/50">{member.email}</p>
+                        <p className="text-sm font-semibold text-slate-800">{member.name || member.email}</p>
+                        <p className="text-xs text-slate-500">{member.email}</p>
                       </div>
                       <div className="flex items-center gap-2">
                         {isOwner ? (

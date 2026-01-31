@@ -384,7 +384,7 @@ export const LibraryModal = ({
             <div className="library-modal-header flex flex-col md:flex-row items-start md:items-center justify-between px-4 md:px-6 py-4 bg-white/95 backdrop-blur-sm border-b border-gray-200/60 shadow-sm flex-shrink-0 gap-4 md:gap-0">
               {/* Left section - Title and description */}
               <div className="flex items-center gap-3 w-full md:w-auto">
-                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-gray-800 to-gray-900 flex items-center justify-center shadow-sm">
+                <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center shadow-sm">
                   <Download className="h-4 w-4 text-white" />
                 </div>
                 <div className="flex-1 md:flex-none">
@@ -453,7 +453,7 @@ export const LibraryModal = ({
                 {/* Selection counter */}
                 {selectedItems.length > 0 && (
                   <div className="flex items-center gap-2 w-full sm:w-auto">
-                    <div className="w-6 h-6 rounded-full bg-gradient-to-r from-gray-700 to-gray-800 flex items-center justify-center shadow-sm">
+                    <div className="w-6 h-6 rounded-full bg-blue-600 flex items-center justify-center shadow-sm">
                       <span className="text-xs font-medium text-white">
                         {selectedItems.length}
                       </span>
@@ -471,7 +471,7 @@ export const LibraryModal = ({
                   <Button 
                     onClick={handleImport} 
                     disabled={isImporting}
-                    className="library-modal-import-btn bg-gradient-to-r from-gray-800 to-gray-900 hover:from-gray-900 hover:to-black text-white font-medium px-4 md:px-6 py-2.5 rounded-xl transition-all duration-200 shadow-sm hover:shadow-md flex-1 md:flex-none"
+                    className="library-modal-import-btn bg-blue-600 hover:bg-blue-700 text-white font-medium px-4 md:px-6 py-2.5 rounded-xl transition-all duration-200 shadow-sm hover:shadow-md flex-1 md:flex-none"
                   >
                     {isImporting ? (
                       <>

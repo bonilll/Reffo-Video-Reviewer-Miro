@@ -29,23 +29,17 @@ import {
   MessageSquare,
   Frame,
   Paintbrush,
-  ArrowRight,
   Calendar,
   BookOpen,
   Sparkles,
-  AlignLeft,
   StickyNote as PostIt,
-  PenTool,
   Layers,
   Archive,
   CheckSquare,
   CalendarDays,
   Database,
   Package,
-  Pen,
   Library,
-  MousePointer,
-  Upload,
   Menu,
   X,
   MoreHorizontal,
@@ -78,33 +72,12 @@ import {
 import { GridSettings, GridConfig } from "./grid-settings";
 
 // Individual tool tooltip component - appears above each tool individually
-const ToolTooltip = ({ children, label, isVisible }: { 
+const ToolTooltip = ({ children }: { 
   children: React.ReactNode; 
   label: string; 
-  isVisible: boolean 
+  isVisible: boolean; 
 }) => {
-  return (
-    <div className="relative">
-      {children}
-      {isVisible && label && (
-        <div className="absolute -top-12 left-1/2 -translate-x-1/2 z-50 animate-in fade-in-0 slide-in-from-bottom-4 duration-200 ease-out">
-          <div className="relative">
-            {/* Background piatto senza glassmorphism */}
-            <div className="border border-gray-200/60 text-gray-900 px-3 py-2 rounded-lg shadow-lg text-xs font-medium whitespace-nowrap" style={{ backgroundColor: '#fcfcfc' }}>
-              {/* Content con testo nero */}
-              <span className="relative z-10 tracking-wide text-gray-900">{label}</span>
-            </div>
-            
-            {/* Arrow che punta verso il basso */}
-            <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-px">
-              <div className="w-0 h-0 border-l-[5px] border-r-[5px] border-t-[5px] border-transparent" style={{ borderTopColor: '#fcfcfc' }} />
-              <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-px w-0 h-0 border-l-[4px] border-r-[4px] border-t-[4px] border-transparent border-t-gray-200/60" />
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
+  return <>{children}</>;
 };
 
 const ENABLE_LIBRARY = false;
@@ -194,7 +167,7 @@ const MobileSelectionBar = ({
 
   return (
     <div className="fixed bottom-20 left-4 right-4 z-40 mobile-selection-bar">
-      <div className="border border-gray-200/60 rounded-2xl shadow-lg" style={{ backgroundColor: '#fcfcfc' }}>
+      <div className="border border-slate-200/80 bg-white/95 backdrop-blur-md rounded-2xl shadow-xl shadow-slate-200/40">
         {/* Prima riga - Controlli essenziali sempre visibili */}
         <div className="p-3">
           <div className="flex items-center gap-3 flex-wrap">
@@ -252,9 +225,6 @@ const MobileToolbar = ({
   boardId,
   gridConfig,
   onGridConfigChange,
-  autoSaveToLibrary,
-  onAutoSaveToLibraryChange,
-  canEnableAutoSave = true,
   lastShapeTool,
   setLastShapeTool,
   handleHover,
@@ -279,9 +249,6 @@ const MobileToolbar = ({
   boardId: string;
   gridConfig?: GridConfig;
   onGridConfigChange?: (config: GridConfig) => void;
-  autoSaveToLibrary?: boolean;
-  onAutoSaveToLibraryChange?: (enabled: boolean) => void;
-  canEnableAutoSave?: boolean;
   lastShapeTool: LayerType.Rectangle | LayerType.Ellipse | LayerType.Arrow | LayerType.Line;
   setLastShapeTool: (tool: LayerType.Rectangle | LayerType.Ellipse | LayerType.Arrow | LayerType.Line) => void;
   handleHover: (label: string) => void;
@@ -293,20 +260,6 @@ const MobileToolbar = ({
   isViewer?: boolean;
 }) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const openFilePicker = () => {
-    window.dispatchEvent(new CustomEvent("board-upload-open"));
-    setIsMenuOpen(false);
-  };
-
-  const getShapeIcon = (shapeType: LayerType.Rectangle | LayerType.Ellipse | LayerType.Arrow | LayerType.Line) => {
-    switch (shapeType) {
-      case LayerType.Rectangle: return Square;
-      case LayerType.Ellipse: return Circle;
-      case LayerType.Arrow: return ArrowRight;
-      case LayerType.Line: return Minus;
-      default: return Square;
-    }
-  };
 
   const setShapeTool = (layerType: LayerType.Rectangle | LayerType.Ellipse | LayerType.Arrow | LayerType.Line) => {
     setCanvasState({
@@ -320,7 +273,7 @@ const MobileToolbar = ({
   // Primary tools sempre visibili
   const primaryTools = [
     {
-      icon: MousePointer,
+      icon: MousePointer2,
       label: "Selection",
       onClick: () => setCanvasState({ mode: CanvasMode.None }),
       isActive: canvasState.mode === CanvasMode.None ||
@@ -345,7 +298,7 @@ const MobileToolbar = ({
 
   return (
     <div className="fixed bottom-4 left-4 right-4 z-50">
-      <div className="border border-gray-200/60 rounded-2xl shadow-lg p-3" style={{ backgroundColor: '#fcfcfc' }}>
+      <div className="border border-slate-200/80 bg-white/95 backdrop-blur-md rounded-2xl shadow-xl shadow-slate-200/40 p-3">
         <div className="flex items-center justify-between">
           {/* Primary Tools */}
           <div className="flex items-center gap-2">
@@ -364,15 +317,15 @@ const MobileToolbar = ({
           </div>
 
           {/* Zoom Display */}
-          <div className="flex items-center gap-2 px-3 py-2 bg-gray-100/80 rounded-xl">
-            <span className="text-sm font-semibold text-gray-700">{zoomPercentage}%</span>
+          <div className="flex items-center gap-2 h-10 px-3 bg-slate-100/80 rounded-xl">
+            <span className="text-sm font-semibold text-slate-700">{zoomPercentage}%</span>
           </div>
 
           {/* Menu Button */}
           <DropdownMenu open={isMenuOpen} onOpenChange={setIsMenuOpen}>
             <DropdownMenuTrigger asChild>
               <button
-                className="w-12 h-12 rounded-xl flex items-center justify-center bg-blue-500 hover:bg-blue-600 text-white shadow-lg transition-all duration-200"
+                className="w-10 h-10 rounded-xl flex items-center justify-center bg-blue-600 hover:bg-blue-700 text-white shadow-md transition-all duration-200"
                 onMouseEnter={() => handleHover("Menu")}
                 onMouseLeave={handleHoverEnd}
               >
@@ -381,8 +334,7 @@ const MobileToolbar = ({
             </DropdownMenuTrigger>
             <DropdownMenuContent 
               align="end" 
-              className="w-72 border border-gray-200/60 shadow-lg rounded-2xl p-4 mb-2"
-              style={{ backgroundColor: '#fcfcfc' }}
+              className="w-72 border border-slate-200/80 bg-white/98 shadow-xl shadow-slate-200/40 rounded-2xl p-4 mb-2"
               sideOffset={8}
             >
               {/* Tools Section */}
@@ -395,9 +347,9 @@ const MobileToolbar = ({
                       setCanvasState({ mode: CanvasMode.Inserting, layerType: LayerType.Text });
                       setIsMenuOpen(false);
                     }}
-                    className="flex items-center gap-3 rounded-xl px-3 py-3 hover:bg-gray-100/80 cursor-pointer"
+                    className="flex items-center gap-3 rounded-xl px-3 py-3 hover:bg-slate-100/80 cursor-pointer"
                   >
-                    <AlignLeft className="h-5 w-5" />
+                    <Type className="h-5 w-5" />
                     <span className="text-sm">Text</span>
                   </DropdownMenuItem>
                   
@@ -406,21 +358,11 @@ const MobileToolbar = ({
                       setCanvasState({ mode: CanvasMode.Pencil });
                       setIsMenuOpen(false);
                     }}
-                    className="flex items-center gap-3 rounded-xl px-3 py-3 hover:bg-gray-100/80 cursor-pointer"
+                    className="flex items-center gap-3 rounded-xl px-3 py-3 hover:bg-slate-100/80 cursor-pointer"
                   >
-                    <Pen className="h-5 w-5" />
+                    <Pencil className="h-5 w-5" />
                     <span className="text-sm">Pen</span>
                   </DropdownMenuItem>
-
-                  {!isViewer && (
-                    <DropdownMenuItem
-                      onClick={openFilePicker}
-                      className="flex items-center gap-3 rounded-xl px-3 py-3 hover:bg-gray-100/80 cursor-pointer"
-                    >
-                      <Upload className="h-5 w-5" />
-                      <span className="text-sm">Upload</span>
-                    </DropdownMenuItem>
-                  )}
                 </div>
 
                 {/* Shapes Section */}
@@ -429,28 +371,28 @@ const MobileToolbar = ({
                   <div className="grid grid-cols-2 gap-2">
                     <DropdownMenuItem
                       onClick={() => setShapeTool(LayerType.Rectangle)}
-                      className="flex items-center gap-3 rounded-xl px-3 py-2 hover:bg-gray-100/80 cursor-pointer"
+                      className="flex items-center gap-3 rounded-xl px-3 py-2 hover:bg-slate-100/80 cursor-pointer"
                     >
                       <Square className="h-4 w-4" />
                       <span className="text-sm">Rectangle</span>
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       onClick={() => setShapeTool(LayerType.Ellipse)}
-                      className="flex items-center gap-3 rounded-xl px-3 py-2 hover:bg-gray-100/80 cursor-pointer"
+                      className="flex items-center gap-3 rounded-xl px-3 py-2 hover:bg-slate-100/80 cursor-pointer"
                     >
                       <Circle className="h-4 w-4" />
                       <span className="text-sm">Circle</span>
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       onClick={() => setShapeTool(LayerType.Arrow)}
-                      className="flex items-center gap-3 rounded-xl px-3 py-2 hover:bg-gray-100/80 cursor-pointer"
+                      className="flex items-center gap-3 rounded-xl px-3 py-2 hover:bg-slate-100/80 cursor-pointer"
                     >
                       <ArrowUpRight className="h-4 w-4" />
                       <span className="text-sm">Arrow</span>
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       onClick={() => setShapeTool(LayerType.Line)}
-                      className="flex items-center gap-3 rounded-xl px-3 py-2 hover:bg-gray-100/80 cursor-pointer"
+                      className="flex items-center gap-3 rounded-xl px-3 py-2 hover:bg-slate-100/80 cursor-pointer"
                     >
                       <Minus className="h-4 w-4" />
                       <span className="text-sm">Line</span>
@@ -472,7 +414,7 @@ const MobileToolbar = ({
                       setIsMenuOpen(false);
                     }}
                     disabled={!canUndo}
-                    className="flex items-center gap-3 rounded-xl px-3 py-2 hover:bg-gray-100/80 cursor-pointer flex-1"
+                    className="flex items-center gap-3 rounded-xl px-3 py-2 hover:bg-slate-100/80 cursor-pointer flex-1"
                   >
                     <RotateCcw className="h-4 w-4" />
                     <span className="text-sm">Undo</span>
@@ -484,7 +426,7 @@ const MobileToolbar = ({
                       setIsMenuOpen(false);
                     }}
                     disabled={!canRedo}
-                    className="flex items-center gap-3 rounded-xl px-3 py-2 hover:bg-gray-100/80 cursor-pointer flex-1"
+                    className="flex items-center gap-3 rounded-xl px-3 py-2 hover:bg-slate-100/80 cursor-pointer flex-1"
                   >
                     <RotateCw className="h-4 w-4" />
                     <span className="text-sm">Redo</span>
@@ -500,7 +442,7 @@ const MobileToolbar = ({
                         const newScale = Math.max(0.1, camera.scale * 0.8);
                         setCamera({ ...camera, scale: newScale });
                       }}
-                      className="flex items-center justify-center w-10 h-10 rounded-xl bg-gray-100 hover:bg-gray-200 transition-colors"
+                      className="flex items-center justify-center w-10 h-10 rounded-xl bg-slate-100 hover:bg-slate-200 transition-colors"
                     >
                       <ZoomOut className="h-4 w-4" />
                     </button>
@@ -515,8 +457,8 @@ const MobileToolbar = ({
                           }}
                           className={`px-2 py-1 rounded-lg text-xs font-medium transition-colors ${
                             Math.abs(camera.scale - zoom) < 0.01
-                              ? 'bg-blue-500 text-white'
-                              : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+                              ? 'bg-blue-600/10 text-blue-700'
+                              : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
                           }`}
                         >
                           {Math.round(zoom * 100)}%
@@ -529,7 +471,7 @@ const MobileToolbar = ({
                         const newScale = Math.min(5, camera.scale * 1.2);
                         setCamera({ ...camera, scale: newScale });
                       }}
-                      className="flex items-center justify-center w-10 h-10 rounded-xl bg-gray-100 hover:bg-gray-200 transition-colors"
+                      className="flex items-center justify-center w-10 h-10 rounded-xl bg-slate-100 hover:bg-slate-200 transition-colors"
                     >
                       <ZoomIn className="h-4 w-4" />
                     </button>
@@ -542,7 +484,7 @@ const MobileToolbar = ({
                       centerOnLayers();
                       setIsMenuOpen(false);
                     }}
-                    className="flex items-center gap-3 rounded-xl px-3 py-2 hover:bg-gray-100/80 cursor-pointer"
+                    className="flex items-center gap-3 rounded-xl px-3 py-2 hover:bg-slate-100/80 cursor-pointer"
                   >
                     <Focus className="h-4 w-4" />
                     <span className="text-sm">Fit to screen</span>
@@ -571,33 +513,6 @@ const MobileToolbar = ({
                   )}
                 </div>
 
-                {onAutoSaveToLibraryChange && (
-                  <div className="flex items-center justify-between px-2">
-                    <span className={`text-sm ${!canEnableAutoSave && !autoSaveToLibrary ? 'text-gray-400' : 'text-gray-700'}`}>
-                      Auto-save
-                      {!canEnableAutoSave && !autoSaveToLibrary && (
-                        <span className="text-xs text-red-500 block">Storage limit reached</span>
-                      )}
-                    </span>
-                    <button
-                      onClick={() => onAutoSaveToLibraryChange(!autoSaveToLibrary)}
-                      disabled={!canEnableAutoSave && !autoSaveToLibrary}
-                      className={`w-12 h-6 rounded-full transition-colors ${
-                        !canEnableAutoSave && !autoSaveToLibrary
-                          ? 'bg-red-200 cursor-not-allowed'
-                          : autoSaveToLibrary 
-                            ? 'bg-green-500' 
-                            : 'bg-gray-300'
-                      }`}
-                    >
-                      <div className={`w-5 h-5 bg-white rounded-full shadow transition-transform ${
-                        autoSaveToLibrary ? 'translate-x-6' : 'translate-x-0.5'
-                      }`} />
-                    </button>
-                  </div>
-                )}
-                
-
               </div>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -622,9 +537,6 @@ export const Toolbar = ({
   boardId,
   gridConfig,
   onGridConfigChange,
-  autoSaveToLibrary,
-  onAutoSaveToLibraryChange,
-  canEnableAutoSave = true,
   pencilStrokeWidth,
   setPencilStrokeWidth,
   lastUsedColor,
@@ -783,30 +695,6 @@ export const Toolbar = ({
     setShowColorPicker(visible);
   };
 
-  const openFilePicker = () => {
-    window.dispatchEvent(new CustomEvent("board-upload-open"));
-  };
-
-  // Funzione per ottenere l'icona dello strumento forma
-  const getShapeIcon = (shapeType: LayerType.Rectangle | LayerType.Ellipse | LayerType.Arrow | LayerType.Line) => {
-    switch (shapeType) {
-      case LayerType.Rectangle: return Square;
-      case LayerType.Ellipse: return Circle;
-      case LayerType.Arrow: return ArrowRight;
-      case LayerType.Line: return Minus;
-      default: return Square;
-    }
-  };
-
-  // Ottieni l'icona attualmente attiva per le forme
-  const currentShapeIcon = ((canvasState.mode === CanvasMode.Inserting || canvasState.mode === CanvasMode.Drawing) && 
-    (canvasState.layerType === LayerType.Rectangle || 
-     canvasState.layerType === LayerType.Ellipse || 
-     canvasState.layerType === LayerType.Arrow || 
-     canvasState.layerType === LayerType.Line))
-    ? getShapeIcon(canvasState.layerType as LayerType.Rectangle | LayerType.Ellipse | LayerType.Arrow | LayerType.Line)
-    : getShapeIcon(lastShapeTool);
-
   // Funzione per impostare lo strumento forma e aggiornare l'ultimo utilizzato
   const setShapeTool = (layerType: LayerType.Rectangle | LayerType.Ellipse | LayerType.Arrow | LayerType.Line) => {
     if (isViewer) {
@@ -865,9 +753,6 @@ export const Toolbar = ({
               boardId={boardId}
               gridConfig={gridConfig}
               onGridConfigChange={onGridConfigChange}
-              autoSaveToLibrary={autoSaveToLibrary}
-              onAutoSaveToLibraryChange={onAutoSaveToLibraryChange}
-              canEnableAutoSave={canEnableAutoSave}
               lastShapeTool={lastShapeTool}
               setLastShapeTool={setLastShapeTool}
               handleHover={handleHover}
@@ -905,37 +790,37 @@ export const Toolbar = ({
       <div className="hidden md:block">
         {/* Fixed positioned container that maintains center regardless of selection tools */}
         <div className="toolbar-container pointer-events-none absolute bottom-6 left-1/2 z-50 flex -translate-x-1/2 flex-col items-center">
-          
-          {/* Selection tools - positioned above with separate container */}
-          {(hasSelection || canvasState.mode === CanvasMode.Pencil) && !isViewer && (
-            <div className="selection-tools-container pointer-events-auto mb-3 w-max">
-              <SelectionTools 
-                camera={camera}
-                setLastUsedColor={setLastUsedColor}
-                onActionHover={handleHover}
-                onActionHoverEnd={handleHoverEnd}
-                onShowColorPicker={handleColorPickerVisibility}
-                containerRef={toolbarRef}
-                pencilStrokeWidth={pencilStrokeWidth}
-                setPencilStrokeWidth={setPencilStrokeWidth}
-                canvasState={canvasState}
-                lastUsedColor={lastUsedColor}
-                setLastUsedFontSize={setLastUsedFontSize}
-                setLastUsedFontWeight={setLastUsedFontWeight}
-                onToggleFrameAutoResize={onToggleFrameAutoResize}
-                onManualFrameResize={onManualFrameResize}
-                isTouchDevice={false}
-                boardId={boardId}
-              />
-            </div>
-          )}
-          
           {/* Main toolbar with fixed width to prevent shifting */}
           <div 
             ref={toolbarRef}
-            className="pointer-events-auto relative w-max rounded-2xl border border-gray-200/60 p-3 shadow-lg"
-            style={{ backgroundColor: '#fcfcfc' }}
+            className="pointer-events-auto relative w-max rounded-2xl border border-slate-200/80 bg-white/95 shadow-xl shadow-slate-200/40 backdrop-blur-md px-2.5 py-2"
           >
+            {(hasSelection || canvasState.mode === CanvasMode.Pencil) && !isViewer && (
+              <>
+                <div className="selection-tools-container w-max">
+                  <SelectionTools 
+                    camera={camera}
+                    setLastUsedColor={setLastUsedColor}
+                    onActionHover={handleHover}
+                    onActionHoverEnd={handleHoverEnd}
+                    onShowColorPicker={handleColorPickerVisibility}
+                    containerRef={toolbarRef}
+                    pencilStrokeWidth={pencilStrokeWidth}
+                    setPencilStrokeWidth={setPencilStrokeWidth}
+                    canvasState={canvasState}
+                    lastUsedColor={lastUsedColor}
+                    setLastUsedFontSize={setLastUsedFontSize}
+                    setLastUsedFontWeight={setLastUsedFontWeight}
+                    onToggleFrameAutoResize={onToggleFrameAutoResize}
+                    onManualFrameResize={onManualFrameResize}
+                    isTouchDevice={false}
+                    boardId={boardId}
+                    embedded
+                  />
+                </div>
+                <div className="my-2 h-px w-full bg-gradient-to-r from-transparent via-slate-200/80 to-transparent" />
+              </>
+            )}
             {/* Content */}
             <div className="relative z-10 flex items-center gap-1.5">
               {/* Gruppo strumenti base - only for non-viewers */}
@@ -949,7 +834,7 @@ export const Toolbar = ({
                       >
                         <ToolButton
                           label=""
-                          icon={MousePointer}
+                          icon={MousePointer2}
                           onClick={() => handleCanvasStateChange({ mode: CanvasMode.None })}
                           isActive={
                             canvasState.mode === CanvasMode.None ||
@@ -969,7 +854,7 @@ export const Toolbar = ({
                       >
                         <ToolButton
                           label=""
-                          icon={AlignLeft}
+                          icon={Type}
                           onClick={() =>
                             handleCanvasStateChange({
                               mode: CanvasMode.Inserting,
@@ -1019,15 +904,15 @@ export const Toolbar = ({
                         <DropdownMenuTrigger asChild>
                           <button 
                             className={`
-                              relative w-11 h-11 rounded-xl flex items-center justify-center
+                              relative w-9 h-9 rounded-xl flex items-center justify-center
                               transition-all duration-300 ease-out group
                               border border-transparent backdrop-blur-sm
                               ${
                                 canvasState.mode === CanvasMode.Inserting && canvasState.layerType === LayerType.Frame
-                                  ? "bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white shadow-xl shadow-slate-900/25 border-slate-700/50 scale-105 ring-2 ring-slate-400/20" 
-                                  : "bg-white/60 text-slate-600 hover:bg-white/80 hover:text-slate-900 hover:border-slate-200/60 hover:shadow-lg hover:shadow-black/5 hover:scale-105 active:scale-95"
+                                  ? "bg-blue-600/10 text-blue-700 border-blue-200 shadow-sm scale-[1.04] ring-1 ring-blue-200/60" 
+                                  : "bg-white/90 text-slate-600 hover:bg-white hover:text-slate-900 hover:border-slate-200 hover:shadow-sm hover:scale-[1.03] active:scale-95"
                               }
-                              focus:outline-none focus:ring-2 focus:ring-slate-500/30 focus:ring-offset-2
+                              focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:ring-offset-2
                               touch-manipulation cursor-pointer
                             `}
                             style={{
@@ -1045,13 +930,13 @@ export const Toolbar = ({
                             </div>
                           </button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="center" className="w-48 bg-white/95 backdrop-blur-2xl border border-gray-200/50 shadow-2xl shadow-black/10 rounded-2xl p-3 mt-2" sideOffset={8}>
+                        <DropdownMenuContent align="center" className="w-48 bg-white/98 backdrop-blur-xl border border-slate-200/80 shadow-xl shadow-slate-200/40 rounded-2xl p-3 mt-2" sideOffset={8}>
                           <DropdownMenuItem
                             onClick={() => {
                               console.log('🖼️ Setting A4 Portrait frame format:', { name: 'A4 Portrait', width: 800, height: 1131 });
                               handleCanvasStateChange({ mode: CanvasMode.Inserting, layerType: LayerType.Frame, frameFormat: { name: 'A4 Portrait', width: 800, height: 1131 } });
                             }}
-                            className="flex items-center gap-3 rounded-xl px-3 py-2.5 transition-all duration-200 cursor-pointer hover:bg-gray-100/80 text-gray-700 hover:text-gray-900 hover:shadow-sm"
+                            className="flex items-center gap-3 rounded-xl px-3 py-2.5 transition-all duration-200 cursor-pointer hover:bg-slate-100/80 text-gray-700 hover:text-gray-900 hover:shadow-sm"
                           >
                             <RectangleHorizontal className="h-4 w-4 rotate-90" />
                             <span className="text-sm font-medium">A4 Portrait</span>
@@ -1061,7 +946,7 @@ export const Toolbar = ({
                               console.log('🖼️ Setting 16:9 frame format:', { name: '16:9', width: 1600, height: 900 });
                               handleCanvasStateChange({ mode: CanvasMode.Inserting, layerType: LayerType.Frame, frameFormat: { name: '16:9', width: 1600, height: 900 } });
                             }}
-                            className="flex items-center gap-3 rounded-xl px-3 py-2.5 transition-all duration-200 cursor-pointer hover:bg-gray-100/80 text-gray-700 hover:text-gray-900 hover:shadow-sm"
+                            className="flex items-center gap-3 rounded-xl px-3 py-2.5 transition-all duration-200 cursor-pointer hover:bg-slate-100/80 text-gray-700 hover:text-gray-900 hover:shadow-sm"
                           >
                             <RectangleHorizontal className="h-4 w-4" />
                             <span className="text-sm font-medium">16:9</span>
@@ -1071,7 +956,7 @@ export const Toolbar = ({
                               console.log('🖼️ Setting 4:3 frame format:', { name: '4:3', width: 1200, height: 900 });
                               handleCanvasStateChange({ mode: CanvasMode.Inserting, layerType: LayerType.Frame, frameFormat: { name: '4:3', width: 1200, height: 900 } });
                             }}
-                            className="flex items-center gap-3 rounded-xl px-3 py-2.5 transition-all duration-200 cursor-pointer hover:bg-gray-100/80 text-gray-700 hover:text-gray-900 hover:shadow-sm"
+                            className="flex items-center gap-3 rounded-xl px-3 py-2.5 transition-all duration-200 cursor-pointer hover:bg-slate-100/80 text-gray-700 hover:text-gray-900 hover:shadow-sm"
                           >
                             <RectangleHorizontal className="h-4 w-4" />
                             <span className="text-sm font-medium">4:3</span>
@@ -1081,7 +966,7 @@ export const Toolbar = ({
                               console.log('🖼️ Setting 1:1 frame format:', { name: '1:1', width: 900, height: 900 });
                               handleCanvasStateChange({ mode: CanvasMode.Inserting, layerType: LayerType.Frame, frameFormat: { name: '1:1', width: 900, height: 900 } });
                             }}
-                            className="flex items-center gap-3 rounded-xl px-3 py-2.5 transition-all duration-200 cursor-pointer hover:bg-gray-100/80 text-gray-700 hover:text-gray-900 hover:shadow-sm"
+                            className="flex items-center gap-3 rounded-xl px-3 py-2.5 transition-all duration-200 cursor-pointer hover:bg-slate-100/80 text-gray-700 hover:text-gray-900 hover:shadow-sm"
                           >
                             <Square className="h-4 w-4" />
                             <span className="text-sm font-medium">1:1 Square</span>
@@ -1089,7 +974,7 @@ export const Toolbar = ({
                           <DropdownMenuSeparator />
                           <DropdownMenuItem
                             onClick={() => handleCanvasStateChange({ mode: CanvasMode.Inserting, layerType: LayerType.Frame })}
-                            className="flex items-center gap-3 rounded-xl px-3 py-2.5 transition-all duration-200 cursor-pointer hover:bg-gray-100/80 text-gray-700 hover:text-gray-900 hover:shadow-sm"
+                            className="flex items-center gap-3 rounded-xl px-3 py-2.5 transition-all duration-200 cursor-pointer hover:bg-slate-100/80 text-gray-700 hover:text-gray-900 hover:shadow-sm"
                           >
                             <Edit3 className="h-4 w-4" />
                             <span className="text-sm">Custom Size</span>
@@ -1110,7 +995,7 @@ export const Toolbar = ({
                         <DropdownMenuTrigger asChild>
                           <button 
                             className={`
-                              relative w-11 h-11 rounded-xl flex items-center justify-center
+                              relative w-9 h-9 rounded-xl flex items-center justify-center
                               transition-all duration-300 ease-out group
                               border border-transparent backdrop-blur-sm
                               ${
@@ -1119,10 +1004,10 @@ export const Toolbar = ({
                                 canvasState.layerType === LayerType.Ellipse || 
                                 canvasState.layerType === LayerType.Arrow || 
                                 canvasState.layerType === LayerType.Line))
-                                ? "bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white shadow-xl shadow-slate-900/25 border-slate-700/50 scale-105 ring-2 ring-slate-400/20" 
-                                : "bg-white/60 text-slate-600 hover:bg-white/80 hover:text-slate-900 hover:border-slate-200/60 hover:shadow-lg hover:shadow-black/5 hover:scale-105 active:scale-95"
+                                ? "bg-blue-600/10 text-blue-700 border-blue-200 shadow-sm scale-[1.04] ring-1 ring-blue-200/60" 
+                                : "bg-white/90 text-slate-600 hover:bg-white hover:text-slate-900 hover:border-slate-200 hover:shadow-sm hover:scale-[1.03] active:scale-95"
                               }
-                              focus:outline-none focus:ring-2 focus:ring-slate-500/30 focus:ring-offset-2
+                              focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:ring-offset-2
                               touch-manipulation cursor-pointer
                             `}
                             style={{
@@ -1133,25 +1018,25 @@ export const Toolbar = ({
                             onMouseLeave={handleHoverEnd}
                           >
                             <div className="relative flex items-center justify-center">
-                              {React.createElement(currentShapeIcon, {
-                                className: `h-5 w-5 transition-all duration-300 ${
+                              <Shapes
+                                className={`h-5 w-5 transition-all duration-300 ${
                                   ((canvasState.mode === CanvasMode.Inserting || canvasState.mode === CanvasMode.Drawing) && 
                                    (canvasState.layerType === LayerType.Rectangle || 
                                     canvasState.layerType === LayerType.Ellipse || 
                                     canvasState.layerType === LayerType.Arrow || 
                                     canvasState.layerType === LayerType.Line)) ? 'drop-shadow-sm' : 'group-hover:scale-110'
-                                }`
-                              })}
+                                }`}
+                              />
                             </div>
                           </button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="center" className="w-48 bg-white/95 backdrop-blur-2xl border border-gray-200/50 shadow-2xl shadow-black/10 rounded-2xl p-3 mt-2" sideOffset={8}>
+                        <DropdownMenuContent align="center" className="w-48 bg-white/98 backdrop-blur-xl border border-slate-200/80 shadow-xl shadow-slate-200/40 rounded-2xl p-3 mt-2" sideOffset={8}>
                           <DropdownMenuItem
                             onClick={() => setShapeTool(LayerType.Rectangle)}
                             className={`flex items-center gap-3 rounded-xl px-3 py-2.5 transition-all duration-200 cursor-pointer ${
                               (canvasState.mode === CanvasMode.Inserting || canvasState.mode === CanvasMode.Drawing) && canvasState.layerType === LayerType.Rectangle
-                                ? 'bg-gray-900 text-white font-semibold shadow-lg shadow-gray-900/25' 
-                                : 'hover:bg-gray-100/80 text-gray-700 hover:text-gray-900 hover:shadow-sm'
+                                ? 'bg-blue-600/10 text-blue-700 font-semibold border border-blue-200 shadow-sm' 
+                                : 'hover:bg-slate-100/80 text-gray-700 hover:text-gray-900 hover:shadow-sm'
                             }`}
                           >
                             <Square className="h-4 w-4" />
@@ -1161,8 +1046,8 @@ export const Toolbar = ({
                             onClick={() => setShapeTool(LayerType.Ellipse)}
                             className={`flex items-center gap-3 rounded-xl px-3 py-2.5 transition-all duration-200 cursor-pointer ${
                               (canvasState.mode === CanvasMode.Inserting || canvasState.mode === CanvasMode.Drawing) && canvasState.layerType === LayerType.Ellipse
-                                ? 'bg-gray-900 text-white font-semibold shadow-lg shadow-gray-900/25' 
-                                : 'hover:bg-gray-100/80 text-gray-700 hover:text-gray-900 hover:shadow-sm'
+                                ? 'bg-blue-600/10 text-blue-700 font-semibold border border-blue-200 shadow-sm' 
+                                : 'hover:bg-slate-100/80 text-gray-700 hover:text-gray-900 hover:shadow-sm'
                             }`}
                           >
                             <Circle className="h-4 w-4" />
@@ -1172,8 +1057,8 @@ export const Toolbar = ({
                             onClick={() => setShapeTool(LayerType.Arrow)}
                             className={`flex items-center gap-3 rounded-xl px-3 py-2.5 transition-all duration-200 cursor-pointer ${
                               (canvasState.mode === CanvasMode.Inserting || canvasState.mode === CanvasMode.Drawing) && canvasState.layerType === LayerType.Arrow
-                                ? 'bg-gray-900 text-white font-semibold shadow-lg shadow-gray-900/25' 
-                                : 'hover:bg-gray-100/80 text-gray-700 hover:text-gray-900 hover:shadow-sm'
+                                ? 'bg-blue-600/10 text-blue-700 font-semibold border border-blue-200 shadow-sm' 
+                                : 'hover:bg-slate-100/80 text-gray-700 hover:text-gray-900 hover:shadow-sm'
                             }`}
                           >
                             <ArrowUpRight className="h-4 w-4" />
@@ -1183,8 +1068,8 @@ export const Toolbar = ({
                             onClick={() => setShapeTool(LayerType.Line)}
                             className={`flex items-center gap-3 rounded-xl px-3 py-2.5 transition-all duration-200 cursor-pointer ${
                               (canvasState.mode === CanvasMode.Inserting || canvasState.mode === CanvasMode.Drawing) && canvasState.layerType === LayerType.Line
-                                ? 'bg-gray-900 text-white font-semibold shadow-lg shadow-gray-900/25' 
-                                : 'hover:bg-gray-100/80 text-gray-700 hover:text-gray-900 hover:shadow-sm'
+                                ? 'bg-blue-600/10 text-blue-700 font-semibold border border-blue-200 shadow-sm' 
+                                : 'hover:bg-slate-100/80 text-gray-700 hover:text-gray-900 hover:shadow-sm'
                             }`}
                           >
                             <Minus className="h-4 w-4" />
@@ -1201,7 +1086,7 @@ export const Toolbar = ({
                       >
                         <ToolButton
                           label=""
-                          icon={Pen}
+                          icon={Pencil}
                           onClick={() =>
                             handleCanvasStateChange({
                               mode: CanvasMode.Pencil,
@@ -1214,7 +1099,7 @@ export const Toolbar = ({
                   </div>
 
                   {/* Separatore dopo strumenti base */}
-                  <div className="w-px h-10 bg-gradient-to-b from-transparent via-slate-300/60 to-transparent mx-3 relative z-10" />
+                  <div className="w-px h-9 bg-gradient-to-b from-transparent via-slate-200/80 to-transparent mx-3 relative z-10" />
 
                   {/* Gruppo undo/redo */}
                   <div className="flex items-center gap-x-1.5 relative z-10">
@@ -1258,7 +1143,7 @@ export const Toolbar = ({
                   >
                     <ToolButton
                       label=""
-                      icon={MousePointer}
+                      icon={MousePointer2}
                       onClick={() => handleCanvasStateChange({ mode: CanvasMode.None })}
                       isActive={true}
                     />
@@ -1273,7 +1158,7 @@ export const Toolbar = ({
               )}
 
               {/* Separatore prima dello zoom */}
-              <div className="w-px h-10 bg-gradient-to-b from-transparent via-slate-300/60 to-transparent mx-3 relative z-10" />
+              <div className="w-px h-9 bg-gradient-to-b from-transparent via-slate-200/80 to-transparent mx-3 relative z-10" />
 
               {/* Gruppo zoom e navigazione */}
               <div className="flex items-center gap-x-1.5 relative z-10">
@@ -1288,7 +1173,7 @@ export const Toolbar = ({
                   }}>
                     <DropdownMenuTrigger asChild>
                       <div 
-                        className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white/60 hover:bg-white/80 cursor-pointer transition-all duration-300 border border-transparent hover:border-slate-200/60 hover:shadow-lg hover:shadow-black/5 hover:scale-105 group"
+                        className="flex items-center gap-2 h-9 px-3 rounded-xl bg-white/90 hover:bg-white cursor-pointer transition-all duration-200 border border-transparent hover:border-slate-200 hover:shadow-sm hover:scale-[1.02] group"
                         title="Select zoom level"
                         onMouseEnter={() => handleHover("Zoom")}
                         onMouseLeave={handleHoverEnd}
@@ -1298,14 +1183,14 @@ export const Toolbar = ({
                         <ChevronDown className="h-3 w-3 text-slate-400 group-hover:text-slate-600 transition-colors duration-300" />
                       </div>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="center" className="w-32 bg-white/95 backdrop-blur-2xl border border-gray-200/50 shadow-2xl shadow-black/10 rounded-xl p-2">
+                    <DropdownMenuContent align="center" className="w-32 bg-white/98 backdrop-blur-xl border border-slate-200/80 shadow-xl shadow-slate-200/40 rounded-xl p-2">
                       {zoomOptions.map((option) => (
                         <DropdownMenuItem
                           key={option.value}
                           onClick={() => setZoomTo(option.value)}
                           className={`text-center justify-center rounded-lg mx-1 my-0.5 transition-all duration-300 font-medium ${
                             Math.abs(camera.scale - option.value) < 0.01 
-                              ? 'bg-gradient-to-r from-slate-900 to-slate-800 text-white shadow-md scale-[0.98]' 
+                              ? 'bg-blue-600/10 text-blue-700 shadow-sm' 
                               : 'hover:bg-gradient-to-r hover:from-slate-50 hover:to-white text-slate-700 hover:text-slate-900 hover:scale-[1.02]'
                           }`}
                         >
@@ -1319,7 +1204,7 @@ export const Toolbar = ({
                 {centerOnLayers && (
                   <ToolTooltip label="Fit to screen" isVisible={shouldShowTooltip("Fit to screen")}>
                     <div 
-                      className="p-2.5 rounded-xl bg-white/60 hover:bg-white/80 cursor-pointer transition-all duration-300 border border-transparent hover:border-slate-200/60 hover:shadow-lg hover:shadow-black/5 hover:scale-105 group"
+                      className="w-9 h-9 rounded-xl flex items-center justify-center bg-white/90 hover:bg-white cursor-pointer transition-all duration-200 border border-transparent hover:border-slate-200 hover:shadow-sm hover:scale-[1.02] group"
                       onClick={centerOnLayers}
                       title="Center on elements"
                       onMouseEnter={() => handleHover("Fit to screen")}
@@ -1352,77 +1237,11 @@ export const Toolbar = ({
               {!isViewer && (
                 <>
                   {/* Separatore prima degli utility tools */}
-                  <div className="w-px h-10 bg-gradient-to-b from-transparent via-slate-300/60 to-transparent mx-3 relative z-10" />
+                  <div className="w-px h-9 bg-gradient-to-b from-transparent via-slate-200/80 to-transparent mx-3 relative z-10" />
                   
                   {/* Gruppo utility */}
                   <div className="flex items-center gap-x-1">
-                    
-                    {/* Auto-save to Library Button */}
-                    {onAutoSaveToLibraryChange && (
-                      <ToolTooltip 
-                        label={
-                          !canEnableAutoSave 
-                            ? "Storage limit reached - upgrade to enable auto-save" 
-                            : autoSaveToLibrary 
-                              ? "Auto-save enabled" 
-                              : "Auto-save disabled"
-                        } 
-                        isVisible={shouldShowTooltip("Auto-save")}
-                      >
-                        <div 
-                          onMouseEnter={() => handleHover("Auto-save")}
-                          onMouseLeave={handleHoverEnd}
-                        >
-                          <button
-                            onClick={() => onAutoSaveToLibraryChange(!autoSaveToLibrary)}
-                            disabled={!canEnableAutoSave && !autoSaveToLibrary}
-                            className={`
-                              relative w-10 h-10 rounded-xl flex items-center justify-center
-                              transition-all duration-200 ease-out border border-transparent
-                              ${!canEnableAutoSave && !autoSaveToLibrary
-                                ? "bg-red-50 text-red-400 border-red-200 cursor-not-allowed opacity-60"
-                                : autoSaveToLibrary 
-                                  ? "bg-green-100 text-green-600 border-green-200 hover:bg-green-200 shadow-sm scale-105" 
-                                  : "bg-transparent text-gray-400 hover:bg-gray-100/80 hover:text-gray-600 hover:border-gray-200/60 active:scale-95"
-                              }
-                              focus:outline-none focus:ring-2 focus:ring-green-500/30 focus:ring-offset-2
-                              touch-manipulation cursor-pointer
-                            `}
-                            style={{
-                              WebkitTapHighlightColor: 'transparent',
-                            }}
-                          >
-                            <Upload className={`h-5 w-5 ${autoSaveToLibrary ? 'drop-shadow-sm' : ''}`} />
-                            
-                            {/* Indicatore di stato attivo */}
-                            {autoSaveToLibrary && (
-                              <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 bg-green-600 rounded-full shadow-sm" />
-                            )}
-                            
-                            {/* Indicatore di limite superato */}
-                            {!canEnableAutoSave && !autoSaveToLibrary && (
-                              <div className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full shadow-sm flex items-center justify-center">
-                                <X className="h-2 w-2 text-white" />
-                              </div>
-                            )}
-                          </button>
-                        </div>
-                      </ToolTooltip>
-                    )}
 
-                    {!isViewer && (
-                      <ToolTooltip label="Upload files" isVisible={shouldShowTooltip("Upload files")}>
-                        <div onMouseEnter={() => handleHover("Upload files")} onMouseLeave={handleHoverEnd}>
-                          <button
-                            onClick={openFilePicker}
-                            className="relative w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-200 ease-out border border-transparent bg-transparent text-gray-400 hover:bg-gray-100/80 hover:text-gray-600 hover:border-gray-200/60 active:scale-95 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:ring-offset-2 touch-manipulation cursor-pointer"
-                            style={{ WebkitTapHighlightColor: "transparent" }}
-                          >
-                            <Upload className="h-5 w-5" />
-                          </button>
-                        </div>
-                      </ToolTooltip>
-                    )}
                     
                     {/* Library Button */}
                     {ENABLE_LIBRARY ? (
@@ -1478,7 +1297,7 @@ export const Toolbar = ({
                       }}>
                         <DropdownMenuTrigger asChild>
                           <button 
-                            className="relative w-11 h-11 rounded-xl flex items-center justify-center transition-all duration-300 ease-out group border border-transparent backdrop-blur-sm bg-white/60 text-slate-600 hover:bg-white/80 hover:text-slate-900 hover:border-slate-200/60 hover:shadow-lg hover:shadow-black/5 hover:scale-105 active:scale-95 focus:outline-none focus:ring-2 focus:ring-slate-500/30 focus:ring-offset-2 touch-manipulation cursor-pointer"
+                            className="relative w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-200 ease-out group border border-transparent backdrop-blur-sm bg-white/90 text-slate-600 hover:bg-white hover:text-slate-900 hover:border-slate-200 hover:shadow-sm hover:scale-[1.02] active:scale-95 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:ring-offset-2 touch-manipulation cursor-pointer"
                             style={{
                               WebkitTapHighlightColor: 'transparent',
                             }}
@@ -1489,10 +1308,10 @@ export const Toolbar = ({
                             <MoreHorizontal className="h-5 w-5 transition-all duration-300 group-hover:scale-110" />
                           </button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="center" className="w-48 bg-white/95 backdrop-blur-2xl border border-gray-200/50 shadow-2xl shadow-black/10 rounded-2xl p-3 mt-2" sideOffset={8}>
+                        <DropdownMenuContent align="center" className="w-48 bg-white/98 backdrop-blur-xl border border-slate-200/80 shadow-xl shadow-slate-200/40 rounded-2xl p-3 mt-2" sideOffset={8}>
                           <DropdownMenuItem
                             onClick={() => onCreateTable?.()}
-                            className="flex items-center gap-3 rounded-xl px-3 py-2.5 transition-all duration-200 cursor-pointer hover:bg-gray-100/80 text-gray-700 hover:text-gray-900 hover:shadow-sm"
+                            className="flex items-center gap-3 rounded-xl px-3 py-2.5 transition-all duration-200 cursor-pointer hover:bg-slate-100/80 text-gray-700 hover:text-gray-900 hover:shadow-sm"
                           >
                             <TableIcon className="h-4 w-4" />
                             <span className="text-sm">Table</span>
@@ -1503,7 +1322,7 @@ export const Toolbar = ({
                               {onShareBoard ? (
                                 <DropdownMenuItem
                                   onClick={onShareBoard}
-                                  className="flex items-center gap-3 rounded-xl px-3 py-2.5 transition-all duration-200 cursor-pointer hover:bg-gray-100/80 text-gray-700 hover:text-gray-900 hover:shadow-sm"
+                                  className="flex items-center gap-3 rounded-xl px-3 py-2.5 transition-all duration-200 cursor-pointer hover:bg-slate-100/80 text-gray-700 hover:text-gray-900 hover:shadow-sm"
                                 >
                                   <Share2 className="h-4 w-4" />
                                   <span className="text-sm">Share board</span>
@@ -1512,7 +1331,7 @@ export const Toolbar = ({
                               {onDownloadBoard ? (
                                 <DropdownMenuItem
                                   onClick={onDownloadBoard}
-                                  className="flex items-center gap-3 rounded-xl px-3 py-2.5 transition-all duration-200 cursor-pointer hover:bg-gray-100/80 text-gray-700 hover:text-gray-900 hover:shadow-sm"
+                                  className="flex items-center gap-3 rounded-xl px-3 py-2.5 transition-all duration-200 cursor-pointer hover:bg-slate-100/80 text-gray-700 hover:text-gray-900 hover:shadow-sm"
                                 >
                                   <Download className="h-4 w-4" />
                                   <span className="text-sm">Download</span>
@@ -1521,7 +1340,7 @@ export const Toolbar = ({
                               {onBoardSettings ? (
                                 <DropdownMenuItem
                                   onClick={onBoardSettings}
-                                  className="flex items-center gap-3 rounded-xl px-3 py-2.5 transition-all duration-200 cursor-pointer hover:bg-gray-100/80 text-gray-700 hover:text-gray-900 hover:shadow-sm"
+                                  className="flex items-center gap-3 rounded-xl px-3 py-2.5 transition-all duration-200 cursor-pointer hover:bg-slate-100/80 text-gray-700 hover:text-gray-900 hover:shadow-sm"
                                 >
                                   <Settings className="h-4 w-4" />
                                   <span className="text-sm">Board settings</span>
@@ -1560,14 +1379,14 @@ export const ToolbarSkeleton = () => {
   return (
     <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-50">
       <div
-        className="bg-white/95 backdrop-blur-xl border border-gray-200/60 rounded-2xl shadow-xl h-[56px] w-[400px] animate-pulse"
+        className="bg-white/95 backdrop-blur-xl border border-slate-200/80 rounded-2xl shadow-xl shadow-slate-200/40 w-[720px] max-w-[calc(100vw-2rem)] animate-pulse overflow-hidden"
         aria-hidden
       >
-        <div className="flex items-center justify-center h-full px-4 gap-x-2">
+        <div className="flex items-center justify-center flex-wrap gap-x-2 gap-y-2 px-4 py-3">
           {/* Gruppo strumenti base */}
           <div className="flex items-center gap-x-1">
             {Array.from({ length: 6 }).map((_, i) => (
-              <div key={i} className="w-10 h-10 bg-gray-200/60 rounded-xl" />
+              <div key={i} className="w-9 h-9 bg-gray-200/60 rounded-xl" />
             ))}
           </div>
           
@@ -1577,7 +1396,7 @@ export const ToolbarSkeleton = () => {
           {/* Gruppo undo/redo */}
           <div className="flex items-center gap-x-1">
             {Array.from({ length: 2 }).map((_, i) => (
-              <div key={i} className="w-10 h-10 bg-gray-200/60 rounded-xl" />
+              <div key={i} className="w-9 h-9 bg-gray-200/60 rounded-xl" />
             ))}
           </div>
           
@@ -1586,9 +1405,9 @@ export const ToolbarSkeleton = () => {
           
           {/* Gruppo zoom */}
           <div className="flex items-center gap-x-1">
-            <div className="w-20 h-10 bg-gray-200/60 rounded-xl" />
-            <div className="w-10 h-10 bg-gray-200/60 rounded-xl" />
-            <div className="w-10 h-10 bg-gray-200/60 rounded-xl" />
+            <div className="w-20 h-9 bg-gray-200/60 rounded-xl" />
+            <div className="w-9 h-9 bg-gray-200/60 rounded-xl" />
+            <div className="w-9 h-9 bg-gray-200/60 rounded-xl" />
           </div>
           
           {/* Separatore */}
@@ -1596,8 +1415,8 @@ export const ToolbarSkeleton = () => {
           
           {/* Gruppo utility */}
           <div className="flex items-center gap-x-1">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} className="w-10 h-10 bg-gray-200/60 rounded-xl" />
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="w-9 h-9 bg-gray-200/60 rounded-xl" />
             ))}
           </div>
         </div>
