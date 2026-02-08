@@ -22,6 +22,8 @@ const indexableRoutes = [
 
 const robotsTxt = [
   "User-agent: *",
+  "Disallow: /workspaces",
+  // Legacy path (now redirects to /workspaces)
   "Disallow: /dashboard",
   "Disallow: /library",
   "Disallow: /profile",

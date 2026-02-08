@@ -58,7 +58,7 @@ export function ErrorPage({
                 className="flex items-center gap-2"
               >
                 <Home className="h-4 w-4" />
-                Dashboard
+                Workspaces
               </Button>
             )}
           </div>
@@ -127,7 +127,7 @@ export function NotFoundPage({
               className="flex items-center gap-2"
             >
               <Home className="h-4 w-4" />
-              Dashboard
+              Workspaces
             </Button>
           </div>
         </div>
@@ -228,7 +228,7 @@ export function AccessDeniedPage({
               className="flex items-center gap-2"
             >
               <Home className="h-4 w-4" />
-              Dashboard
+              Workspaces
             </Button>
           </div>
         </div>
@@ -329,7 +329,7 @@ export function InvalidUrlPage({
               className="flex items-center gap-2"
             >
               <Home className="h-4 w-4" />
-              Dashboard
+              Workspaces
             </Button>
           </div>
         </div>

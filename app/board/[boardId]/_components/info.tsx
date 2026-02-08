@@ -22,7 +22,7 @@ export const Info = ({ boardId, projectId }: InfoProps) => {
 
   if (!data) return <InfoSkeleton />;
 
-  const projectHref = projectId ? `/project/${projectId}` : "/dashboard";
+  const projectHref = projectId ? `/project/${projectId}` : "/workspaces";
 
   return (
     <div className="absolute top-4 left-4 z-40 flex items-center gap-2 rounded-2xl border border-slate-200/70 bg-white/90 px-3 py-2 shadow-xl shadow-slate-200/40 backdrop-blur-md">
@@ -36,7 +36,7 @@ export const Info = ({ boardId, projectId }: InfoProps) => {
           <span className="hidden sm:inline">Project</span>
         </Link>
         <Link
-          href="/dashboard"
+          href="/workspaces"
           className="group inline-flex items-center gap-2 rounded-xl border border-slate-200/70 bg-slate-50/80 px-3 py-2 text-xs font-semibold text-slate-600 transition-all duration-200 hover:bg-white hover:text-slate-900 hover:shadow-sm"
           aria-label="Exit board"
         >

@@ -248,7 +248,7 @@ export const useBoardToolbarActions = (
       await removeBoard({ id: boardId as Id<"boards"> });
       toast.success("Board deleted. Redirecting...");
       setTimeout(() => {
-        window.location.href = "/dashboard";
+        window.location.href = "/workspaces";
       }, 400);
     } catch (error) {
       console.error("Failed to delete board:", error);

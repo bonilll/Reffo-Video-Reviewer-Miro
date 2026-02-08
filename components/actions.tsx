@@ -76,7 +76,7 @@ export const Actions = ({
       
       // Delay navigation to allow toast to show and state to update
       setTimeout(() => {
-        window.location.href = "/dashboard";
+        window.location.href = "/workspaces";
       }, 300);
     } catch (error) {
       console.error("Error removing board:", error);
@@ -95,7 +95,7 @@ export const Actions = ({
       
       // Delay navigation to allow toast to show and state to update
       setTimeout(() => {
-        window.location.href = "/dashboard";
+        window.location.href = "/workspaces";
       }, 300);
     } catch (error) {
       console.error("Error archiving board:", error);

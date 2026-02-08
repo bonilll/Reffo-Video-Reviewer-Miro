@@ -36,7 +36,7 @@ export function SignUpForm() {
   const { toast } = useToast();
   
   // Get the redirect URL from the query parameters
-  const redirectUrl = searchParams.get("redirect_url") || "/dashboard";
+  const redirectUrl = searchParams.get("redirect_url") || "/workspaces";
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -53,7 +53,7 @@ export function SignUpForm() {
 
     // Check if user is already authenticated before proceeding
     if (isAuthLoaded && isSignedIn) {
-      window.location.href = "/dashboard";
+      window.location.href = "/workspaces";
       return;
     }
 
@@ -69,8 +69,11 @@ export function SignUpForm() {
       });
       
       // Store the redirect URL in session storage for after verification
-      if (redirectUrl && redirectUrl !== "/dashboard") {
-        sessionStorage.setItem('redirectAfterSignUp', redirectUrl);
+      if (redirectUrl) {
+        const normalized = redirectUrl === "/dashboard" ? "/workspaces" : redirectUrl;
+        if (normalized !== "/workspaces") {
+          sessionStorage.setItem('redirectAfterSignUp', normalized);
+        }
       }
       
       // Esegui la verifica dell'email

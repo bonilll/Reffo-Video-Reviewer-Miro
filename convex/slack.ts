@@ -146,7 +146,7 @@ export const testDm = action({
     const base = PUBLIC_SITE_URL().replace(/\/$/, "");
     const blocks = [
       { type: "section", text: { type: "mrkdwn", text: "*Connected to Reffo*" } },
-      { type: "section", text: { type: "mrkdwn", text: `You will receive DMs when someone mentions you in comments.\nOpen <${base}/dashboard|Dashboard>` } },
+      { type: "section", text: { type: "mrkdwn", text: `You will receive DMs when someone mentions you in comments.\nOpen <${base}/workspaces|Workspaces>` } },
     ];
     for (const s of secrets) {
       await sendDm(s.accessToken, s.slackUserId, { text: "Connected to Reffo", blocks });

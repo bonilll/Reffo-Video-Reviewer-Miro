@@ -34,7 +34,7 @@ export function SignInForm() {
   const { toast } = useToast();
   
   // Get the redirect URL from the query parameters
-  const redirectUrl = searchParams.get("redirect_url") || "/dashboard";
+  const redirectUrl = searchParams.get("redirect_url") || "/workspaces";
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -49,7 +49,7 @@ export function SignInForm() {
 
     // Check if user is already authenticated before proceeding
     if (isAuthLoaded && isSignedIn) {
-      window.location.href = "/dashboard";
+      window.location.href = "/workspaces";
       return;
     }
 

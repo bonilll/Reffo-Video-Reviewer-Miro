@@ -390,6 +390,9 @@ const LibraryPage: React.FC = () => {
   const [pickedCollectionId, setPickedCollectionId] = useState<string | null>(null);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [masonryColumns, setMasonryColumns] = useState<number>(4);
+  const [viewportWidth, setViewportWidth] = useState<number>(() => {
+    return typeof window !== "undefined" ? window.innerWidth : 1280;
+  });
   const [stagedItems, setStagedItems] = useState<StagedItem[]>([]);
   const [selectedStageId, setSelectedStageId] = useState<string | null>(null);
   const [syncShared, setSyncShared] = useState(true);
@@ -481,12 +484,30 @@ const LibraryPage: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    const onResize = () => {
+      setViewportWidth(window.innerWidth);
+    };
+    window.addEventListener("resize", onResize);
+    return () => {
+      window.removeEventListener("resize", onResize);
+    };
+  }, []);
+
+  useEffect(() => {
     try {
       window.localStorage.setItem("library_masonry_columns", String(masonryColumns));
     } catch {
       // ignore
     }
   }, [masonryColumns]);
+
+  const effectiveMasonryColumns = useMemo(() => {
+    if (viewportWidth < 640) return 1;
+    if (viewportWidth < 1024) return 2;
+    return masonryColumns;
+  }, [masonryColumns, viewportWidth]);
+
+  const isMasonryLockedToDevice = viewportWidth < 1024;
 
   useEffect(() => {
     if (activeTab !== "references") {
@@ -1888,15 +1909,15 @@ const LibraryPage: React.FC = () => {
 
           <div className="border-t border-gray-200 pt-6">
             {activeTab === "references" ? (
-              <Library
-                isImportMode={selectionMode}
-                areaSelectionEnabled={selectionMode}
-                masonryColumns={masonryColumns}
-                headerActions={
-                  <div className="flex items-center gap-2">
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button
+                <Library
+                  isImportMode={selectionMode}
+                  areaSelectionEnabled={selectionMode}
+                  masonryColumns={effectiveMasonryColumns}
+                  headerActions={
+                    <div className="flex w-full items-center gap-2 sm:w-auto">
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <Button
                           variant="outline"
                           size="icon"
                           className="library-unstyled h-10 w-10 border border-gray-200 bg-white text-gray-900 hover:bg-gray-50"
@@ -1912,32 +1933,38 @@ const LibraryPage: React.FC = () => {
                               Grid
                             </p>
                             <span className="text-xs font-semibold text-gray-700">
-                              {masonryColumns} cols
+                              {effectiveMasonryColumns} cols
                             </span>
                           </div>
                           <Slider
-                            value={[masonryColumns]}
+                            value={[effectiveMasonryColumns]}
                             min={1}
                             max={8}
                             step={1}
-                            onValueChange={(v) => setMasonryColumns(v[0] ?? 4)}
+                            disabled={isMasonryLockedToDevice}
+                            onValueChange={(v) => {
+                              if (isMasonryLockedToDevice) return;
+                              setMasonryColumns(v[0] ?? 4);
+                            }}
                           />
                           <p className="text-[11px] text-gray-500">
-                            Controls how many references fit per row (masonry columns).
+                            {isMasonryLockedToDevice
+                              ? "On phones Reffo uses 1 column; on tablets it uses 2 columns."
+                              : "Controls how many references fit per row (masonry columns)."}
                           </p>
                         </div>
                       </PopoverContent>
                     </Popover>
 
-	                    <Button
-	                      type="button"
-	                      size="default"
-	                      className="library-unstyled h-10 gap-2 border border-black bg-black text-slate-50 hover:bg-black/90 hover:text-slate-50"
-	                      onClick={() => setIsUploadModalOpen(true)}
-	                    >
-	                      <UploadCloud className="h-4 w-4 text-current" />
-	                      Upload
-	                    </Button>
+		                    <Button
+		                      type="button"
+		                      size="default"
+		                      className="library-unstyled h-10 flex-1 justify-center gap-2 border border-black bg-black text-slate-50 hover:bg-black/90 hover:text-slate-50 sm:flex-none"
+		                      onClick={() => setIsUploadModalOpen(true)}
+		                    >
+		                      <UploadCloud className="h-4 w-4 text-current" />
+		                      Upload
+		                    </Button>
 
                     <Button
                       type="button"

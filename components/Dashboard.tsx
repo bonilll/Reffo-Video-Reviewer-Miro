@@ -892,24 +892,24 @@ const Dashboard: React.FC<DashboardProps> = ({
 
   return (
     <div className="space-y-10 library-skin">
-      <section className="library-panel p-8">
+      <section className="library-panel p-4 sm:p-6 lg:p-8">
         <div className="flex flex-col gap-6">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div className="space-y-2">
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-gray-500">Workspace</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-gray-500">Workspaces</p>
               <h1 className="text-3xl font-semibold text-gray-900">Projects</h1>
               <p className="text-sm text-gray-600">
                 Projects contain boards and review sessions. Manage everything from here.
               </p>
             </div>
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="relative">
+            <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+              <div className="relative w-full sm:w-auto">
                 <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                 <input
                   value={searchTerm}
                   onChange={(event) => setSearchTerm(event.target.value)}
                   placeholder="Search projects"
-                  className="rounded-full border border-gray-200 bg-white py-2 pl-10 pr-4 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-300"
+                  className="w-full rounded-full border border-gray-200 bg-white py-2 pl-10 pr-4 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-300 sm:w-72"
                 />
               </div>
               <button
@@ -917,13 +917,13 @@ const Dashboard: React.FC<DashboardProps> = ({
                   setProjectToEdit(null);
                   setProjectModalOpen(true);
                 }}
-	                className="inline-flex items-center gap-2 rounded-full bg-gray-900 px-4 py-2 text-sm font-semibold text-slate-50 hover:bg-black/90"
+                className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-gray-900 px-4 py-2 text-sm font-semibold text-slate-50 hover:bg-black/90 sm:w-auto"
               >
                 <Plus size={16} /> New project
               </button>
               <button
                 onClick={() => setSharingModalOpen(true)}
-                className="inline-flex items-center gap-2 rounded-full border border-gray-900 bg-white px-4 py-2 text-sm font-semibold text-gray-900 hover:bg-gray-100"
+                className="inline-flex w-full items-center justify-center gap-2 rounded-full border border-gray-900 bg-white px-4 py-2 text-sm font-semibold text-gray-900 hover:bg-gray-100 sm:w-auto"
               >
                 Sharing options
               </button>
@@ -946,8 +946,88 @@ const Dashboard: React.FC<DashboardProps> = ({
           </div>
 
           {viewMode === 'list' ? (
-            <div className="mt-4 overflow-hidden rounded-2xl border border-gray-200 bg-white">
-              <table className="w-full text-left text-sm">
+            <div className="mt-4">
+              {/* Mobile-first list (cards). The table layout is too wide for small screens. */}
+              <div className="space-y-3 sm:hidden">
+                {filteredProjects.map((project) => {
+                  const isOwned = ownedProjectIds?.includes(project.id) ?? true;
+                  const projectVideos = videos.filter((video) => video.projectId === project.id);
+                  const recent = projectVideos[0];
+                  return (
+                    <div
+                      key={project.id}
+                      onClick={() => openProjectWorkspace(project.id)}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          openProjectWorkspace(project.id);
+                        }
+                      }}
+                      className="w-full cursor-pointer rounded-2xl border border-gray-200 bg-white p-4 text-left shadow-sm transition hover:bg-gray-50"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="text-sm font-semibold text-gray-900 truncate">{project.name}</div>
+                          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-600">
+                            <span className="inline-flex items-center gap-1">
+                              <span className="font-semibold text-gray-900">{projectVideos.length}</span>
+                              <span>review{projectVideos.length === 1 ? '' : 's'}</span>
+                            </span>
+                            <span className="text-gray-400">•</span>
+                            <span className="truncate">
+                              {recent ? formatDate(recent.lastReviewedAt ?? recent.uploadedAt) : 'Not started'}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setProjectToEdit(project);
+                              setProjectModalOpen(true);
+                            }}
+                            disabled={!isOwned}
+                            className={`rounded-full p-2 ${!isOwned ? 'cursor-not-allowed bg-gray-100 text-gray-300' : 'bg-gray-100 text-gray-600 hover:text-gray-900'}`}
+                            aria-label="Edit project"
+                          >
+                            <Pencil size={16} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setProjectToShare(project);
+                            }}
+                            className="rounded-full bg-gray-100 p-2 text-gray-600 hover:text-gray-900"
+                            aria-label="Share project"
+                          >
+                            <Share2 size={16} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setProjectDeleteTarget(project);
+                            }}
+                            disabled={!isOwned}
+                            className={`rounded-full p-2 ${!isOwned ? 'cursor-not-allowed bg-gray-100 text-gray-300' : 'bg-gray-100 text-gray-600 hover:text-gray-900'}`}
+                            aria-label="Delete project"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Desktop/tablet table */}
+              <div className="hidden overflow-hidden rounded-2xl border border-gray-200 bg-white sm:block">
+                <table className="w-full text-left text-sm">
                 <thead className="bg-gray-50 text-xs uppercase text-gray-500">
                   <tr>
                     <th className="px-4 py-3">Name</th>
@@ -1042,7 +1122,8 @@ const Dashboard: React.FC<DashboardProps> = ({
                 );
               })}
                 </tbody>
-              </table>
+                </table>
+              </div>
             </div>
           ) : (
             <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">

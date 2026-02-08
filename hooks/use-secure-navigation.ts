@@ -101,7 +101,7 @@ export function useSecureNavigation(options: SecureNavigationOptions = {}) {
       resourceType: "board",
       resourceId: boardId,
       requiredPermission: permission,
-      fallbackPath: "/dashboard"
+      fallbackPath: "/workspaces"
     }, navigationOptions);
   }, [navigateTo]);
 
@@ -119,7 +119,7 @@ export function useSecureNavigation(options: SecureNavigationOptions = {}) {
       resourceType: "todo",
       resourceId: todoId,
       requiredPermission: permission,
-      fallbackPath: "/dashboard"
+      fallbackPath: "/workspaces"
     }, navigationOptions);
   }, [navigateTo]);
 
@@ -137,7 +137,7 @@ export function useSecureNavigation(options: SecureNavigationOptions = {}) {
       resourceType: "calendar",
       resourceId: calendarId,
       requiredPermission: permission,
-      fallbackPath: "/dashboard"
+      fallbackPath: "/workspaces"
     }, navigationOptions);
   }, [navigateTo]);
 
@@ -155,14 +155,14 @@ export function useSecureNavigation(options: SecureNavigationOptions = {}) {
       resourceType: "collection",
       resourceId: collectionId,
       requiredPermission: permission,
-      fallbackPath: "/dashboard"
+      fallbackPath: "/workspaces"
     }, navigationOptions);
   }, [navigateTo]);
 
   /**
    * Navigate back safely
    */
-  const goBack = useCallback((fallbackPath = "/dashboard") => {
+  const goBack = useCallback((fallbackPath = "/workspaces") => {
     if (window.history.length > 1) {
       router.back();
     } else {
@@ -171,11 +171,11 @@ export function useSecureNavigation(options: SecureNavigationOptions = {}) {
   }, [router]);
 
   /**
-   * Navigate to dashboard/home
+   * Navigate to workspaces/home
    */
   const goHome = useCallback(() => {
     return navigateTo({
-      path: "/dashboard",
+      path: "/workspaces",
       requireAuth: true
     });
   }, [navigateTo]);
@@ -373,8 +373,8 @@ export function useSecureBreadcrumbs() {
   ) => {
     const breadcrumbs = [
       {
-        label: "Dashboard",
-        path: "/dashboard",
+        label: "Workspaces",
+        path: "/workspaces",
         onClick: () => navigation.goHome()
       }
     ];

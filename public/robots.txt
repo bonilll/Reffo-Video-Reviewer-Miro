@@ -1,4 +1,5 @@
 User-agent: *
+Disallow: /workspaces
 Disallow: /dashboard
 Disallow: /library
 Disallow: /profile

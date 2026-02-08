@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useMutation, useQuery } from "convex/react";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
 import { api } from "@/convex/_generated/api";
@@ -6,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -25,8 +27,10 @@ import {
   X,
   ChevronLeft,
   ChevronRight,
+  Maximize2,
 } from "lucide-react";
 import { toast } from "sonner";
+import { AnimatePresence, motion, type Variants } from "framer-motion";
 
 type FilterState = {
   search: string;
@@ -338,6 +342,11 @@ export const Library: React.FC<LibraryProps> = ({
   const [tagSearch, setTagSearch] = useState("");
   const [viewerAssetId, setViewerAssetId] = useState<Id<"assets"> | null>(null);
   const viewerContentRef = useRef<HTMLDivElement | null>(null);
+	  const viewerBodyScrollRef = useRef<HTMLDivElement | null>(null);
+	  const [viewerFullscreenOpen, setViewerFullscreenOpen] = useState(false);
+	  const [viewerSlideDir, setViewerSlideDir] = useState<1 | -1>(1);
+	  const fullscreenWheelRef = useRef<{ acc: number; t: number } | null>(null);
+	  const fullscreenNavCooldownRef = useRef(0);
   const [editingAsset, setEditingAsset] = useState<Doc<"assets"> | null>(null);
   const [editForm, setEditForm] = useState({
     title: "",
@@ -657,19 +666,45 @@ export const Library: React.FC<LibraryProps> = ({
   useEffect(() => {
     if (!viewerAsset) return;
     const id = window.setTimeout(() => {
+      viewerBodyScrollRef.current?.scrollTo({ top: 0, behavior: "auto" });
       viewerContentRef.current?.scrollTo({ top: 0, behavior: "auto" });
     }, 0);
     return () => window.clearTimeout(id);
   }, [viewerAsset, viewerAssetId]);
 
+  useEffect(() => {
+    if (!viewerAsset) {
+      setViewerFullscreenOpen(false);
+    }
+  }, [viewerAsset]);
+
+  useEffect(() => {
+    if (!viewerFullscreenOpen) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setViewerFullscreenOpen(false);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [viewerFullscreenOpen]);
+
   const handleViewerPrev = useCallback(() => {
     if (!viewerAsset || viewerItems.length === 0) return;
+    setViewerSlideDir(-1);
     const nextIndex = (viewerIndex - 1 + viewerItems.length) % viewerItems.length;
     setViewerAssetId(viewerItems[nextIndex]._id);
   }, [viewerAsset, viewerIndex, viewerItems]);
 
   const handleViewerNext = useCallback(() => {
     if (!viewerAsset || viewerItems.length === 0) return;
+    setViewerSlideDir(1);
     const nextIndex = (viewerIndex + 1) % viewerItems.length;
     setViewerAssetId(viewerItems[nextIndex]._id);
   }, [viewerAsset, viewerIndex, viewerItems]);
@@ -739,6 +774,189 @@ export const Library: React.FC<LibraryProps> = ({
     }
   }, [editingAsset, editForm, updateMetadata]);
 
+  const fullscreenSlideVariants: Variants = {
+    enter: (dir: 1 | -1) => ({ x: dir > 0 ? 120 : -120, opacity: 0 }),
+    center: { x: 0, opacity: 1 },
+    exit: (dir: 1 | -1) => ({ x: dir > 0 ? -120 : 120, opacity: 0 }),
+  };
+
+  const fullscreenOverlay =
+    viewerFullscreenOpen && viewerAsset && typeof document !== "undefined"
+      ? createPortal(
+	          <div
+	            className="fixed inset-0 z-[90] bg-black text-white"
+	            role="dialog"
+	            aria-modal="true"
+	            aria-label="Fullscreen preview"
+	            onWheel={(event) => {
+	              // Trackpad horizontal swipes often arrive as wheel deltaX.
+	              const now = Date.now();
+	              if (now - fullscreenNavCooldownRef.current < 220) return;
+
+              const dx = event.deltaX ?? 0;
+              const dy = event.deltaY ?? 0;
+              if (Math.abs(dx) < Math.abs(dy) * 1.2) return;
+              if (Math.abs(dx) < 8) return;
+
+              const state = fullscreenWheelRef.current;
+              if (!state || now - state.t > 220) {
+                fullscreenWheelRef.current = { acc: dx, t: now };
+              } else {
+                state.acc += dx;
+                state.t = now;
+              }
+
+              const acc = fullscreenWheelRef.current?.acc ?? 0;
+              if (Math.abs(acc) >= 80) {
+                fullscreenNavCooldownRef.current = now;
+                fullscreenWheelRef.current = null;
+                if (acc < 0) handleViewerNext();
+	                else handleViewerPrev();
+	              }
+	            }}
+		            style={{ touchAction: "none" }}
+		          >
+            <div className="absolute inset-x-0 top-0 z-10 bg-gradient-to-b from-black/75 to-transparent px-4 py-3 text-white drop-shadow-sm">
+              <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-white">
+                    {viewerAsset.title || viewerAsset.fileName}
+                  </p>
+                  <p className="text-xs text-white/70">
+                    {viewerIndex + 1} of {viewerItems.length}
+                  </p>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  {viewerItems.length > 1 && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={handleViewerPrev}
+                        className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-black/40 text-white hover:bg-black/60"
+                        aria-label="Previous"
+                        title="Previous"
+                      >
+                        <ChevronLeft className="h-5 w-5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleViewerNext}
+                        className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-black/40 text-white hover:bg-black/60"
+                        aria-label="Next"
+                        title="Next"
+                      >
+                        <ChevronRight className="h-5 w-5" />
+                      </button>
+                    </>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setViewerFullscreenOpen(false)}
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-black/40 text-white hover:bg-black/60"
+                    aria-label="Exit fullscreen"
+                    title="Exit fullscreen"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+              </div>
+            </div>
+
+	            <div className="absolute inset-0 flex items-center justify-center px-3 py-14 sm:px-6 sm:py-16">
+	              <div className="relative h-full w-full max-w-6xl">
+		                <AnimatePresence initial={false} custom={viewerSlideDir}>
+		                  <motion.div
+		                    key={String(viewerAsset._id)}
+		                    custom={viewerSlideDir}
+		                    variants={fullscreenSlideVariants}
+		                    initial="enter"
+		                    animate="center"
+		                    exit="exit"
+		                    transition={{ duration: 0.18, ease: "easeOut" }}
+		                    className="absolute inset-0"
+		                  >
+		                    <motion.div
+		                      drag={viewerItems.length > 1 ? "x" : false}
+		                      dragConstraints={{ left: -260, right: 260 }}
+		                      dragElastic={0.22}
+		                      dragMomentum={false}
+		                      onDragEnd={(_, info) => {
+		                        const dx = info.offset.x;
+		                        if (dx <= -90) handleViewerNext();
+		                        else if (dx >= 90) handleViewerPrev();
+		                      }}
+		                      className="absolute inset-0 flex items-center justify-center cursor-grab active:cursor-grabbing"
+		                      style={{ touchAction: "none" }}
+		                    >
+		                      {viewerAsset.type === "image" ? (
+		                        <img
+		                          src={viewerAsset.fileUrl}
+		                          alt={viewerAsset.title}
+		                          className="max-h-full max-w-full object-contain"
+		                          draggable={false}
+		                        />
+		                      ) : viewerAsset.type === "video" ? (
+		                        <video
+		                          src={viewerAsset.fileUrl}
+		                          className="max-h-full max-w-full object-contain"
+		                          controls
+		                          playsInline
+		                        />
+		                      ) : (
+		                        <div className="flex flex-col items-center gap-3 text-white/70">
+		                          <FileIcon className="h-12 w-12" />
+		                          <span className="text-sm">{viewerAsset.fileName}</span>
+		                        </div>
+		                      )}
+		                    </motion.div>
+		                  </motion.div>
+		                </AnimatePresence>
+	              </div>
+	            </div>
+
+              {/* Always-visible controls (extra safety): don't block drag except on the buttons. */}
+              {viewerItems.length > 1 && (
+                <div className="pointer-events-none absolute inset-0 z-10">
+                  <button
+                    type="button"
+                    onClick={handleViewerPrev}
+                    className="pointer-events-auto absolute left-3 top-1/2 -translate-y-1/2 inline-flex h-12 w-12 items-center justify-center rounded-full border border-white/25 bg-black/40 !text-white shadow-lg backdrop-blur hover:bg-black/60 sm:left-6"
+                    aria-label="Previous"
+                    title="Previous"
+                  >
+                    <ChevronLeft className="h-6 w-6" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleViewerNext}
+                    className="pointer-events-auto absolute right-3 top-1/2 -translate-y-1/2 inline-flex h-12 w-12 items-center justify-center rounded-full border border-white/25 bg-black/40 !text-white shadow-lg backdrop-blur hover:bg-black/60 sm:right-6"
+                    aria-label="Next"
+                    title="Next"
+                  >
+                    <ChevronRight className="h-6 w-6" />
+                  </button>
+                </div>
+              )}
+
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/70 to-transparent px-4 pb-5 pt-10">
+                <div className="mx-auto flex w-full max-w-6xl justify-center">
+                  <button
+                    type="button"
+                    onClick={() => setViewerFullscreenOpen(false)}
+                    className="pointer-events-auto inline-flex items-center gap-2 rounded-full border border-white/25 bg-black/40 px-4 py-2 text-sm font-semibold !text-white shadow-lg backdrop-blur hover:bg-black/60"
+                    aria-label="Exit fullscreen"
+                    title="Exit fullscreen"
+                  >
+                    <X className="h-4 w-4" />
+                    Exit
+                  </button>
+                </div>
+              </div>
+	          </div>,
+	          document.body,
+	        )
+	      : null;
+
   const handleDelete = useCallback(
     async (asset: Doc<"assets">) => {
       try {
@@ -786,29 +1004,50 @@ export const Library: React.FC<LibraryProps> = ({
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 rounded-2xl border border-gray-200 bg-white/95 p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-1 flex-wrap items-center gap-3">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-            <Input
-              value={filters.search}
-              onChange={(event) => handleFilterChange("search", event.target.value)}
-              placeholder="Search title, filename, tags, captions, OCR..."
-              className="pl-9"
-            />
+        <div className="flex flex-1 flex-col gap-3 sm:flex-row sm:items-center sm:gap-3">
+          {/* Row 1 (mobile): search + square filters button. On desktop this stays left. */}
+          <div className="flex flex-1 items-center gap-3">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+              <Input
+                value={filters.search}
+                onChange={(event) => handleFilterChange("search", event.target.value)}
+                placeholder="Search title, filename, tags, captions, OCR..."
+                className="pl-9"
+              />
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              className="relative h-10 w-10 justify-center px-0 sm:w-auto sm:gap-2 sm:px-4"
+              onClick={() => setIsFilterOpen(true)}
+              aria-label="Filters"
+            >
+              <Filter className="h-4 w-4" />
+              <span className="hidden sm:inline">Filters</span>
+              {hasActiveFilters && (
+                <>
+                  <span
+                    className="absolute right-2 top-2 h-2 w-2 rounded-full bg-gray-700 sm:hidden"
+                    aria-hidden="true"
+                  />
+                  <span
+                    className="hidden h-2 w-2 rounded-full bg-gray-700 sm:inline-block"
+                    aria-hidden="true"
+                  />
+                </>
+              )}
+            </Button>
           </div>
-          <Button
-            type="button"
-            variant="outline"
-            className="gap-2"
-            onClick={() => setIsFilterOpen(true)}
-          >
-            <Filter className="h-4 w-4" />
-            Filters
-            {hasActiveFilters && <span className="h-2 w-2 rounded-full bg-gray-700" />}
-          </Button>
-          {headerActions}
+
+          {/* Row 2 (mobile): actions fill width; on desktop this sits to the right. */}
+          {headerActions ? (
+            <div className="flex w-full items-center gap-2 sm:w-auto sm:justify-end">
+              {headerActions}
+            </div>
+          ) : null}
         </div>
-        <div className="flex items-center gap-2 text-xs text-gray-500">
+        <div className="hidden items-center gap-2 text-xs text-gray-500 sm:flex">
           <span>{filteredAssets.length} items</span>
           {hasActiveFilters && (
             <button
@@ -914,48 +1153,115 @@ export const Library: React.FC<LibraryProps> = ({
       {!isImportMode && (
         <Dialog open={Boolean(viewerAsset)} onOpenChange={(open) => !open && setViewerAssetId(null)}>
           <DialogContent
-            ref={viewerContentRef}
             onOpenAutoFocus={(event) => event.preventDefault()}
-            className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[85vw] max-w-none max-h-[85vh] overflow-y-auto bg-white text-gray-900"
+            className="fixed left-1/2 top-1/2 flex h-[92dvh] max-h-[92dvh] w-[96vw] max-w-[1120px] -translate-x-1/2 -translate-y-1/2 flex-col gap-0 overflow-hidden bg-white p-0 text-gray-900 sm:w-[92vw] [&>button.absolute]:hidden"
           >
             {viewerAsset && (
-              <div className="space-y-6">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <DialogTitle className="text-xl">
-                      {viewerAsset.title || viewerAsset.fileName}
-                    </DialogTitle>
-                    <DialogDescription className="sr-only">
-                      Asset preview with metadata and suggested tags.
-                    </DialogDescription>
-                    <p className="text-xs text-gray-500">
-                      {viewerIndex + 1} of {viewerItems.length}
-                    </p>
+              <>
+                <DialogTitle className="sr-only">{viewerAsset.title || viewerAsset.fileName}</DialogTitle>
+                <DialogDescription className="sr-only">
+                  Asset preview with metadata and suggested tags.
+                </DialogDescription>
+
+                <div className="flex min-h-0 flex-1 flex-col">
+                  <div className="flex items-start justify-between gap-3 border-b border-gray-200 bg-white/90 px-4 py-3 backdrop-blur sm:px-6">
+                    <div className="min-w-0">
+                      <p className="truncate text-base font-semibold text-gray-900 sm:text-lg">
+                        {viewerAsset.title || viewerAsset.fileName}
+                      </p>
+                      <p className="mt-0.5 text-xs text-gray-500">
+                        {viewerIndex + 1} of {viewerItems.length}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        className="h-9 w-9"
+                        onClick={() => setViewerFullscreenOpen(true)}
+                        aria-label="Open fullscreen"
+                        title="Fullscreen"
+                      >
+                        <Maximize2 className="h-4 w-4" />
+                      </Button>
+                      {viewerItems.length > 1 && (
+                        <>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="icon"
+                            onClick={handleViewerPrev}
+                            className="h-9 w-9"
+                            aria-label="Previous reference"
+                            title="Previous"
+                          >
+                            <ChevronLeft className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="icon"
+                            onClick={handleViewerNext}
+                            className="h-9 w-9"
+                            aria-label="Next reference"
+                            title="Next"
+                          >
+                            <ChevronRight className="h-4 w-4" />
+                          </Button>
+                        </>
+                      )}
+
+                      <DialogClose asChild>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
+                          className="h-9 w-9"
+                          aria-label="Close preview"
+                          title="Close"
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </DialogClose>
+                    </div>
                   </div>
-                </div>
-                <div className="grid gap-6 lg:grid-cols-[1.4fr,1fr]">
-                  <div className="flex items-center justify-center rounded-2xl border border-gray-200 bg-gray-50 p-4">
-                    {viewerAsset.type === "image" ? (
-                      <img
-                        src={viewerAsset.fileUrl}
-                        alt={viewerAsset.title}
-                        className="max-h-[70vh] w-full object-contain"
-                      />
-                    ) : viewerAsset.type === "video" ? (
-                      <video
-                        src={viewerAsset.fileUrl}
-                        className="max-h-[70vh] w-full object-contain"
-                        controls
-                      />
-                    ) : (
-                      <div className="flex flex-col items-center gap-3 text-gray-500">
-                        <FileIcon className="h-10 w-10" />
-                        <span className="text-sm">{viewerAsset.fileName}</span>
+
+                  <div
+                    ref={viewerBodyScrollRef}
+                    className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain touch-pan-y [-webkit-overflow-scrolling:touch] lg:flex-row lg:overflow-hidden"
+                  >
+                    <div className="h-[34dvh] shrink-0 border-b border-gray-200 bg-gray-50 p-4 sm:h-[48dvh] lg:h-auto lg:flex-1 lg:min-w-0 lg:border-b-0 lg:border-r lg:p-6">
+                      <div className="flex h-full items-center justify-center overflow-hidden rounded-2xl border border-gray-200 bg-white p-3 sm:p-4">
+                        {viewerAsset.type === "image" ? (
+                          <img
+                            src={viewerAsset.fileUrl}
+                            alt={viewerAsset.title}
+                            className="h-full w-full max-w-full max-h-full object-contain"
+                            onClick={() => setViewerFullscreenOpen(true)}
+                          />
+                        ) : viewerAsset.type === "video" ? (
+                          <video
+                            src={viewerAsset.fileUrl}
+                            className="h-full w-full max-w-full max-h-full object-contain"
+                            controls
+                          />
+                        ) : (
+                          <div className="flex flex-col items-center gap-3 text-gray-500">
+                            <FileIcon className="h-10 w-10" />
+                            <span className="text-sm">{viewerAsset.fileName}</span>
+                          </div>
+                        )}
                       </div>
-                    )}
-                  </div>
-                  <div className="space-y-4 text-sm text-gray-700">
-                    <div className="flex flex-wrap gap-2">
+                    </div>
+
+                    <div
+                      ref={viewerContentRef}
+                      className="flex-1 p-4 sm:p-6 lg:w-[420px] lg:flex-none lg:min-h-0 lg:overflow-y-auto lg:overscroll-contain lg:touch-pan-y lg:[-webkit-overflow-scrolling:touch]"
+                    >
+                      <div className="space-y-5 text-sm text-gray-700">
+                        <div className="flex flex-wrap gap-2">
                       <Button
                         variant="outline"
                         size="sm"
@@ -1005,153 +1311,149 @@ export const Library: React.FC<LibraryProps> = ({
                         Delete
                       </Button>
                     </div>
-                    <div className="space-y-2">
-                      <p className="text-xs font-semibold uppercase text-gray-500">Type</p>
-                      <p>{viewerAsset.type ?? "file"}</p>
-                    </div>
-                    <div className="space-y-2">
-                      <p className="text-xs font-semibold uppercase text-gray-500">Author</p>
-                      <p>{viewerAsset.author || "—"}</p>
-                    </div>
-                    <div className="space-y-2">
-                      <p className="text-xs font-semibold uppercase text-gray-500">Description</p>
-                      <p>{viewerAsset.description || "—"}</p>
-                    </div>
-                    {viewerSuggestedDescription && (
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between gap-3">
-                          <p className="text-xs font-semibold uppercase text-gray-500">Suggested description (EN)</p>
-                          <button
-                            type="button"
-                            className="text-[11px] font-semibold text-gray-600 hover:text-gray-900"
-                            onClick={async () => {
-                              try {
-                                await updateMetadata({
-                                  id: viewerAsset._id,
-                                  description: viewerSuggestedDescription,
-                                });
-                                toast.success("Description updated");
-                              } catch (error) {
-                                console.error(error);
-                                toast.error("Unable to update description");
-                              }
-                            }}
-                          >
-                            {viewerAsset.description ? "Replace" : "Use"}
-                          </button>
+                        <div className="grid gap-4 rounded-2xl border border-gray-200 bg-gray-50 p-4">
+                          <div className="grid gap-4 sm:grid-cols-2">
+                            <div className="space-y-1">
+                              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">Type</p>
+                              <p className="font-medium text-gray-900">{viewerAsset.type ?? "file"}</p>
+                            </div>
+                            <div className="space-y-1">
+                              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">File size</p>
+                              <p className="font-medium text-gray-900">{formatBytes(viewerAsset.fileSize)}</p>
+                            </div>
+                          </div>
+
+                          <div className="space-y-1">
+                            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">Author</p>
+                            <p className="text-gray-900">{viewerAsset.author || "—"}</p>
+                          </div>
+
+                          <div className="space-y-1">
+                            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">External link</p>
+                            {viewerAsset.externalLink ? (
+                              <a
+                                href={viewerAsset.externalLink}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="break-all text-gray-700 underline underline-offset-2 hover:text-gray-900"
+                              >
+                                {viewerAsset.externalLink}
+                              </a>
+                            ) : (
+                              <p>—</p>
+                            )}
+                          </div>
                         </div>
-                        <p className="text-sm text-gray-700">{viewerSuggestedDescription}</p>
+
+                        <div className="space-y-2">
+                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">Description</p>
+                          <p className="whitespace-pre-wrap text-gray-900">{viewerAsset.description || "—"}</p>
+                        </div>
+
+                        {viewerSuggestedDescription && (
+                          <div className="space-y-2 rounded-2xl border border-gray-200 bg-white p-4">
+                            <div className="flex items-center justify-between gap-3">
+                              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">
+                                Suggested description (EN)
+                              </p>
+                              <button
+                                type="button"
+                                className="text-[11px] font-semibold text-gray-600 hover:text-gray-900"
+                                onClick={async () => {
+                                  try {
+                                    await updateMetadata({
+                                      id: viewerAsset._id,
+                                      description: viewerSuggestedDescription,
+                                    });
+                                    toast.success("Description updated");
+                                  } catch (error) {
+                                    console.error(error);
+                                    toast.error("Unable to update description");
+                                  }
+                                }}
+                              >
+                                {viewerAsset.description ? "Replace" : "Use"}
+                              </button>
+                            </div>
+                            <p className="whitespace-pre-wrap text-gray-700">{viewerSuggestedDescription}</p>
+                          </div>
+                        )}
+
+                        <div className="space-y-2">
+                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">Your tags</p>
+                          {viewerUserTags.length > 0 ? (
+                            <div className="flex flex-wrap gap-2">
+                              {viewerUserTags.map((token) => (
+                                <Badge key={token} variant="secondary" className="bg-gray-100 text-gray-600">
+                                  {token}
+                                </Badge>
+                              ))}
+                            </div>
+                          ) : (
+                            <p>—</p>
+                          )}
+                        </div>
+
+                        {viewerSuggestedTags.length > 0 && (
+                          <div className="space-y-2 rounded-2xl border border-gray-200 bg-white p-4">
+                            <div className="flex items-center justify-between gap-3">
+                              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">Suggested tags</p>
+                              <button
+                                type="button"
+                                className="text-[11px] font-semibold text-gray-600 hover:text-gray-900"
+                                onClick={async () => {
+                                  try {
+                                    const next = mergeTags(viewerUserTags, viewerSuggestedTags);
+                                    await updateMetadata({
+                                      id: viewerAsset._id,
+                                      userTokens: next,
+                                    });
+                                    toast.success("Tags added");
+                                  } catch (error) {
+                                    console.error(error);
+                                    toast.error("Unable to add tags");
+                                  }
+                                }}
+                              >
+                                Add all
+                              </button>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              {viewerSuggestedTags.map((tag) => (
+                                <button
+                                  key={tag}
+                                  type="button"
+                                  className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-2.5 py-1 text-xs font-semibold text-gray-700 hover:border-gray-300"
+                                  onClick={async () => {
+                                    try {
+                                      const next = mergeTags(viewerUserTags, [tag]);
+                                      await updateMetadata({
+                                        id: viewerAsset._id,
+                                        userTokens: next,
+                                      });
+                                      toast.success(`Added "${tag}"`);
+                                    } catch (error) {
+                                      console.error(error);
+                                      toast.error("Unable to add tag");
+                                    }
+                                  }}
+                                >
+                                  <span className="text-[10px]">+</span>
+                                  {tag}
+                                </button>
+                              ))}
+                            </div>
+                            <p className="text-[11px] text-gray-500">
+                              AI suggestions help refine search and filters without overwriting your tags.
+                            </p>
+                          </div>
+                        )}
                       </div>
-                    )}
-                    <div className="space-y-2">
-                      <p className="text-xs font-semibold uppercase text-gray-500">Your tags</p>
-                      {viewerUserTags.length > 0 ? (
-                        <div className="flex flex-wrap gap-2">
-                          {viewerUserTags.map((token) => (
-                            <Badge key={token} variant="secondary" className="bg-gray-100 text-gray-600">
-                              {token}
-                            </Badge>
-                          ))}
-                        </div>
-                      ) : (
-                        <p>—</p>
-                      )}
-                    </div>
-                    {viewerSuggestedTags.length > 0 && (
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between gap-3">
-                          <p className="text-xs font-semibold uppercase text-gray-500">Suggested tags</p>
-                          <button
-                            type="button"
-                            className="text-[11px] font-semibold text-gray-600 hover:text-gray-900"
-                            onClick={async () => {
-                              try {
-                                const next = mergeTags(viewerUserTags, viewerSuggestedTags);
-                                await updateMetadata({
-                                  id: viewerAsset._id,
-                                  userTokens: next,
-                                });
-                                toast.success("Tags added");
-                              } catch (error) {
-                                console.error(error);
-                                toast.error("Unable to add tags");
-                              }
-                            }}
-                          >
-                            Add all
-                          </button>
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                          {viewerSuggestedTags.map((tag) => (
-                            <button
-                              key={tag}
-                              type="button"
-                              className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-2.5 py-1 text-xs font-semibold text-gray-700 hover:border-gray-300"
-                              onClick={async () => {
-                                try {
-                                  const next = mergeTags(viewerUserTags, [tag]);
-                                  await updateMetadata({
-                                    id: viewerAsset._id,
-                                    userTokens: next,
-                                  });
-                                  toast.success(`Added "${tag}"`);
-                                } catch (error) {
-                                  console.error(error);
-                                  toast.error("Unable to add tag");
-                                }
-                              }}
-                            >
-                              <span className="text-[10px]">+</span>
-                              {tag}
-                            </button>
-                          ))}
-                        </div>
-                        <p className="text-[11px] text-gray-500">
-                          AI suggestions help refine search and filters without overwriting your tags.
-                        </p>
-                      </div>
-                    )}
-                    <div className="space-y-2">
-                      <p className="text-xs font-semibold uppercase text-gray-500">External link</p>
-                      {viewerAsset.externalLink ? (
-                        <a
-                          href={viewerAsset.externalLink}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-sm text-gray-700 underline underline-offset-2"
-                        >
-                          {viewerAsset.externalLink}
-                        </a>
-                      ) : (
-                        <p>—</p>
-                      )}
-                    </div>
-                    <div className="space-y-2">
-                      <p className="text-xs font-semibold uppercase text-gray-500">File size</p>
-                      <p>{formatBytes(viewerAsset.fileSize)}</p>
                     </div>
                   </div>
                 </div>
-              </div>
-            )}
-            {viewerItems.length > 1 && (
-              <>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={handleViewerPrev}
-                  className="absolute left-4 top-1/2 -translate-y-1/2 bg-white shadow-sm"
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                </Button>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={handleViewerNext}
-                  className="absolute right-4 top-1/2 -translate-y-1/2 bg-white shadow-sm"
-                >
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
+
+                {fullscreenOverlay}
               </>
             )}
           </DialogContent>

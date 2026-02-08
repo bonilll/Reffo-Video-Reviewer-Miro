@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { SignedIn, SignedOut, useUser, useClerk, useSignIn, useSignUp } from '@clerk/clerk-react';
 import { useQuery, useMutation, useAction } from 'convex/react';
 import { api } from './convex/_generated/api';
@@ -13,7 +14,7 @@ import type { Id } from './convex/_generated/dataModel';
 import logo from './assets/logo.svg';
 import googleLogo from './assets/google.svg';
 import { useThemePreference, ThemePref } from './useTheme';
-import { Bell } from 'lucide-react';
+import { Bell, Menu, X } from 'lucide-react';
 import { useConsent } from './contexts/ConsentContext';
 import PrivacyPolicy from './components/legal/PrivacyPolicy';
 import CookiePolicy from './components/legal/CookiePolicy';
@@ -45,7 +46,7 @@ type LegalPage = 'privacy' | 'cookies' | 'terms';
 
 type Route =
   | { name: 'home' }
-  | { name: 'dashboard' }
+  | { name: 'workspaces' }
   | { name: 'library' }
   | { name: 'profile' }
   | { name: 'project'; id: string }
@@ -101,7 +102,9 @@ const formatTimeAgo = (timestamp: number): string => {
 
 function parseRoute(pathname: string): Route {
   if (pathname === '/' || pathname === '') return { name: 'home' };
-  if (pathname === '/dashboard') return { name: 'dashboard' };
+  if (pathname === '/workspaces') return { name: 'workspaces' };
+  // Legacy path
+  if (pathname === '/dashboard') return { name: 'workspaces' };
   if (pathname === '/library') return { name: 'library' };
   if (pathname === '/profile') return { name: 'profile' };
   if (pathname === '/privacy' || pathname === '/privacy-policy') return { name: 'legal', page: 'privacy' };
@@ -197,7 +200,7 @@ const getClerkErrorMessage = (error: unknown): string => {
 
 const App: React.FC = () => {
   const [route, setRoute] = useState<Route>(() => parseRoute(window.location.pathname));
-  const [view, setView] = useState<'dashboard' | 'library' | 'reviewer' | 'profile' | 'project' | 'legal' | 'editor' | 'board'>('dashboard');
+  const [view, setView] = useState<'workspaces' | 'library' | 'reviewer' | 'profile' | 'project' | 'legal' | 'editor' | 'board'>('workspaces');
   const [legalPage, setLegalPage] = useState<LegalPage>('privacy');
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [activeBoardId, setActiveBoardId] = useState<string | null>(null);
@@ -559,7 +562,7 @@ const App: React.FC = () => {
       await signIn.authenticateWithRedirect({
         strategy: 'oauth_google',
         redirectUrl: window.location.href,
-        redirectUrlComplete: '/dashboard',
+        redirectUrlComplete: '/workspaces',
       });
     } catch (err) {
       console.error('Google sign-in redirect failed', err);
@@ -591,9 +594,9 @@ const App: React.FC = () => {
         // Prefer opening the modal; fall back to redirect if modal not available.
         try {
           if (clerkAny?.openSignIn) {
-            await clerkAny.openSignIn({ redirectUrl: window.location.href, redirectUrlComplete: '/dashboard' });
+            await clerkAny.openSignIn({ redirectUrl: window.location.href, redirectUrlComplete: '/workspaces' });
           } else if (clerkAny?.redirectToSignIn) {
-            clerkAny.redirectToSignIn({ redirectUrl: window.location.href, redirectUrlComplete: '/dashboard' });
+            clerkAny.redirectToSignIn({ redirectUrl: window.location.href, redirectUrlComplete: '/workspaces' });
           }
         } catch (e) {
           // Surface a helpful message if UI can't be opened for any reason
@@ -925,8 +928,8 @@ const App: React.FC = () => {
             : "Terms of Use";
       title = `${pageTitle} | ${defaultTitle}`;
       description = `Read the ${pageTitle.toLowerCase()} for Reffo.`;
-    } else if (route.name === "dashboard") {
-      title = `Dashboard | ${defaultTitle}`;
+    } else if (route.name === "workspaces") {
+      title = `Workspaces | ${defaultTitle}`;
     } else if (route.name === "library") {
       title = `Library | ${defaultTitle}`;
     } else if (route.name === "profile") {
@@ -953,17 +956,22 @@ const App: React.FC = () => {
     }
     // derive view + IDs from route
     if (route.name === 'home') {
-      // If signed in, prefer dashboard URL; otherwise keep landing.
+      // If signed in, prefer workspaces URL; otherwise keep landing.
       if (isSignedIn) {
-        navigate('/dashboard', true);
+        navigate('/workspaces', true);
         return;
       }
-      setView('dashboard');
+      setView('workspaces');
       setActiveProjectId(null);
       return;
     }
-    if (route.name === 'dashboard') {
-      setView('dashboard');
+    if (route.name === 'workspaces') {
+      // Redirect legacy /dashboard to /workspaces for backward compatibility.
+      if (window.location.pathname === '/dashboard') {
+        navigate('/workspaces', true);
+        return;
+      }
+      setView('workspaces');
       setActiveProjectId(null);
       return;
     }
@@ -1006,7 +1014,7 @@ const App: React.FC = () => {
       setView('legal');
       return;
     }
-    setView('dashboard');
+    setView('workspaces');
     setActiveProjectId(null);
     setSelectedVideoId(null);
     setActiveBoardId(null);
@@ -1067,11 +1075,11 @@ const App: React.FC = () => {
   // No special handling required for top-level redirects;
   // Clerk manages the Google OAuth flow entirely after authenticateWithRedirect.
 
-  const handleGoBackToDashboard = useCallback(() => {
+  const handleGoBackToWorkspaces = useCallback(() => {
     setSelectedVideoId(null);
     setPendingReviewFocus(null);
     setPendingProjectFocus(null);
-    navigate('/dashboard');
+    navigate('/workspaces');
   }, [navigate]);
 
   const handleNotificationClick = useCallback(
@@ -1121,7 +1129,7 @@ const App: React.FC = () => {
         return;
       }
 
-      navigate('/dashboard');
+      navigate('/workspaces');
     },
     [markNotificationRead, navigate],
   );
@@ -1266,7 +1274,7 @@ const App: React.FC = () => {
             key={currentVideo.id}
             video={currentVideo}
             sourceUrl={reviewSourceUrl ?? undefined}
-            onGoBack={handleGoBackToDashboard}
+            onGoBack={handleGoBackToWorkspaces}
             theme={preference}
             initialFocus={activeReviewFocus}
             onConsumeInitialFocus={() => {
@@ -1280,7 +1288,7 @@ const App: React.FC = () => {
         ) : view === 'editor' && activeCompositionId ? (
           <EditorPage
             compositionId={activeCompositionId as Id<'compositions'>}
-            onExit={() => navigate('/dashboard')}
+            onExit={() => navigate('/workspaces')}
             onOpenComposition={(id) => navigate(`/edit/${id}`)}
             onExitToReview={(videoId) => navigate(`/review/${videoId}`)}
           />
@@ -1289,9 +1297,9 @@ const App: React.FC = () => {
         ) : (
           <div className="min-h-screen flex flex-col">
             <AppHeader
-              active={view === 'profile' ? 'profile' : view === 'library' ? 'library' : 'dashboard'}
+              active={view === 'profile' ? 'profile' : view === 'library' ? 'library' : 'workspaces'}
               onNavigate={(target) => {
-                if (target === 'dashboard') navigate('/dashboard');
+                if (target === 'workspaces') navigate('/workspaces');
                 else if (target === 'library') navigate('/library');
                 else navigate('/profile');
               }}
@@ -1306,7 +1314,7 @@ const App: React.FC = () => {
               onNotificationClick={handleNotificationClick}
               onMarkAllNotificationsRead={handleMarkAllNotificationsRead}
             />
-            <main className="flex-1 overflow-y-auto px-6 py-10 lg:px-12">
+	            <main className="flex-1 overflow-y-auto px-4 py-8 sm:px-6 sm:py-10 lg:px-12">
               {view === 'profile' ? (
                 <ProfileSettings
                   user={{
@@ -1318,7 +1326,7 @@ const App: React.FC = () => {
                     avatarSource: (currentUser as CurrentUserProfile).avatarSource ?? null,
                   }}
                   projects={projects}
-                  onBack={() => navigate('/dashboard')}
+                  onBack={() => navigate('/workspaces')}
                 />
               ) : view === 'library' ? (
                 <LibraryPage />
@@ -1328,7 +1336,7 @@ const App: React.FC = () => {
                   projects={projects}
                   videos={videos}
                   theme={preference}
-                  onBack={() => navigate('/dashboard')}
+                  onBack={() => navigate('/workspaces')}
                   onStartReview={handleStartReview}
                   onRenameVideo={handleRenameVideo}
                   onSetVideoProject={handleSetVideoProject}
@@ -1374,7 +1382,7 @@ const App: React.FC = () => {
                 />
               )}
             </main>
-            <footer className={`border-t ${isDark ? 'border-white/10 bg-black/40 text-white/70' : 'border-gray-200 bg-white text-gray-600'} px-6 py-4 lg:px-12`}>
+	            <footer className={`border-t ${isDark ? 'border-white/10 bg-black/40 text-white/70' : 'border-gray-200 bg-white text-gray-600'} px-4 py-4 sm:px-6 lg:px-12`}>
               <div className="flex flex-wrap items-center justify-center gap-4 text-xs">
                 <button onClick={() => navigate('/privacy')} className="underline underline-offset-2">
                   {consentText.footer.privacy}
@@ -1412,8 +1420,8 @@ const App: React.FC = () => {
 export default App;
 
 interface AppHeaderProps {
-  active: 'dashboard' | 'library' | 'profile';
-  onNavigate: (view: 'dashboard' | 'library' | 'profile') => void;
+  active: 'workspaces' | 'library' | 'profile';
+  onNavigate: (view: 'workspaces' | 'library' | 'profile') => void;
   user: {
     name?: string | null;
     email: string;
@@ -1434,64 +1442,260 @@ const AppHeader: React.FC<AppHeaderProps & { isDark: boolean }> = ({
   hasUnreadNotifications,
   onNotificationClick,
   onMarkAllNotificationsRead,
-}) => {
-  const { signOut, setActive } = useClerk();
-  const { user: clerkUser } = useUser();
-  const settingsDoc = useQuery(api.settings.getOrNull, {});
-  const updateSettings = useMutation(api.settings.update);
-  const [notifOpen, setNotifOpen] = React.useState(false);
-  const displayNotifications = notifications ?? [];
-  const base = user.name || user.email;
-  const initials = base
-    .split(' ')
-    .map((part) => part[0]?.toUpperCase())
-    .join('')
-    .slice(0, 2);
-  const avatarUrl = user.avatar ?? clerkUser?.imageUrl ?? null;
+	}) => {
+		  const { signOut } = useClerk();
+		  const { user: clerkUser } = useUser();
+		  const [notifOpen, setNotifOpen] = React.useState(false);
+		  const notifRef = useRef<HTMLDivElement | null>(null);
+		  const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
+	  const displayNotifications = notifications ?? [];
+	  const base = user.name || user.email;
+	  const initials = base
+	    .split(' ')
+	    .map((part) => part[0]?.toUpperCase())
+	    .join('')
+	    .slice(0, 2);
+	  const avatarUrl = user.avatar ?? clerkUser?.imageUrl ?? null;
+	
+	  useEffect(() => {
+	    if (!mobileMenuOpen) return;
+	    const prevOverflow = document.body.style.overflow;
+	    document.body.style.overflow = "hidden";
+	    const onKeyDown = (event: KeyboardEvent) => {
+	      if (event.key === "Escape") {
+	        setMobileMenuOpen(false);
+	      }
+	    };
+	    window.addEventListener("keydown", onKeyDown);
+	    return () => {
+	      window.removeEventListener("keydown", onKeyDown);
+	      document.body.style.overflow = prevOverflow;
+	    };
+	  }, [mobileMenuOpen]);
 
-  return (
-    <header className={`sticky top-0 z-30 backdrop-blur border-b ${isDark ? 'border-white/10 bg-black/20 text-white' : 'border-gray-200 bg-white/80 text-gray-900'}`}>
-      <div className="mx-auto flex w-full max-w-7xl items-center justify-between px-6 py-4 lg:px-12">
-        <div className="flex items-center gap-6">
-          <div className="flex items-center gap-2">
-            <img src={logo} alt="Reffo" className="h-7 w-auto" />
-            <span className="text-sm font-semibold text-white/80">Reffo Studio</span>
-          </div>
-          <nav className="hidden items-center gap-3 text-sm text-white/60 md:flex">
-            <HeaderNavButton
-              label="Dashboard"
-              active={active === 'dashboard'}
-              onClick={() => onNavigate('dashboard')}
-              isDark={isDark}
-            />
-            <HeaderNavButton
-              label="Library"
-              active={active === 'library'}
-              onClick={() => onNavigate('library')}
-              isDark={isDark}
-            />
-            <HeaderNavButton
-              label="Profile"
-              active={active === 'profile'}
-              onClick={() => onNavigate('profile')}
-              isDark={isDark}
-            />
-          </nav>
-        </div>
-        <div className="flex items-center gap-3">
-          <div className="relative">
-            <button
-              onClick={() => setNotifOpen((o) => !o)}
-              className={isDark ? 'rounded-full border border-white/20 bg-black/30 p-2 text-white/80 hover:text-white' : 'rounded-full border border-gray-200 bg-white p-2 text-gray-700 hover:text-gray-900'}
-              aria-label="Notifications"
+	  useEffect(() => {
+	    if (!notifOpen) return;
+	    const onPointerDown = (event: PointerEvent) => {
+	      const root = notifRef.current;
+	      if (!root) return;
+	      if (root.contains(event.target as Node)) return;
+	      setNotifOpen(false);
+	    };
+	    const onKeyDown = (event: KeyboardEvent) => {
+	      if (event.key === "Escape") {
+	        setNotifOpen(false);
+	      }
+	    };
+	    window.addEventListener("pointerdown", onPointerDown);
+	    window.addEventListener("keydown", onKeyDown);
+	    return () => {
+	      window.removeEventListener("pointerdown", onPointerDown);
+	      window.removeEventListener("keydown", onKeyDown);
+	    };
+	  }, [notifOpen]);
+	
+	  const go = (target: 'workspaces' | 'library' | 'profile') => {
+	    setNotifOpen(false);
+	    setMobileMenuOpen(false);
+	    onNavigate(target);
+	  };
+
+		  const mobileMenu =
+		    mobileMenuOpen && typeof document !== "undefined"
+		      ? createPortal(
+		          <div
+		            className={`fixed inset-0 z-[100] flex flex-col md:hidden ${
+		              isDark ? "bg-gray-900 text-white" : "bg-white text-gray-900"
+		            }`}
+		            role="dialog"
+		            aria-modal="true"
+		            aria-label="Navigation menu"
+		          >
+		            {/* Top bar: match the main navbar sizing/spacing/logo */}
+		            <div className={`border-b ${isDark ? "border-white/10" : "border-gray-200"}`}>
+		              <div className="mx-auto flex w-full max-w-7xl items-center justify-between px-4 py-3 sm:px-6 sm:py-4 lg:px-12">
+		                <button
+		                  type="button"
+		                  onClick={() => go("workspaces")}
+		                  className={`flex items-center gap-2 rounded-lg focus:outline-none focus:ring-2 ${
+		                    isDark ? "focus:ring-white/20" : "focus:ring-gray-300"
+		                  }`}
+		                  aria-label="Go to Workspaces"
+		                >
+		                  <img src={logo} alt="Reffo" className="h-7 w-auto" />
+		                  <span className={isDark ? "text-sm font-semibold text-white/80" : "text-sm font-semibold text-gray-900"}>
+		                    Reffo Studio
+		                  </span>
+		                </button>
+		                <button
+		                  onClick={() => setMobileMenuOpen(false)}
+		                  className={
+		                    isDark
+		                      ? "rounded-full border border-white/20 bg-black/40 p-2 text-white/90 hover:bg-black/60"
+		                      : "rounded-full border border-gray-200 bg-white p-2 text-gray-800 hover:bg-gray-50"
+		                  }
+		                  aria-label="Close menu"
+		                >
+		                  <X size={18} />
+		                </button>
+		              </div>
+		            </div>
+
+		            {/* Body: centered menu content */}
+		            <div className="flex flex-1 flex-col overflow-y-auto">
+		              <div className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center px-4 py-8">
+		                <div className="space-y-4">
+		                  <button
+		                    type="button"
+		                    onClick={() => go("profile")}
+		                    className={`w-full flex items-center gap-3 rounded-2xl border px-3 py-3 text-left ${
+		                      isDark ? "border-white/10 bg-white/5" : "border-gray-200 bg-gray-50"
+		                    }`}
+		                  >
+		                    <div
+		                      className={
+		                        isDark
+		                          ? "flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-black/40 text-sm font-semibold text-white"
+		                          : "flex h-10 w-10 items-center justify-center rounded-full border border-gray-200 bg-white text-sm font-semibold text-gray-900"
+		                      }
+		                    >
+		                      {avatarUrl ? (
+		                        <img src={avatarUrl} alt={user.email} className="h-10 w-10 rounded-full object-cover" />
+		                      ) : (
+		                        <span>{initials}</span>
+		                      )}
+		                    </div>
+		                    <div className="min-w-0 flex-1">
+		                      <div className="text-sm font-semibold truncate">{user.name ?? user.email}</div>
+		                      <div className={isDark ? "text-xs text-white/60 truncate" : "text-xs text-gray-600 truncate"}>
+		                        {user.email}
+		                      </div>
+		                    </div>
+		                  </button>
+
+		                  <div className="space-y-2">
+		                    <button
+		                      type="button"
+		                      onClick={() => go("workspaces")}
+		                      className={`w-full rounded-xl border px-4 py-3 text-sm font-semibold text-left transition ${
+		                        active === "workspaces"
+		                          ? isDark
+		                            ? "!border-white/25 !bg-black !text-white ring-1 ring-white/35 shadow-sm"
+		                            : "!border-gray-900 !bg-gray-900 !text-white shadow-sm"
+		                          : isDark
+		                            ? "border-white/10 bg-white/5 text-white/90 hover:bg-white/10"
+		                            : "border-gray-200 bg-white text-gray-900 hover:bg-gray-50"
+		                      }`}
+		                    >
+		                      Workspaces
+		                    </button>
+		                    <button
+		                      type="button"
+		                      onClick={() => go("library")}
+		                      className={`w-full rounded-xl border px-4 py-3 text-sm font-semibold text-left transition ${
+		                        active === "library"
+		                          ? isDark
+		                            ? "!border-white/25 !bg-black !text-white ring-1 ring-white/35 shadow-sm"
+		                            : "!border-gray-900 !bg-gray-900 !text-white shadow-sm"
+		                          : isDark
+		                            ? "border-white/10 bg-white/5 text-white/90 hover:bg-white/10"
+		                            : "border-gray-200 bg-white text-gray-900 hover:bg-gray-50"
+		                      }`}
+		                    >
+		                      Library
+		                    </button>
+		                    <button
+		                      type="button"
+		                      onClick={() => go("profile")}
+		                      className={`w-full rounded-xl border px-4 py-3 text-sm font-semibold text-left transition ${
+		                        active === "profile"
+		                          ? isDark
+		                            ? "!border-white/25 !bg-black !text-white ring-1 ring-white/35 shadow-sm"
+		                            : "!border-gray-900 !bg-gray-900 !text-white shadow-sm"
+		                          : isDark
+		                            ? "border-white/10 bg-white/5 text-white/90 hover:bg-white/10"
+		                            : "border-gray-200 bg-white text-gray-900 hover:bg-gray-50"
+		                      }`}
+		                    >
+		                      Profile
+		                    </button>
+		                  </div>
+
+		                  <button
+		                    type="button"
+		                    onClick={async () => {
+		                      setMobileMenuOpen(false);
+		                      try {
+		                        localStorage.removeItem("reffo_miro_session_id");
+		                      } catch {}
+		                      await signOut();
+		                    }}
+		                    className={
+		                      isDark
+		                        ? "w-full rounded-full border border-white/20 bg-black px-4 py-2.5 text-sm font-semibold text-white hover:bg-black/80"
+		                        : "w-full rounded-full border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-800 hover:bg-gray-50"
+		                    }
+		                  >
+		                    Logout
+		                  </button>
+		                </div>
+		              </div>
+		            </div>
+		          </div>,
+		          document.body
+		        )
+		      : null;
+
+	  return (
+	    <header className={`sticky top-0 z-30 backdrop-blur border-b ${isDark ? 'border-white/10 bg-black/20 text-white' : 'border-gray-200 bg-white/80 text-gray-900'}`}>
+	      <div className="mx-auto flex w-full max-w-7xl items-center justify-between px-4 py-3 sm:px-6 sm:py-4 lg:px-12">
+	        <div className="flex items-center gap-6">
+	          <button
+	            type="button"
+	            onClick={() => go('workspaces')}
+	            className={`flex items-center gap-2 rounded-lg focus:outline-none focus:ring-2 ${isDark ? 'focus:ring-white/20' : 'focus:ring-gray-300'}`}
+	            aria-label="Go to Workspaces"
+	          >
+		            <img src={logo} alt="Reffo" className="h-7 w-auto" />
+		            <span className={isDark ? "text-sm font-semibold text-white/80" : "text-sm font-semibold text-gray-900"}>
+		              Reffo Studio
+		            </span>
+		          </button>
+		          <nav className={`hidden items-center gap-3 text-sm md:flex ${isDark ? "text-white/60" : "text-gray-600"}`}>
+		            <HeaderNavButton
+		              label="Workspaces"
+		              active={active === 'workspaces'}
+	              onClick={() => go('workspaces')}
+	              isDark={isDark}
+	            />
+	            <HeaderNavButton
+	              label="Library"
+	              active={active === 'library'}
+	              onClick={() => go('library')}
+	              isDark={isDark}
+	            />
+	            <HeaderNavButton
+	              label="Profile"
+	              active={active === 'profile'}
+	              onClick={() => go('profile')}
+	              isDark={isDark}
+	            />
+	          </nav>
+	        </div>
+	        <div className="flex items-center gap-2 sm:gap-3">
+	          <div className="relative" ref={notifRef}>
+	            <button
+	              onClick={() => setNotifOpen((o) => !o)}
+	              className={isDark ? 'rounded-full border border-white/20 bg-black/30 p-2 text-white/80 hover:text-white' : 'rounded-full border border-gray-200 bg-white p-2 text-gray-700 hover:text-gray-900'}
+	              aria-label="Notifications"
             >
               <Bell size={16} />
             </button>
             {hasUnreadNotifications && (
               <span className="absolute -right-1 -top-1 inline-block h-2 w-2 rounded-full bg-red-500" />
             )}
-            {notifOpen && (
-              <div className={`absolute right-0 mt-2 w-80 rounded-xl border shadow-2xl backdrop-blur ${isDark ? 'border-white/10 bg-black/90 text-white' : 'border-gray-200 bg-white text-gray-900'}`}>
+	            {notifOpen && (
+	              <div className={`absolute right-0 mt-2 w-[min(20rem,calc(100vw-1.5rem))] rounded-xl border shadow-2xl backdrop-blur ${isDark ? 'border-white/10 bg-black/90 text-white' : 'border-gray-200 bg-white text-gray-900'}`}>
                 <div className="flex items-center justify-between px-3 py-2 text-xs">
                   <span className={isDark ? 'text-white/70' : 'text-gray-600'}>Notifications</span>
                   <button
@@ -1560,37 +1764,49 @@ const AppHeader: React.FC<AppHeaderProps & { isDark: boolean }> = ({
                   )}
                 </div>
               </div>
-            )}
-          </div>
-          <div className="hidden text-right text-xs text-white/60 sm:block">
-            <p className="font-semibold text-white/80">{user.name ?? user.email}</p>
-            <p>{user.email}</p>
-          </div>
-          <button
-            onClick={() => onNavigate('profile')}
-            className={isDark ? 'flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-black/30 text-sm font-semibold text-white hover:border-white/40' : 'flex h-10 w-10 items-center justify-center rounded-full border border-gray-200 bg-white text-sm font-semibold text-gray-900 hover:border-gray-300'}
-            aria-label="Open profile"
-          >
-            {avatarUrl ? (
-              <img src={avatarUrl} alt={user.email} className="h-10 w-10 rounded-full object-cover" />
-            ) : (
-              <span>{initials}</span>
-            )}
-          </button>
-          <button
-            onClick={async () => {
-              try { localStorage.removeItem('reffo_miro_session_id'); } catch {}
-              await signOut();
-            }}
-            className={isDark ? 'rounded-full border border-white/20 bg-black/30 px-3 py-1.5 text-xs text-white/70 hover:text-white' : 'rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-700 hover:text-gray-900'}
-          >
-            Logout
-          </button>
-        </div>
-      </div>
-    </header>
-  );
-};
+	            )}
+	          </div>
+	          <button
+	            onClick={() => {
+	              setNotifOpen(false);
+	              setMobileMenuOpen(true);
+	            }}
+	            className={isDark ? 'md:hidden rounded-full border border-white/20 bg-black/30 p-2 text-white/80 hover:text-white' : 'md:hidden rounded-full border border-gray-200 bg-white p-2 text-gray-700 hover:text-gray-900'}
+	            aria-label="Open menu"
+	          >
+	            <Menu size={16} />
+	          </button>
+	          <div className="hidden text-right text-xs text-white/60 sm:block">
+	            <p className="font-semibold text-white/80">{user.name ?? user.email}</p>
+	            <p>{user.email}</p>
+	          </div>
+	          <button
+	            onClick={() => go('profile')}
+	            className={isDark ? 'hidden md:flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-black/30 text-sm font-semibold text-white hover:border-white/40' : 'hidden md:flex h-10 w-10 items-center justify-center rounded-full border border-gray-200 bg-white text-sm font-semibold text-gray-900 hover:border-gray-300'}
+	            aria-label="Open profile"
+	          >
+	            {avatarUrl ? (
+	              <img src={avatarUrl} alt={user.email} className="h-10 w-10 rounded-full object-cover" />
+	            ) : (
+	              <span>{initials}</span>
+	            )}
+	          </button>
+	          <button
+	            onClick={async () => {
+	              try { localStorage.removeItem('reffo_miro_session_id'); } catch {}
+	              await signOut();
+	            }}
+	            className={isDark ? 'hidden md:inline-flex rounded-full border border-white/20 bg-black/30 px-3 py-1.5 text-xs text-white/70 hover:text-white' : 'hidden md:inline-flex rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-700 hover:text-gray-900'}
+	          >
+	            Logout
+	          </button>
+	        </div>
+	      </div>
+
+	      {mobileMenu}
+	    </header>
+	  );
+	};
 
 interface HeaderNavButtonProps {
   label: string;

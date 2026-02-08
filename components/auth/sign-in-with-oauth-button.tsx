@@ -23,14 +23,14 @@ export function SignInWithOAuthButton({
   const searchParams = useSearchParams();
   
   // Get the redirect URL from the query parameters
-  const redirectUrl = searchParams.get("redirect_url") || "/dashboard";
+  const redirectUrl = searchParams.get("redirect_url") || "/workspaces";
 
   const signInWithOAuth = async () => {
     if (!isLoaded) return;
     
     // Check if user is already authenticated before proceeding
     if (isAuthLoaded && isSignedIn) {
-      window.location.href = "/dashboard";
+      window.location.href = "/workspaces";
       return;
     }
     
@@ -41,7 +41,7 @@ export function SignInWithOAuthButton({
       await signIn.authenticateWithRedirect({
         strategy: provider,
         redirectUrl: "/sso-callback",
-        redirectUrlComplete: "/dashboard",
+        redirectUrlComplete: "/workspaces",
       });
     } catch (error) {
       console.error("Errore nell'autenticazione OAuth:", error);
