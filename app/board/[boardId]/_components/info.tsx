@@ -54,7 +54,6 @@ export const Info = ({ boardId, projectId }: InfoProps) => {
               src="/logo.svg"
               alt="Reffo Logo"
               fill
-              priority
               className="object-contain"
             />
           </div>

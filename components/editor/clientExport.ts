@@ -173,7 +173,6 @@ export const renderCompositionClient = async ({
 }: ClientExportParams): Promise<{ webmBlob: Blob; mp4Blob: Blob }> => {
   const log = (msg: string, data?: any) => {
     if (debug) {
-      try { (logger ?? console.log)(`[ClientExport] ${msg}`, data ?? ''); } catch {}
     }
   };
   log('Start render', { fps: composition.settings.fps, frames: composition.settings.durationFrames });
@@ -362,8 +361,6 @@ export const renderCompositionClient = async ({
     onProgress?.(0.95, 'Finalizing (MP4 retime)…');
     log('FFmpeg load start (retime MP4)');
     const ffmpeg = new FFmpeg();
-    try { (ffmpeg as any).on?.('log', ({ message }: any) => debug && console.log('[FFmpeg]', message)); } catch {}
-    try { (ffmpeg as any).on?.('progress', ({ progress }: any) => debug && console.log('[FFmpeg:progress]', progress)); } catch {}
     const VERSION = '0.12.10';
     const bases = [
       `https://cdn.jsdelivr.net/npm/@ffmpeg/core@${VERSION}/dist/esm`,
@@ -412,8 +409,6 @@ export const renderCompositionClient = async ({
   if (retimeWebM) {
     onProgress?.(0.92, 'Finalizing (WebM retime)…');
     const ffmpegW = new FFmpeg();
-    try { (ffmpegW as any).on?.('log', ({ message }: any) => debug && console.log('[FFmpeg]', message)); } catch {}
-    try { (ffmpegW as any).on?.('progress', ({ progress }: any) => debug && console.log('[FFmpeg:progress]', progress)); } catch {}
     const VERSION = '0.12.10';
     const bases = [
       `https://cdn.jsdelivr.net/npm/@ffmpeg/core@${VERSION}/dist/esm`,
@@ -456,8 +451,6 @@ export const renderCompositionClient = async ({
   onProgress?.(0.95, 'Converting to MP4');
   log('FFmpeg load start');
   const ffmpeg = new FFmpeg();
-  try { (ffmpeg as any).on?.('log', ({ message }: any) => debug && console.log('[FFmpeg]', message)); } catch {}
-  try { (ffmpeg as any).on?.('progress', ({ progress }: any) => debug && console.log('[FFmpeg:progress]', progress)); } catch {}
   const VERSION = '0.12.10';
   const bases = [
     `https://cdn.jsdelivr.net/npm/@ffmpeg/core@${VERSION}/dist/esm`,

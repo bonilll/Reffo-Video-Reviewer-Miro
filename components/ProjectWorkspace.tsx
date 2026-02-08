@@ -25,18 +25,19 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 const Thumbnail: React.FC<{ video: Video }> = ({ video }) => {
-  const [failed, setFailed] = React.useState(false);
-  if (video.thumbnailUrl && !failed) {
+  const [thumbFailed, setThumbFailed] = React.useState(false);
+  const [videoFailed, setVideoFailed] = React.useState(false);
+  if (video.thumbnailUrl && !thumbFailed) {
     return (
       <img
         src={video.thumbnailUrl}
         alt={video.title}
         className="absolute inset-0 h-full w-full object-cover"
-        onError={() => setFailed(true)}
+        onError={() => setThumbFailed(true)}
       />
     );
   }
-  if (!failed) {
+  if (!videoFailed) {
     return (
       <video
         className="absolute inset-0 h-full w-full object-cover"
@@ -45,13 +46,13 @@ const Thumbnail: React.FC<{ video: Video }> = ({ video }) => {
         playsInline
         preload="metadata"
         poster={video.thumbnailUrl}
-        onError={() => setFailed(true)}
+        onError={() => setVideoFailed(true)}
       />
     );
   }
   return (
     <div className="absolute inset-0 flex items-center justify-center">
-      <Film size={40} className="text-white/40" />
+      <Film size={40} className="text-slate-200/80" />
     </div>
   );
 };
@@ -63,24 +64,25 @@ const fallbackBoardCovers = [
 ];
 
 const BoardThumbnail: React.FC<{ board: Board; fallbackUrl: string }> = ({ board, fallbackUrl }) => {
-  const [failed, setFailed] = React.useState(false);
-  if (board.imageUrl && !failed) {
+  const [coverFailed, setCoverFailed] = React.useState(false);
+  const [fallbackFailed, setFallbackFailed] = React.useState(false);
+  if (board.imageUrl && !coverFailed) {
     return (
       <img
         src={board.imageUrl}
         alt={board.title}
         className="absolute inset-0 h-full w-full object-cover"
-        onError={() => setFailed(true)}
+        onError={() => setCoverFailed(true)}
       />
     );
   }
-  if (fallbackUrl && !failed) {
+  if (fallbackUrl && !fallbackFailed) {
     return (
       <img
         src={fallbackUrl}
         alt={board.title}
         className="absolute inset-0 h-full w-full object-cover"
-        onError={() => setFailed(true)}
+        onError={() => setFallbackFailed(true)}
       />
     );
   }
@@ -204,7 +206,7 @@ const ProjectWorkspace: React.FC<{
   const toastId = useRef(0);
   const [newBoardTitle, setNewBoardTitle] = useState('');
   const [isCreatingBoard, setIsCreatingBoard] = useState(false);
-  const [activeTab, setActiveTab] = useState<'review' | 'boards'>('review');
+  const [activeTab, setActiveTab] = useState<'review' | 'boards'>('boards');
   const [boardViewMode, setBoardViewMode] = useState<'grid' | 'list'>('grid');
   const [boardToRename, setBoardToRename] = useState<Board | null>(null);
   const [boardToDelete, setBoardToDelete] = useState<Board | null>(null);
@@ -294,6 +296,16 @@ const ProjectWorkspace: React.FC<{
       sharedRole: board.sharedRole ?? null,
     }));
   }, [boardsQuery]);
+
+  const recentBoards = useMemo(() => {
+    const getTime = (board: Board) => {
+      const source = board.updatedAt ?? board.createdAt;
+      return source ? Date.parse(source) : 0;
+    };
+    return [...boards].sort((a, b) => getTime(b) - getTime(a)).slice(0, 3);
+  }, [boards]);
+
+  const recentReviews = useMemo(() => projectVideos.slice(0, 3), [projectVideos]);
 
   const handleRename = useCallback(
     async (video: Video, title: string) => {
@@ -808,27 +820,80 @@ const ProjectWorkspace: React.FC<{
             </p>
           </div>
         </div>
-        <div className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-2 py-1">
-          <button
-            onClick={() => setActiveTab('review')}
-            className={`tab-button rounded-full px-3 py-1 text-xs font-semibold transition ${
-              activeTab === 'review'
-                ? 'tab-button-active'
-                : 'tab-button-inactive text-gray-500 hover:text-gray-900'
-            }`}
-          >
-            Reviews
-          </button>
+        <div className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white p-1 shadow-sm">
           <button
             onClick={() => setActiveTab('boards')}
-            className={`tab-button rounded-full px-3 py-1 text-xs font-semibold transition ${
-              activeTab === 'boards'
-                ? 'tab-button-active'
-                : 'tab-button-inactive text-gray-500 hover:text-gray-900'
+            className={`tab-button inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-xs font-semibold transition ${
+              activeTab === 'boards' ? 'tab-button-active shadow' : 'tab-button-inactive'
             }`}
           >
+            <LayoutGrid size={14} />
             Boards
           </button>
+          <button
+            onClick={() => setActiveTab('review')}
+            className={`tab-button inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-xs font-semibold transition ${
+              activeTab === 'review' ? 'tab-button-active shadow' : 'tab-button-inactive'
+            }`}
+          >
+            <PlayCircle size={14} />
+            Reviews
+          </button>
+        </div>
+        <div className="w-full">
+          <div className="flex items-center justify-between px-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+            <span>Recently updated</span>
+          </div>
+          <div className="mt-2 flex flex-wrap items-center gap-4 rounded-2xl border border-gray-200 bg-white/70 px-4 py-4">
+            {recentBoards.map((board, index) => (
+              <button
+                key={board.id}
+                onClick={() => onOpenBoard?.(board.id)}
+                className="library-unstyled group relative h-[120px] w-[220px] overflow-hidden rounded-2xl border border-gray-200 bg-gray-900 text-left shadow-sm transition hover:border-gray-300 hover:shadow-md sm:h-[130px] sm:w-[240px]"
+                title={board.title}
+              >
+                <div className="absolute inset-0">
+                  <BoardThumbnail
+                    board={board}
+                    fallbackUrl={fallbackBoardCovers[index % fallbackBoardCovers.length]}
+                  />
+                </div>
+                <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
+                <div className="relative z-10 flex h-full flex-col justify-between p-3">
+                  <span className="inline-flex w-fit items-center rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-800">
+                    Board
+                  </span>
+                  <span className="max-w-[200px] truncate text-sm font-semibold text-slate-50">
+                    {board.title}
+                  </span>
+                </div>
+              </button>
+            ))}
+            {recentReviews.map((video) => (
+              <button
+                key={video.id}
+                onClick={() => onStartReview(video)}
+                className="library-unstyled group relative h-[120px] w-[220px] overflow-hidden rounded-2xl border border-gray-200 bg-gray-900 text-left shadow-sm transition hover:border-gray-300 hover:shadow-md sm:h-[130px] sm:w-[240px]"
+                title={video.title}
+              >
+                <div className="absolute inset-0">
+                  <Thumbnail video={video} />
+                </div>
+                <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
+                <div className="relative z-10 flex h-full flex-col justify-between p-3">
+                  <span className="inline-flex w-fit items-center rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-800">
+                    Review
+                  </span>
+                  <span className="max-w-[200px] truncate text-sm font-semibold text-slate-50">
+                    {video.title}
+                  </span>
+                </div>
+              </button>
+            ))}
+            {recentBoards.length === 0 && recentReviews.length === 0 && (
+              <span className="text-xs text-gray-500">No recent items yet.</span>
+            )}
+          </div>
         </div>
         <input
           type="file"

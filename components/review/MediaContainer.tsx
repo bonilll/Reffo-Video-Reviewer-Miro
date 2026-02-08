@@ -739,18 +739,15 @@ export function MediaContainer({
   
   // Comparison handlers
   const handleModeChange = useCallback((mode: VideoComparisonMode) => {
-    console.log('🔄 Changing comparison mode to:', mode);
     setComparisonMode(mode);
   }, []);
   
   const handleAddVideo = useCallback(() => {
-    console.log('📹 Add video for comparison');
     // TODO: Implement video selection modal
   }, []);
   
   // Split mode handler - navigates to dedicated comparison page
   const handleSplitModeSelect = useCallback((mode: 'split-horizontal' | 'split-vertical' | 'overlay') => {
-    console.log('🔀 Opening comparison page with mode:', mode);
     
     // Store comparison data in localStorage for the new page
     const comparisonData = {
@@ -999,13 +996,8 @@ export function MediaContainer({
   
   // Drawing event handlers
   const startDrawing = useCallback((e: React.PointerEvent) => {
-    console.log('startDrawing called', { 
-      tool: canvasState.tool, 
-      allowedTools: ["freehand", "rectangle", "circle", "arrow"] 
-    });
     
     if (canvasState.tool === "select" || !canvasState || canvasState.tool === "eraser") {
-      console.log('startDrawing early exit', { tool: canvasState.tool });
       return;
     }
     
@@ -1091,24 +1083,9 @@ export function MediaContainer({
   
   const stopDrawing = useCallback(async () => {
     if (!canvasState.isDrawing || !drawingStart) {
-      console.log('stopDrawing early exit', { 
-        isDrawing: canvasState.isDrawing, 
-        drawingStart, 
-        tool: canvasState.tool 
-      });
       return;
     }
     
-    console.log('stopDrawing called', { 
-      tool: canvasState.tool, 
-      currentPath, 
-      currentShape, 
-      drawingStart,
-      sessionId,
-      assetId,
-      sessionIdType: typeof sessionId,
-      assetIdType: typeof assetId 
-    });
     
     onCanvasStateChange({
       ...canvasState,
@@ -1126,14 +1103,6 @@ export function MediaContainer({
           y: drawingStart.y / mediaHeight
         };
         
-        console.log('Creating freehand annotation with:', {
-          sessionId,
-          assetId,
-          position: normalizedPosition,
-          frameNumber: videoState?.currentFrame || 0,
-          frameTimestamp: videoState?.currentTime,
-          path: currentPath
-        });
         
         const result = await createAnnotation({
           sessionId: sessionId as any,
@@ -1152,9 +1121,7 @@ export function MediaContainer({
           }
         });
         
-        console.log('Freehand annotation creation result:', result);
         
-        console.log('Freehand annotation created successfully');
       } else if (currentShape && drawingStart) {
         const mediaWidth = parseFloat(mediaStyle.width?.toString().replace('px', '') || '0');
         const mediaHeight = parseFloat(mediaStyle.height?.toString().replace('px', '') || '0');
@@ -1171,15 +1138,6 @@ export function MediaContainer({
           y: bounds.y
         };
         
-        console.log('Creating shape annotation with:', {
-          sessionId,
-          assetId,
-          position: normalizedPosition,
-          frameNumber: videoState?.currentFrame || 0,
-          frameTimestamp: videoState?.currentTime,
-          type: currentShape.type,
-          bounds
-        });
         
         const result = await createAnnotation({
           sessionId: sessionId as any,
@@ -1199,9 +1157,7 @@ export function MediaContainer({
           }
         });
         
-        console.log('Shape annotation creation result:', result);
         
-        console.log('Shape annotation created successfully');
       }
       
       onAnnotationCreated?.();
@@ -1218,14 +1174,12 @@ export function MediaContainer({
   
   // Handle annotation moves - coordinates are already normalized from ReviewAnnotationSelector
   const handleAnnotationMove = useCallback((ids: string[], normalizedDeltaX: number, normalizedDeltaY: number) => {
-    console.log("🔧 MediaContainer.handleAnnotationMove called with normalized coords:", { normalizedDeltaX, normalizedDeltaY });
     onAnnotationMove(ids, normalizedDeltaX, normalizedDeltaY);
   }, [onAnnotationMove]);
   
   // Handle comment moves - coordinates are already normalized from ReviewAnnotationSelector
   const handleCommentMove = useCallback((ids: string[], normalizedDeltaX: number, normalizedDeltaY: number) => {
     if (!onCommentMove) return;
-    console.log("🔧 MediaContainer.handleCommentMove called with normalized coords:", { normalizedDeltaX, normalizedDeltaY });
     onCommentMove(ids, normalizedDeltaX, normalizedDeltaY);
   }, [onCommentMove]);
   
@@ -1242,7 +1196,6 @@ export function MediaContainer({
   const handleDoubleClick = useCallback((e: React.MouseEvent) => {
     if (!showComments) return;
     
-    console.log('Double-click on MediaContainer for comment creation');
     
     // Get coordinates within the media
     const rect = containerRef.current?.getBoundingClientRect();
@@ -1265,7 +1218,6 @@ export function MediaContainer({
     // Convert to normalized coordinates for comment position
     const normalizedPos = clientToNormalized(e.clientX, e.clientY);
     
-    console.log('Creating comment at normalized position:', normalizedPos);
     
     // Create temporary bubble for comment input
     const tempId = `temp-${Date.now()}`;

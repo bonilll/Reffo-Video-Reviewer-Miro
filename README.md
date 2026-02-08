@@ -35,6 +35,40 @@ MINIO_REGION=us-east-1
 MINIO_PUBLIC_URL=https://s3.reffo.studio/video-review-bucket
 ```
 
+### Dev vs deploy (Convex Cloud vs self-hosted)
+
+Vite loads environment files automatically based on the mode:
+
+- `npm run dev` (mode `development`) loads `.env.local`
+- `npm run build` (mode `production`) also loads `.env.production.local` which **overrides** values from `.env.local`
+
+To avoid commenting/uncommenting Convex URLs every time you deploy:
+
+- keep development values in `.env.local` (e.g. `VITE_CONVEX_URL=https://<name>.convex.cloud`)
+- put deploy overrides in `.env.production.local` (e.g. `VITE_CONVEX_SELF_HOSTED_URL=https://convex-api.reffo.studio`)
+
+Variables used by this repo:
+
+- `VITE_CONVEX_URL` (Convex Cloud base URL, dev)
+- `VITE_CONVEX_SELF_HOSTED_URL` (self-hosted Convex base URL, prod override)
+- `VITE_CONVEX_HTTP_URL` (base URL for HTTP Actions; for Convex Cloud it is derived by replacing `.convex.cloud` -> `.convex.site`)
+
+Note: the serverless routes under `api/*` read these from `process.env` in production. If you deploy them (e.g. on Vercel), set the same variables in your deploy environment too.
+
+If you deploy the Convex backend to a self-hosted instance from your terminal, you can use:
+
+```bash
+npm run convex:deploy:selfhosted
+```
+
+For Convex cloud development, use:
+
+```bash
+npm run convex:dev
+```
+
+This repo keeps `CONVEX_DEPLOYMENT` out of `.env.local` to avoid conflicts with self-hosted deploy. The Convex CLI reads `.env.local` by default, so `CONVEX_DEPLOYMENT` must live in a separate env file (see `.env.convex.dev.local`).
+
 For the Convex runtime to access storage credentials, set them in the deployment environment (run while `npx convex dev` is active):
 
 ```bash

@@ -110,12 +110,6 @@ export function useVectorSearchInLibrary(userId: string, orgId?: string): Vector
     } : "skip"
   );
 
-  console.log("HOOK DEBUG - useVectorSearchInLibrary state:", {
-    searchParams,
-    libraryResults,
-    isLoading: libraryResults === undefined,
-    hasResults: libraryResults && libraryResults.references && libraryResults.references.length > 0
-  });
 
   // Calculate breakdown statistics using useMemo for performance
   const breakdown = useMemo(() => {
@@ -139,7 +133,6 @@ export function useVectorSearchInLibrary(userId: string, orgId?: string): Vector
   }, [libraryResults]);
 
   const searchSimilar = useCallback((assetId: Id<"assets">, options?: { threshold?: number }) => {
-    console.log("HOOK DEBUG - searchSimilar called with:", { assetId, options });
     
     setError(null);
     setSearchParams({
@@ -149,7 +142,6 @@ export function useVectorSearchInLibrary(userId: string, orgId?: string): Vector
   }, []);
 
   const clearResults = useCallback(() => {
-    console.log("HOOK DEBUG - clearResults called");
     setSearchParams({
       similarToAssetId: null,
       threshold: 0.6,
@@ -162,14 +154,6 @@ export function useVectorSearchInLibrary(userId: string, orgId?: string): Vector
   const hasVectorMatches = libraryResults?.hasVectorMatches || false;
   const hasTagMatches = libraryResults?.hasTagMatches || false;
 
-  console.log("HOOK DEBUG - Final hook state:", {
-    isLoading,
-    resultsCount: results.length,
-    hasVectorMatches,
-    hasTagMatches,
-    hasDescriptionMatches: libraryResults?.hasDescriptionMatches || false,
-    breakdown
-  });
 
   return {
     isLoading,

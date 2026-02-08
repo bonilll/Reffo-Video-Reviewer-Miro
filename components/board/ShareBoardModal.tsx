@@ -149,133 +149,135 @@ export const ShareBoardModal = ({ boardId, isOpen, onClose }: ShareBoardModalPro
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => (!open ? onClose() : null)}>
-      <DialogContent className="max-w-xl bg-white text-slate-900 border border-slate-200/80 shadow-xl">
-        <DialogHeader>
-          <DialogTitle>Share board</DialogTitle>
-          <DialogDescription>
-            Invite collaborators to view or edit this board.
-          </DialogDescription>
-        </DialogHeader>
+      <DialogContent className="max-w-xl bg-white text-slate-900 border border-slate-200/80 shadow-2xl max-h-[80vh] overflow-hidden">
+        <div className="flex flex-col max-h-[80vh]">
+          <DialogHeader className="shrink-0">
+            <DialogTitle>Share board</DialogTitle>
+            <DialogDescription>
+              Invite collaborators to view or edit this board.
+            </DialogDescription>
+          </DialogHeader>
 
-        <div className="space-y-4">
-          <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200/70 bg-slate-50 px-4 py-3 text-sm">
-            <div className="flex flex-col">
-              <span className="text-xs text-muted-foreground">Share link</span>
-              <span className="font-medium text-slate-700">{url || "—"}</span>
-            </div>
-            <Button variant="secondary" size="sm" onClick={onCopy} disabled={!url}>
-              <Copy className="mr-2 h-4 w-4" /> Copy
-            </Button>
-          </div>
-
-          <Separator />
-
-          <form onSubmit={onShare} className="space-y-3">
-            <div className="flex flex-col gap-2 sm:flex-row">
-              <div className="flex-1">
-                <Input
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                  placeholder="email@studio.com"
-                  type="email"
-                  disabled={!isOwner}
-                />
+          <div className="space-y-4 overflow-y-auto pr-1">
+            <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200/70 bg-slate-50 px-4 py-3 text-sm">
+              <div className="flex min-w-0 flex-col">
+                <span className="text-xs text-muted-foreground">Share link</span>
+                <span className="font-medium text-slate-700 break-all">{url || "—"}</span>
               </div>
-              <Select value={role} onValueChange={(value) => setRole(value as "viewer" | "editor")} disabled={!isOwner}>
-                <SelectTrigger className="w-[140px]">
-                  <SelectValue placeholder="Role" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="viewer">Viewer</SelectItem>
-                  <SelectItem value="editor">Editor</SelectItem>
-                </SelectContent>
-              </Select>
-              <Button type="submit" disabled={!isOwner || isSubmitting} className="sm:w-[140px]">
-                <Mail className="mr-2 h-4 w-4" />
-                Invite
+              <Button variant="secondary" size="sm" onClick={onCopy} disabled={!url}>
+                <Copy className="mr-2 h-4 w-4" /> Copy
               </Button>
             </div>
-            {!isOwner && (
-              <p className="text-xs text-muted-foreground">
-                Only the board owner can invite new members.
-              </p>
-            )}
-          </form>
 
-          <Separator />
+            <Separator />
 
-          <div className="space-y-3">
-            <div>
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Owner</p>
-              <div className="mt-2 flex items-center justify-between rounded-xl border border-slate-200/70 bg-slate-50 px-4 py-3">
-                <div>
-                  <p className="text-sm font-semibold text-slate-800">{sharingInfo?.owner?.name ?? "Owner"}</p>
-                  <p className="text-xs text-slate-500">{sharingInfo?.owner?.email ?? ""}</p>
+            <form onSubmit={onShare} className="space-y-3">
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <div className="flex-1">
+                  <Input
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                    placeholder="email@studio.com"
+                    type="email"
+                    disabled={!isOwner}
+                  />
                 </div>
-                <Badge variant="secondary">Owner</Badge>
+                <Select value={role} onValueChange={(value) => setRole(value as "viewer" | "editor")} disabled={!isOwner}>
+                  <SelectTrigger className="w-[140px]">
+                    <SelectValue placeholder="Role" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="viewer">Viewer</SelectItem>
+                    <SelectItem value="editor">Editor</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Button type="submit" disabled={!isOwner || isSubmitting} className="sm:w-[140px]">
+                  <Mail className="mr-2 h-4 w-4" />
+                  Invite
+                </Button>
               </div>
-            </div>
+              {!isOwner && (
+                <p className="text-xs text-muted-foreground">
+                  Only the board owner can invite new members.
+                </p>
+              )}
+            </form>
 
-            <div>
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Members</p>
-              <div className="mt-2 space-y-2">
-                {(sharingInfo?.members ?? []).length === 0 ? (
-                  <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-500">
-                    No members yet.
+            <Separator />
+
+            <div className="space-y-3">
+              <div>
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">Owner</p>
+                <div className="mt-2 flex items-center justify-between rounded-xl border border-slate-200/70 bg-slate-50 px-4 py-3">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-800">{sharingInfo?.owner?.name ?? "Owner"}</p>
+                    <p className="text-xs text-slate-500">{sharingInfo?.owner?.email ?? ""}</p>
                   </div>
-                ) : (
-                  (sharingInfo?.members ?? []).map((member) => (
-                    <div
-                      key={member.id}
-                      className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200/70 bg-slate-50 px-4 py-3"
-                    >
-                      <div>
-                        <p className="text-sm font-semibold text-slate-800">{member.name || member.email}</p>
-                        <p className="text-xs text-slate-500">{member.email}</p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {isOwner ? (
-                          <Select
-                            value={member.role}
-                            onValueChange={(value) => onRoleChange(member.id, value as "viewer" | "editor")}
-                            disabled={processingId === member.id}
-                          >
-                            <SelectTrigger className="w-[120px]">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="viewer">Viewer</SelectItem>
-                              <SelectItem value="editor">Editor</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        ) : (
-                          <Badge variant="secondary">{member.role}</Badge>
-                        )}
-                        {isOwner ? (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => onRemove(member.id)}
-                            disabled={processingId === member.id}
-                            aria-label="Remove member"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        ) : null}
-                      </div>
+                  <Badge variant="secondary">Owner</Badge>
+                </div>
+              </div>
+
+              <div>
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">Members</p>
+                <div className="mt-2 space-y-2">
+                  {(sharingInfo?.members ?? []).length === 0 ? (
+                    <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-500">
+                      No members yet.
                     </div>
-                  ))
-                )}
+                  ) : (
+                    (sharingInfo?.members ?? []).map((member) => (
+                      <div
+                        key={member.id}
+                        className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200/70 bg-slate-50 px-4 py-3"
+                      >
+                        <div>
+                          <p className="text-sm font-semibold text-slate-800">{member.name || member.email}</p>
+                          <p className="text-xs text-slate-500">{member.email}</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {isOwner ? (
+                            <Select
+                              value={member.role}
+                              onValueChange={(value) => onRoleChange(member.id, value as "viewer" | "editor")}
+                              disabled={processingId === member.id}
+                            >
+                              <SelectTrigger className="w-[120px]">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="viewer">Viewer</SelectItem>
+                                <SelectItem value="editor">Editor</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <Badge variant="secondary">{member.role}</Badge>
+                          )}
+                          {isOwner ? (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => onRemove(member.id)}
+                              disabled={processingId === member.id}
+                              aria-label="Remove member"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          ) : null}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
               </div>
             </div>
           </div>
-        </div>
 
-        <DialogFooter>
-          <Button variant="ghost" onClick={onClose}>
-            Close
-          </Button>
-        </DialogFooter>
+          <DialogFooter className="shrink-0">
+            <Button variant="ghost" onClick={onClose}>
+              Close
+            </Button>
+          </DialogFooter>
+        </div>
       </DialogContent>
     </Dialog>
   );

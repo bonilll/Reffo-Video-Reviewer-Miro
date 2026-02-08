@@ -3,15 +3,14 @@
 import { useState, useEffect, useRef } from "react";
 import { useMutation } from "convex/react";
 import { toast } from "sonner";
-import { Upload, Image, Video, Check, AlertCircle, FileText } from "lucide-react";
+import { Upload, Image, Video, Check, AlertCircle, FileText, FileJson, FileType } from "lucide-react";
 
-import { cn } from "@/lib/utils";
 import { useDragDropUpload } from "@/hooks/useDragDropUpload";
 import { useMediaUpload } from "@/hooks/useMediaUpload";
 import { UploadState } from "@/types/media";
 import { useCamera } from "@/app/contexts/CameraContext";
-import { useBoardSettings } from "@/app/contexts/BoardSettingsContext";
 import { uploadFileMultipart } from "@/lib/upload/multipart";
+import { compressImageFile, isCompressibleImage, createImagePreviewDataUrl } from "@/lib/upload/imageCompression";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 
@@ -23,7 +22,7 @@ interface UploadOverlayProps {
 export const UploadOverlay = ({ boardId, userRole }: UploadOverlayProps) => {
   const [uploads, setUploads] = useState<Record<string, UploadState>>({});
   const { camera } = useCamera();
-  const { autoSaveToLibrary } = useBoardSettings();
+  const autoSaveToLibrary = false;
   const createMedia = useMutation(api.media.create);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const isViewer = userRole === "viewer";
@@ -31,14 +30,22 @@ export const UploadOverlay = ({ boardId, userRole }: UploadOverlayProps) => {
   const { handleMediaUploaded, handleFileUploaded } = useMediaUpload({ boardId, camera });
   const canUpload = !isViewer;
   
-  console.log("🎬 UploadOverlay rendered with camera:", camera);
+
+  const getFileCategory = (file: File) => {
+    const type = file.type?.toLowerCase() ?? "";
+    const name = file.name.toLowerCase();
+    if (type.startsWith("image/")) return "image";
+    if (type.startsWith("video/")) return "video";
+    if (type === "application/pdf" || name.endsWith(".pdf")) return "pdf";
+    if (type === "application/json" || name.endsWith(".json")) return "json";
+    return "file";
+  };
   
   const handleDrop = async (files: FileList) => {
     if (isViewer) {
       toast.error("You don't have permission to upload files.");
       return;
     }
-    console.log("📤 UploadOverlay handleDrop called with files:", files.length);
     
     if (!files || files.length === 0) return;
     
@@ -49,32 +56,67 @@ export const UploadOverlay = ({ boardId, userRole }: UploadOverlayProps) => {
     // Funzione per processare un singolo file
     const processFile = async (file: File) => {
       const fileId = `${file.name}-${Date.now()}`;
+      const displayName = file.name;
       
-      console.log("📁 Processing file:", file.name, "type:", file.type);
       
       // Aggiungi lo stato di upload iniziale
       setUploads((prev) => ({
         ...prev,
-        [fileId]: { progress: 0, file }
+        [fileId]: {
+          progress: 0,
+          file,
+          stage: "preparing",
+          displayName,
+          meta: { wasCompressed: false },
+        }
       }));
       
       try {
-        // Log dello stato del flag autoSaveToLibrary
-        console.log("📋 UploadOverlay: autoSaveToLibrary setting:", {
-          autoSaveToLibrary: autoSaveToLibrary,
-          willSaveToLibrary: autoSaveToLibrary ? "YES - Files will be saved to library" : "NO - Files will only be uploaded to MinIO",
-          fileName: file.name
-        });
-        
+        let uploadFile = file;
+        let previewUrl: string | undefined;
+        let compressionMeta: UploadState["meta"] = { wasCompressed: false };
+
+        if (isCompressibleImage(file)) {
+          try {
+            const result = await compressImageFile(file, { maxDimension: 3072, quality: 0.5 });
+            uploadFile = result.file;
+            compressionMeta = {
+              wasCompressed: true,
+              originalSize: result.originalSize,
+              compressedSize: result.compressedSize,
+              outputType: result.outputType,
+            };
+          } catch (compressionError) {
+            console.warn("⚠️ Image compression failed, uploading original:", compressionError);
+            compressionMeta = { wasCompressed: false };
+          }
+
+          try {
+            const preview = await createImagePreviewDataUrl(uploadFile, { maxDimension: 256, quality: 0.5 });
+            previewUrl = preview.dataUrl;
+          } catch (previewError) {
+            console.warn("⚠️ Preview generation failed:", previewError);
+          }
+        }
+
+        setUploads((prev) => ({
+          ...prev,
+          [fileId]: {
+            ...prev[fileId],
+            file: uploadFile,
+            stage: "uploading",
+            meta: compressionMeta,
+          }
+        }));
+
         // Nuovo uploader multipart diretto verso MinIO
-        const uploadResult = await uploadFileMultipart(file, {
+        const uploadResult = await uploadFileMultipart(uploadFile, {
           boardId,
           context: "board",
           contextId: boardId,
           isPrivate: false,
-          autoSaveToLibrary,
+          autoSaveToLibrary: false,
           onProgress: (p) => {
-            console.log(`📊 Upload progress for ${file.name}: ${p}%`);
             setUploads((prev) => ({
               ...prev,
               [fileId]: { ...prev[fileId], progress: p }
@@ -82,12 +124,11 @@ export const UploadOverlay = ({ boardId, userRole }: UploadOverlayProps) => {
           }
         });
         
-        console.log("✅ Upload completed:", uploadResult);
         
         if (uploadResult.success && uploadResult.url) {
         // Determina il tipo di file
-          const isImage = file.type.startsWith("image/");
-          const isVideo = file.type.startsWith("video/");
+          const isImage = uploadFile.type.startsWith("image/");
+          const isVideo = uploadFile.type.startsWith("video/");
           const fileExtension = file.name.includes(".")
             ? file.name.split(".").pop()!.toLowerCase()
             : file.type.split("/").pop()?.toLowerCase() || "";
@@ -99,22 +140,16 @@ export const UploadOverlay = ({ boardId, userRole }: UploadOverlayProps) => {
               boardId: boardId as Id<"boards">,
               url: uploadResult.url,
               type: mediaType,
-              name: file.name,
-              mimeType: file.type,
-              size: file.size,
+              name: uploadFile.name,
+              mimeType: uploadFile.type,
+              size: uploadFile.size,
               isFromLibrary: false,
             });
             
-            console.log("🎯 Calling handleMediaUploaded with:", {
-              type: mediaType,
-              url: uploadResult.url,
-              camera: camera
-            });
             
             // Aggiungi il media al canvas
-            await handleMediaUploaded(mediaType, uploadResult.url);
+            await handleMediaUploaded(mediaType, uploadResult.url, previewUrl);
             
-            console.log("🎉 Media added to canvas successfully");
           } else {
             await createMedia({
               boardId: boardId as Id<"boards">,
@@ -125,44 +160,46 @@ export const UploadOverlay = ({ boardId, userRole }: UploadOverlayProps) => {
               size: file.size,
               isFromLibrary: false,
             });
-            console.log("🎯 Calling handleFileUploaded with:", {
-              url: uploadResult.url,
-              fileName: file.name,
-              fileType: fileExtension || "file",
-              fileSize: file.size,
-              camera: camera
-            });
             
             // Aggiungi il file al canvas
             await handleFileUploaded(uploadResult.url, file.name, fileExtension || "file", file.size);
             
-            console.log("🎉 File added to canvas successfully");
           }
         
         // Notifica il completamento
-          const successMessage = autoSaveToLibrary 
-            ? `${file.name} uploaded and saved to library`
-            : `${file.name} uploaded (not saved to library)`;
+          const successMessage = `${file.name} uploaded`;
+          setUploads((prev) => ({
+            ...prev,
+            [fileId]: { ...prev[fileId], stage: "done", progress: 100 }
+          }));
           toast.success(successMessage);
         } else {
           throw new Error((uploadResult as any).error || "Upload failed");
         }
         
         // Rimuovi lo stato dopo il completamento
-        setUploads((prev) => {
-          const { [fileId]: _, ...rest } = prev;
-          return rest;
-        });
+        setTimeout(() => {
+          setUploads((prev) => {
+            const { [fileId]: _, ...rest } = prev;
+            return rest;
+          });
+        }, 1200);
         
       } catch (error) {
         console.error("❌ Error uploading file:", error);
+        setUploads((prev) => ({
+          ...prev,
+          [fileId]: { ...prev[fileId], stage: "error", error: "Upload failed" }
+        }));
         toast.error(`Error uploading ${file.name}`);
         
         // Rimuovi lo stato in caso di errore
-        setUploads((prev) => {
-          const { [fileId]: _, ...rest } = prev;
-          return rest;
-        });
+        setTimeout(() => {
+          setUploads((prev) => {
+            const { [fileId]: _, ...rest } = prev;
+            return rest;
+          });
+        }, 1500);
       }
     };
     
@@ -196,9 +233,7 @@ export const UploadOverlay = ({ boardId, userRole }: UploadOverlayProps) => {
     };
     
     // Avvia il processing con throttling
-    console.log(`📋 Starting throttled upload of ${filesArray.length} files (max concurrency: ${maxConcurrency})`);
     await processFilesWithThrottling(filesArray);
-    console.log(`✅ All ${filesArray.length} files processed`);
   };
   
   const { isDragging } = useDragDropUpload({
@@ -231,46 +266,41 @@ export const UploadOverlay = ({ boardId, userRole }: UploadOverlayProps) => {
       />
       {/* Drag overlay - Modern glassmorphism design */}
       {canUpload && isDragging && (
-        <div className="absolute inset-0 bg-black/30 backdrop-blur-md flex items-center justify-center pointer-events-none">
-          <div className="relative bg-white/95 backdrop-blur-xl rounded-3xl p-8 shadow-2xl border border-white/20 max-w-lg mx-4 transform-gpu">
-            {/* Gradient background overlay */}
-            <div className="absolute inset-0 bg-gradient-to-br from-blue-50/80 via-white/60 to-purple-50/80 rounded-3xl" />
-            
-            {/* Animated border glow */}
-            <div className="absolute -inset-px bg-gradient-to-r from-blue-500/30 via-purple-500/30 to-blue-500/30 rounded-3xl blur-sm animate-pulse" />
-            
-            <div className="relative z-10 text-center">
-              {/* Modern upload icon with gradient */}
-              <div className="relative bg-gradient-to-br from-blue-500 to-purple-600 rounded-2xl p-6 mx-auto mb-6 w-20 h-20 flex items-center justify-center shadow-lg shadow-blue-500/25">
-                <Upload className="w-10 h-10 text-white drop-shadow-sm" />
-                
-                {/* Floating animation dots */}
-                <div className="absolute -top-1 -right-1 w-3 h-3 bg-green-400 rounded-full animate-bounce" />
-                <div className="absolute -bottom-1 -left-1 w-2 h-2 bg-blue-400 rounded-full animate-bounce delay-150" />
+        <div className="absolute inset-0 bg-slate-900/30 backdrop-blur-sm flex items-center justify-center pointer-events-none">
+          <div className="relative bg-white/95 backdrop-blur-xl rounded-3xl p-7 shadow-2xl border border-white/40 max-w-xl mx-4">
+            <div className="absolute inset-0 rounded-3xl bg-[radial-gradient(circle_at_top,_rgba(0,0,0,0.06),_transparent_65%)]" />
+            <div className="relative z-10 flex items-center gap-6">
+              <div className="relative flex h-16 w-16 items-center justify-center rounded-2xl bg-black shadow-lg shadow-black/25">
+                <Upload className="h-8 w-8 text-white" />
+                <span className="absolute -top-1 -right-1 h-3 w-3 rounded-full bg-white shadow" />
               </div>
-              
-              <h3 className="text-2xl font-bold bg-gradient-to-r from-gray-900 to-gray-700 bg-clip-text text-transparent mb-3">
-                Drop to Upload
-              </h3>
-              <p className="text-gray-600 text-lg font-medium mb-4">
-                Files will be placed at the center of your view
-              </p>
-              
-              {/* Supported formats indicator */}
-              <div className="flex items-center justify-center gap-4 pt-4 border-t border-gray-200/60">
-                <div className="flex items-center gap-2 text-sm text-gray-500">
-                  <Image className="w-4 h-4" />
-                  <span>Images</span>
-                </div>
-                <div className="w-1 h-1 bg-gray-300 rounded-full" />
-                <div className="flex items-center gap-2 text-sm text-gray-500">
-                  <Video className="w-4 h-4" />
-                  <span>Videos</span>
-                </div>
-                <div className="w-1 h-1 bg-gray-300 rounded-full" />
-                <div className="flex items-center gap-2 text-sm text-gray-500">
-                  <FileText className="w-4 h-4" />
-                  <span>Files</span>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">Drop to add</p>
+                <h3 className="text-2xl font-semibold text-slate-900">Rilascia per caricare</h3>
+                <p className="text-sm text-slate-500 mt-1">
+                  I file verranno posizionati al centro della tua vista.
+                </p>
+                <div className="mt-4 flex flex-wrap gap-2 text-xs font-medium text-slate-500">
+                  <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1">
+                    <Image className="h-3.5 w-3.5" />
+                    Images
+                  </span>
+                  <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1">
+                    <Video className="h-3.5 w-3.5" />
+                    Videos
+                  </span>
+                  <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1">
+                    <FileText className="h-3.5 w-3.5" />
+                    Files
+                  </span>
+                  <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1">
+                    <FileJson className="h-3.5 w-3.5" />
+                    JSON
+                  </span>
+                  <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1">
+                    <FileType className="h-3.5 w-3.5" />
+                    PDF
+                  </span>
                 </div>
               </div>
             </div>
@@ -282,49 +312,80 @@ export const UploadOverlay = ({ boardId, userRole }: UploadOverlayProps) => {
       {Object.keys(uploads).length > 0 && (
         <div className="absolute top-6 right-6 space-y-3 pointer-events-none">
           {Object.entries(uploads).map(([fileId, upload]) => (
-            <div key={fileId} className="bg-white/95 backdrop-blur-xl rounded-2xl p-4 shadow-xl border border-white/20 max-w-sm transform-gpu">
-              {/* Gradient overlay */}
-              <div className="absolute inset-0 bg-gradient-to-br from-white/60 to-gray-50/40 rounded-2xl" />
+            <div key={fileId} className="relative bg-white/95 backdrop-blur-xl rounded-2xl p-4 shadow-xl border border-white/30 max-w-sm transform-gpu">
+              <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-white/80 via-white/50 to-slate-50/70" />
               
               <div className="relative z-10 flex items-center space-x-4">
                 <div className="flex-shrink-0">
-                  {upload.file.type.startsWith("image/") ? (
-                    <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/25">
-                      <Image className="w-5 h-5 text-white" />
-                    </div>
-                  ) : upload.file.type.startsWith("video/") ? (
-                    <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl flex items-center justify-center shadow-lg shadow-purple-500/25">
-                      <Video className="w-5 h-5 text-white" />
-                    </div>
-                  ) : (
-                    <div className="w-10 h-10 bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-xl flex items-center justify-center shadow-lg shadow-emerald-500/25">
-                      <FileText className="w-5 h-5 text-white" />
-                    </div>
-                  )}
+                  {(() => {
+                    const category = upload.file ? getFileCategory(upload.file) : "file";
+                    if (category === "image") {
+                      return (
+                        <div className="w-10 h-10 bg-black rounded-xl flex items-center justify-center shadow-lg shadow-black/20">
+                          <Image className="w-5 h-5 text-white" />
+                        </div>
+                      );
+                    }
+                    if (category === "video") {
+                      return (
+                        <div className="w-10 h-10 bg-black rounded-xl flex items-center justify-center shadow-lg shadow-black/20">
+                          <Video className="w-5 h-5 text-white" />
+                        </div>
+                      );
+                    }
+                    if (category === "json") {
+                      return (
+                        <div className="w-10 h-10 bg-black rounded-xl flex items-center justify-center shadow-lg shadow-black/20">
+                          <FileJson className="w-5 h-5 text-white" />
+                        </div>
+                      );
+                    }
+                    if (category === "pdf") {
+                      return (
+                        <div className="w-10 h-10 bg-black rounded-xl flex items-center justify-center shadow-lg shadow-black/20">
+                          <FileType className="w-5 h-5 text-white" />
+                        </div>
+                      );
+                    }
+                    return (
+                      <div className="w-10 h-10 bg-black rounded-xl flex items-center justify-center shadow-lg shadow-black/20">
+                        <FileText className="w-5 h-5 text-white" />
+                      </div>
+                    );
+                  })()}
                 </div>
                 
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-semibold text-gray-900 truncate mb-1">
-                    {upload.file.name}
+                    {upload.displayName || upload.file?.name}
                   </p>
+                  <div className="flex items-center gap-2 text-[11px] font-medium text-slate-500 mb-2">
+                    {upload.stage === "preparing" && "Ottimizzazione in corso…"}
+                    {upload.stage === "uploading" && "Caricamento…"}
+                    {upload.stage === "processing" && "Elaborazione…"}
+                    {upload.stage === "done" && "Completato"}
+                    {upload.stage === "error" && "Errore"}
+                  </div>
                   
                   {/* Progress bar with modern design */}
                   <div className="flex items-center gap-3">
                     <div className="flex-1 bg-gray-200/80 rounded-full h-2.5 shadow-inner">
                       <div 
-                        className="bg-gradient-to-r from-blue-500 to-purple-600 h-2.5 rounded-full transition-all duration-500 ease-out shadow-sm"
+                        className="bg-gradient-to-r from-slate-700 to-slate-600 h-2.5 rounded-full transition-all duration-500 ease-out shadow-sm"
                         style={{ width: `${upload.progress}%` }}
                       />
                     </div>
                     
                     {/* Progress percentage with status */}
                     <div className="flex items-center gap-1">
-                      {upload.progress === 100 ? (
-                        <Check className="w-4 h-4 text-green-500" />
-                      ) : upload.progress > 0 ? (
-                        <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                      {upload.stage === "done" || upload.progress === 100 ? (
+                        <Check className="w-4 h-4 text-slate-700" />
+                      ) : upload.stage === "uploading" ? (
+                        <div className="w-4 h-4 border-2 border-slate-500 border-t-transparent rounded-full animate-spin" />
+                      ) : upload.stage === "preparing" ? (
+                        <div className="w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
                       ) : (
-                        <AlertCircle className="w-4 h-4 text-amber-500" />
+                        <AlertCircle className="w-4 h-4 text-slate-500" />
                       )}
                       <span className="text-xs font-medium text-gray-600 min-w-[3ch]">
                         {upload.progress}%

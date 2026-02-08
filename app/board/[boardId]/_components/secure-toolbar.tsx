@@ -89,27 +89,13 @@ export const SecureToolbar: React.FC<SecureToolbarProps> = ({
   } = useResourcePermissions("board", boardId);
 
   // 🚨 ALWAYS LOG FOR DEBUGGING
-  console.log("🔧 SecureToolbar Render Debug:", {
-    boardId,
-    canRead,
-    canWrite,
-    canShare,
-    canDelete,
-    userRole,
-    isLoading,
-    isError,
-    resourceExists,
-    timestamp: new Date().toISOString()
-  });
 
   // Show loading skeleton while checking permissions
   if (isLoading) {
-    console.log("🔧 SecureToolbar: Showing loading skeleton");
     return <ToolbarSkeleton />;
   }
 
   // 🚨 FORCE ALWAYS SHOW TOOLBAR - Remove any blocking conditions
-  console.log("🔧 SecureToolbar: Rendering toolbar (ALWAYS SHOW MODE)");
 
   return (
     <>
@@ -229,7 +215,6 @@ export const useBoardToolbarActions = (
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
       
-      console.log("Board downloaded:", boardId);
     } catch (error) {
       console.error("Failed to download board:", error);
     }

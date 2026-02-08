@@ -698,7 +698,6 @@ export const Toolbar = ({
   // Funzione per impostare lo strumento forma e aggiornare l'ultimo utilizzato
   const setShapeTool = (layerType: LayerType.Rectangle | LayerType.Ellipse | LayerType.Arrow | LayerType.Line) => {
     if (isViewer) {
-      console.log("🔒 Viewer mode: Shape tools disabled");
       return;
     }
     
@@ -715,18 +714,17 @@ export const Toolbar = ({
   // Disable editing functions for viewers
   const handleCanvasStateChange = isViewer 
     ? () => {
-        console.log("🔒 Viewer mode: Editing tools disabled");
         // For viewers, force selection mode only
         setCanvasState({ mode: CanvasMode.None });
       }
     : setCanvasState;
   
   const handleUndo = isViewer 
-    ? () => console.log("🔒 Viewer mode: Undo disabled")
+    ? () => {}
     : undo;
     
   const handleRedo = isViewer 
-    ? () => console.log("🔒 Viewer mode: Redo disabled") 
+    ? () => {}
     : redo;
   // Render export dropdown in toolbar actions area (top-right tools group likely)
   // We'll add a small button with dropdown listing presets
@@ -933,7 +931,6 @@ export const Toolbar = ({
                         <DropdownMenuContent align="center" className="w-48 bg-white/98 backdrop-blur-xl border border-slate-200/80 shadow-xl shadow-slate-200/40 rounded-2xl p-3 mt-2" sideOffset={8}>
                           <DropdownMenuItem
                             onClick={() => {
-                              console.log('🖼️ Setting A4 Portrait frame format:', { name: 'A4 Portrait', width: 800, height: 1131 });
                               handleCanvasStateChange({ mode: CanvasMode.Inserting, layerType: LayerType.Frame, frameFormat: { name: 'A4 Portrait', width: 800, height: 1131 } });
                             }}
                             className="flex items-center gap-3 rounded-xl px-3 py-2.5 transition-all duration-200 cursor-pointer hover:bg-slate-100/80 text-gray-700 hover:text-gray-900 hover:shadow-sm"
@@ -943,7 +940,6 @@ export const Toolbar = ({
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             onClick={() => {
-                              console.log('🖼️ Setting 16:9 frame format:', { name: '16:9', width: 1600, height: 900 });
                               handleCanvasStateChange({ mode: CanvasMode.Inserting, layerType: LayerType.Frame, frameFormat: { name: '16:9', width: 1600, height: 900 } });
                             }}
                             className="flex items-center gap-3 rounded-xl px-3 py-2.5 transition-all duration-200 cursor-pointer hover:bg-slate-100/80 text-gray-700 hover:text-gray-900 hover:shadow-sm"
@@ -953,7 +949,6 @@ export const Toolbar = ({
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             onClick={() => {
-                              console.log('🖼️ Setting 4:3 frame format:', { name: '4:3', width: 1200, height: 900 });
                               handleCanvasStateChange({ mode: CanvasMode.Inserting, layerType: LayerType.Frame, frameFormat: { name: '4:3', width: 1200, height: 900 } });
                             }}
                             className="flex items-center gap-3 rounded-xl px-3 py-2.5 transition-all duration-200 cursor-pointer hover:bg-slate-100/80 text-gray-700 hover:text-gray-900 hover:shadow-sm"
@@ -963,7 +958,6 @@ export const Toolbar = ({
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             onClick={() => {
-                              console.log('🖼️ Setting 1:1 frame format:', { name: '1:1', width: 900, height: 900 });
                               handleCanvasStateChange({ mode: CanvasMode.Inserting, layerType: LayerType.Frame, frameFormat: { name: '1:1', width: 900, height: 900 } });
                             }}
                             className="flex items-center gap-3 rounded-xl px-3 py-2.5 transition-all duration-200 cursor-pointer hover:bg-slate-100/80 text-gray-700 hover:text-gray-900 hover:shadow-sm"

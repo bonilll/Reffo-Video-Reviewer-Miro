@@ -231,7 +231,6 @@ export function ReviewBoardCanvas({
       }
     });
 
-    console.log("🔄 Real-time translate:", { point, offset, selectedCount: localSelection.length });
   }, [canvasState, localSelection, storage]);
 
   // Handler per pointer move durante drag
@@ -268,7 +267,6 @@ export function ReviewBoardCanvas({
         y: totalDelta.y / (scale || 1),
       };
 
-      console.log("📡 Calling API with delta:", scaledDelta);
       
       // Chiama l'API con il delta finale
       const annotationIds = localSelection.map(id => id.replace('layer_', ''));
@@ -279,13 +277,11 @@ export function ReviewBoardCanvas({
     setCanvasState({ mode: CanvasMode.None });
     setIsDragging(false);
     
-    console.log("✅ Drag completed");
   }, [isDragging, canvasState.current, localSelection, scale, onAnnotationMove, pointerEventToCanvasPoint]);
 
   // Handler per resize
   const onResizeHandlePointerDown = useCallback((corner: any, initialBounds: any, e: React.PointerEvent) => {
     // TODO: Implementa resize usando il sistema board
-    console.log("🔧 Resize handle clicked:", corner, initialBounds);
   }, []);
 
   // Handler per pointer down sul canvas (area selection)
@@ -307,12 +303,10 @@ export function ReviewBoardCanvas({
       document.addEventListener('pointermove', onPointerMove);
       document.addEventListener('pointerup', onPointerUp);
       
-      console.log("🎯 Drag listeners attached");
       
       return () => {
         document.removeEventListener('pointermove', onPointerMove);
         document.removeEventListener('pointerup', onPointerUp);
-        console.log("🔄 Drag listeners removed");
       };
     }
   }, [isDragging, onPointerMove, onPointerUp]);

@@ -11,6 +11,7 @@ type VideoPlayerProps = {
   muted?: boolean;
   loop?: boolean;
   fit?: "cover" | "contain";
+  preload?: "none" | "metadata" | "auto";
 };
 
 function formatTime(seconds: number): string {
@@ -28,6 +29,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   muted = true,
   loop = false,
   fit = "cover",
+  preload = "metadata",
 }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const progressRef = useRef<HTMLDivElement | null>(null);
@@ -119,7 +121,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         playsInline
         loop={loop}
         muted={isMuted}
-        preload="metadata"
+        preload={preload}
         draggable={false}
         onClick={togglePlay}
       />
@@ -196,5 +198,4 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     </div>
   );
 };
-
 

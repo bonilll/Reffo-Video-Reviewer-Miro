@@ -15,19 +15,9 @@ const initMinioClient = () => {
     if (!accessKeyId || !secretAccessKey) {
       accessKeyId = process.env.NEXT_PUBLIC_MINIO_ACCESS_KEY;
       secretAccessKey = process.env.NEXT_PUBLIC_MINIO_SECRET_KEY;
-      console.log("[MinIO Backup] Utilizzando credenziali NEXT_PUBLIC per MinIO");
     } else {
-      console.log("[MinIO Backup] Utilizzando credenziali server-side per MinIO");
     }
     
-    console.log("[MinIO Backup] Controllo variabili ambiente:", {
-      serverSideKeysExist: !!(process.env.MINIO_ACCESS_KEY && process.env.MINIO_SECRET_KEY),
-      clientSideKeysExist: !!(process.env.NEXT_PUBLIC_MINIO_ACCESS_KEY && process.env.NEXT_PUBLIC_MINIO_SECRET_KEY),
-      finalKeysExist: !!(accessKeyId && secretAccessKey),
-      endpoint: MINIO_ENDPOINT,
-      bucket: BACKUP_BUCKET,
-      environment: process.env.NODE_ENV || 'unknown'
-    });
     
     if (!accessKeyId || !secretAccessKey) {
       throw new Error("Variabili d'ambiente MinIO mancanti per backup");
@@ -48,7 +38,6 @@ const initMinioClient = () => {
       }
     });
     
-    console.log("[MinIO Backup] Client inizializzato con successo");
     return minioClient;
   } catch (error) {
     console.error("[MinIO Backup] Errore nell'inizializzazione del client:", error);
@@ -66,7 +55,6 @@ async function ensureBackupBucket() {
     }
     // Con AWS SDK, assumiamo che il bucket esista già
     // In produzione, il bucket dovrebbe essere creato manualmente
-    console.log(`[MinIO Backup] Using bucket: ${BACKUP_BUCKET}`);
   } catch (error) {
     console.warn('[MinIO Backup] MinIO not available, using fallback mode:', error instanceof Error ? error.message : String(error));
     // In modalità fallback, non facciamo nulla ma non blocchiamo l'esecuzione
@@ -115,21 +103,18 @@ export async function saveBackupToMinio(
     
     const result = await minioClient!.send(putCommand);
     
-    console.log(`[MinIO Backup] Backup saved successfully: ${objectPath}`);
     return objectPath;
     
   } catch (error) {
     console.warn('[MinIO Backup] MinIO not available, using fallback mode for saving backup');
     // Modalità fallback: simula il salvataggio
     const objectPath = `backups/${userId}/${backupId}.json`;
-    console.log(`[MinIO Backup - Fallback] Simulated backup save: ${objectPath}`);
     
     // Salva in localStorage per il testing (solo se disponibile)
     if (typeof window !== 'undefined' && window.localStorage) {
       try {
         const backupKey = `backup_${userId}_${backupId}`;
         localStorage.setItem(backupKey, JSON.stringify(backupData));
-        console.log(`[MinIO Backup - Fallback] Backup saved to localStorage: ${backupKey}`);
       } catch (localError) {
         console.warn('Could not save to localStorage:', localError);
       }
@@ -176,7 +161,6 @@ export async function getBackupFromMinio(
           }
           const jsonString = new TextDecoder().decode(combined);
           const backupData = JSON.parse(jsonString);
-          console.log(`[MinIO Backup] Backup retrieved successfully: ${objectPath}`);
           resolve(backupData);
         } catch (error) {
           reject(error);
@@ -214,7 +198,6 @@ export async function getBackupFromMinio(
       retentionDays: 7
     };
     
-    console.log(`[MinIO Backup - Fallback] Retrieved fallback backup data for: ${backupId}`);
     return fallbackBackupData;
   }
 }
@@ -254,7 +237,6 @@ export async function listUserBackups(userId: string): Promise<any[]> {
     
     // Ordina i backup per data (più recenti prima)
     backups.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-    console.log(`[MinIO Backup] Listed ${backups.length} backups for user ${userId}`);
     return backups;
     
   } catch (error) {
@@ -284,7 +266,6 @@ export async function listUserBackups(userId: string): Promise<any[]> {
       }
     ];
     
-    console.log(`[MinIO Backup - Fallback] Listed ${fallbackBackups.length} fallback backups for user ${userId}`);
     return fallbackBackups;
   }
 }
@@ -303,7 +284,6 @@ export async function deleteBackupFromMinio(
     });
     
     await minioClient!.send(deleteCommand);
-    console.log(`[MinIO Backup] Backup deleted successfully: ${objectPath}`);
     
   } catch (error) {
     console.error('[MinIO Backup] Error deleting backup:', error);
@@ -325,7 +305,6 @@ export async function cleanupOldBackups(userId: string): Promise<void> {
       await deleteBackupFromMinio(userId, backup._id);
     }
     
-    console.log(`[MinIO Backup] Cleaned up ${oldBackups.length} old backups for user ${userId}`);
     
   } catch (error) {
     console.error('[MinIO Backup] Error cleaning up old backups:', error);

@@ -11,7 +11,6 @@ import { storage } from "@/lib/firebase";
 export const deleteMediaByUrl = async (url: string | null): Promise<void> => {
   try {
     if (!url) {
-      console.log("URL non fornito o media importato dalla libreria che non deve essere eliminato");
       return;
     }
 
@@ -70,7 +69,6 @@ export const deleteMediaByUrl = async (url: string | null): Promise<void> => {
     
     // Elimina il file
     await deleteObject(fileRef);
-    console.log(`File eliminato con successo: ${decodedPath}`);
   } catch (error) {
     // Gestisci gli errori in modo più specifico
     if (error instanceof Error) {
@@ -101,7 +99,6 @@ export const deleteBoardMedia = async (boardId: string, mediaUrls: string[]): Pr
     const deletePromises = mediaUrls.map(url => deleteMediaByUrl(url));
     await Promise.all(deletePromises);
     
-    console.log(`Tutti i file della lavagna ${boardId} sono stati eliminati con successo`);
   } catch (error) {
     console.error(`Errore durante l'eliminazione dei file della lavagna ${boardId}:`, error);
     throw error;
@@ -116,7 +113,6 @@ export const deleteBoardMedia = async (boardId: string, mediaUrls: string[]): Pr
 export const deleteAllUserMedia = async (mediaUrls: string[]): Promise<void> => {
   try {
     if (!mediaUrls || mediaUrls.length === 0) {
-      console.log("Nessun file da eliminare");
       return;
     }
     
@@ -124,7 +120,6 @@ export const deleteAllUserMedia = async (mediaUrls: string[]): Promise<void> => 
     const deletePromises = mediaUrls.map(url => deleteMediaByUrl(url));
     await Promise.all(deletePromises);
     
-    console.log(`Tutti i file dell'utente sono stati eliminati con successo (${mediaUrls.length} file)`);
   } catch (error) {
     console.error("Errore durante l'eliminazione di tutti i file dell'utente:", error);
     throw error;

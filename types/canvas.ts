@@ -129,6 +129,7 @@ export type ImageLayer = {
   height: number;
   width: number;
   url: string;
+  previewUrl?: string;
   title?: string;
   shadow?: boolean;
 };

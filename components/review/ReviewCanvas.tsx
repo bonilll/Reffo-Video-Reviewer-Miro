@@ -550,7 +550,6 @@ export function ReviewCanvas({
           canvasState={canvasState}
           onCommentClick={(comment) => {
             // Handle comment click - could show modal or highlight
-            console.log('Comment clicked:', comment);
           }}
           theme={theme}
         />

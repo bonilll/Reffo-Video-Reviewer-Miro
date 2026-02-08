@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useState, useRef } from "react";
-import { CanvasMode, CanvasState, Point } from "@/types/canvas";
+import { CanvasMode, CanvasState, Point, Camera } from "@/types/canvas";
 import { pointerEventToCanvasPoint } from "@/lib/utils";
 
 interface MediaDrawingOverlayProps {
@@ -16,7 +16,8 @@ interface MediaDrawingOverlayProps {
   onDrawingModeMove?: (point: Point) => void;
   onDrawingModeEnd?: (point: Point) => void;
   onCommentClick?: (point: Point) => void;
-  camera?: { x: number; y: number; scale: number };
+  camera?: Camera;
+  cameraRef?: React.MutableRefObject<Camera>;
 }
 
 export function MediaDrawingOverlay({
@@ -30,15 +31,17 @@ export function MediaDrawingOverlay({
   onDrawingModeMove,
   onDrawingModeEnd,
   onCommentClick,
-  camera = { x: 0, y: 0, scale: 1 }
+  camera = { x: 0, y: 0, scale: 1 },
+  cameraRef
 }: MediaDrawingOverlayProps) {
   const [isDrawing, setIsDrawing] = useState(false);
   const overlayRef = useRef<HTMLDivElement>(null);
 
   // Use the same coordinate conversion as the main canvas
   const getCanvasPoint = useCallback((e: React.PointerEvent): Point => {
-    return pointerEventToCanvasPoint(e, camera);
-  }, [camera]);
+    const activeCamera = cameraRef?.current ?? camera;
+    return pointerEventToCanvasPoint(e, activeCamera);
+  }, [cameraRef, camera]);
 
   // Determine if we should handle drawing events
   const shouldHandleDrawing = useCallback(() => {

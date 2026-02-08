@@ -211,10 +211,6 @@ export function OverlayVideoRenderer({
     const primaryIsVideo = isVideoUrl(primaryVideoUrl);
     const comparisonIsVideo = isVideoUrl(comparisonVideoUrl);
     
-    console.log('🔍 File type validation:', {
-      primary: { url: primaryVideoUrl, isVideo: primaryIsVideo },
-      comparison: { url: comparisonVideoUrl, isVideo: comparisonIsVideo }
-    });
 
     if (!primaryIsVideo) {
       console.error('❌ Primary asset is not a video:', primaryVideoUrl);
@@ -242,7 +238,6 @@ export function OverlayVideoRenderer({
 
     // Primary video handlers
     const handlePrimaryReady = () => {
-      console.log('✅ Primary video ready:', primaryVideoUrl);
       setPrimaryReady(true);
     };
 
@@ -279,15 +274,12 @@ export function OverlayVideoRenderer({
         const newRetryCount = primaryRetryRef.current;
         setPrimaryRetryCount(newRetryCount);
         
-        console.log(`🔄 Retrying primary video (${newRetryCount}/${maxRetries})...`);
         
         setTimeout(() => {
           if (newRetryCount === 1) {
-            console.log('🔧 Primary Retry 1: Changing preload to auto');
             video.preload = 'auto';
             video.load();
           } else if (newRetryCount === 2) {
-            console.log('🔧 Primary Retry 2: Resetting video element');
             video.removeAttribute('src');
             video.load();
             setTimeout(() => {
@@ -296,7 +288,6 @@ export function OverlayVideoRenderer({
               video.load();
             }, 200);
           } else {
-            console.log('🔧 Primary Retry 3: Standard reload');
             video.load();
           }
         }, 500 * newRetryCount); // Reduced timeout
@@ -304,7 +295,6 @@ export function OverlayVideoRenderer({
     };
 
     const handleComparisonReady = () => {
-      console.log('✅ Comparison video ready:', comparisonVideoUrl);
       setComparisonReady(true);
     };
 
@@ -332,7 +322,6 @@ export function OverlayVideoRenderer({
         // Prevent multiple simultaneous retries
         if (currentRetryCount >= maxRetries) {
           console.error('💀 Comparison video failed after all retries.');
-          console.log('🔗 Try opening this URL directly:', comparisonVideoUrl);
           setComparisonError('Comparison video loading failed. The video may have access restrictions or be corrupted.');
           return;
         }
@@ -342,20 +331,16 @@ export function OverlayVideoRenderer({
         const newRetryCount = comparisonRetryRef.current;
         setComparisonRetryCount(newRetryCount);
         
-        console.log(`🔄 Retrying comparison video (${newRetryCount}/${maxRetries})...`);
         
         setTimeout(() => {
           if (newRetryCount === 1) {
             // First retry: try with different preload setting
-            console.log('🔧 Retry 1: Changing preload to auto');
             video.preload = 'auto';
             video.load();
           } else if (newRetryCount === 2) {
             // Second retry: try alternative URL (remove /user_ if present)
-            console.log('🔧 Retry 2: Trying alternative URL');
             const alternativeUrls = generateAlternativeUrls(comparisonVideoUrl);
             if (alternativeUrls.length > 1) {
-              console.log('🔄 Trying alternative URL:', alternativeUrls[1]);
               video.removeAttribute('src');
               video.load();
               setTimeout(() => {
@@ -375,10 +360,8 @@ export function OverlayVideoRenderer({
             }
           } else {
             // Final retry: try normalized path if available
-            console.log('🔧 Retry 3: Trying normalized path');
             const alternativeUrls = generateAlternativeUrls(comparisonVideoUrl);
             const normalizedUrl = alternativeUrls.find(url => url.includes('/uploads/') && !url.includes('/user_')) || comparisonVideoUrl;
-            console.log('🔄 Final attempt with URL:', normalizedUrl);
             video.removeAttribute('src');
             video.load();
             setTimeout(() => {
@@ -399,14 +382,12 @@ export function OverlayVideoRenderer({
       if (originalUrl.includes('/user_')) {
         const withoutUser = originalUrl.replace('/user_', '/');
         alternatives.push(withoutUser);
-        console.log('🔄 Generated alternative URL without /user_:', withoutUser);
       }
       
       // Try different path structures if needed
       if (originalUrl.includes('/uploads/user_')) {
         const normalizedPath = originalUrl.replace('/uploads/user_', '/uploads/');
         alternatives.push(normalizedPath);
-        console.log('🔄 Generated normalized path URL:', normalizedPath);
       }
       
       return alternatives;
@@ -414,14 +395,6 @@ export function OverlayVideoRenderer({
 
     // Function to analyze URL issues
     const analyzeUrl = (url: string, name: string) => {
-      console.log(`🔍 ${name} URL analysis:`, {
-        url: url,
-        length: url.length,
-        hasUser: url.includes('/user_'),
-        hasUploads: url.includes('/uploads/'),
-        domain: url.split('/')[2],
-        pathSegments: url.split('/').slice(3)
-      });
 
       // Check for common URL issues that might cause network problems
       const potentialIssues = [];
@@ -443,13 +416,6 @@ export function OverlayVideoRenderer({
     };
 
     // Setup video sources and properties
-    console.log('🔄 Setting up videos:', { primaryVideoUrl, comparisonVideoUrl });
-    console.log('🔍 URL validation:', {
-      primaryValid: primaryVideoUrl && (primaryVideoUrl.startsWith('http') || primaryVideoUrl.startsWith('blob:')),
-      comparisonValid: comparisonVideoUrl && (comparisonVideoUrl.startsWith('http') || comparisonVideoUrl.startsWith('blob:')),
-      primaryLength: primaryVideoUrl?.length,
-      comparisonLength: comparisonVideoUrl?.length
-    });
 
     // Analyze URLs for potential issues
     const analyzedPrimaryUrl = analyzeUrl(primaryVideoUrl, 'Primary');
@@ -484,7 +450,6 @@ export function OverlayVideoRenderer({
     }, 30000);
 
     // Force load
-    console.log('🚀 Starting video load...');
     primaryVideo.load();
     comparisonVideo.load();
 
@@ -526,7 +491,6 @@ export function OverlayVideoRenderer({
     canvas.width = videoWidth;
     canvas.height = videoHeight;
     
-    console.log('✅ Canvas initialized:', { width: videoWidth, height: videoHeight });
     setCanvasInitialized(true);
     
     // Notify parent about video dimensions

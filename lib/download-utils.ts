@@ -22,7 +22,6 @@ export const downloadFile = async (fileUrl: string, fileName: string): Promise<b
       return false;
     }
     
-    console.log(`Downloading file: ${fileUrl} as ${fileName}`);
     
     try {
       // Fetch the file first

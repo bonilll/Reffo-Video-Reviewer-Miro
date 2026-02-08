@@ -205,13 +205,6 @@ export function ReviewAnnotationSelector({
   const getAnnotationBounds = useCallback((annotation: ReviewAnnotation) => {
     let baseBounds: { x: number; y: number; width: number; height: number };
     
-    console.log(`📏 GetAnnotationBounds for ${annotation._id}:`, {
-      type: annotation.type,
-      hasPoints: annotation.type === "freehand" && !!annotation.drawingData.points,
-      hasBounds: !!annotation.drawingData.bounds,
-      nativeBounds: annotation.drawingData.bounds,
-      position: annotation.position
-    });
     
     if (annotation.type === "freehand") {
       // Freehand può avere points array o path string
@@ -230,7 +223,6 @@ export function ReviewAnnotationSelector({
           width: maxX - minX,
           height: maxY - minY
         };
-        console.log(`  📏 Freehand bounds calculated from ${annotation.drawingData.points.length} points:`, baseBounds);
       } else if (annotation.drawingData.path) {
         // Parse SVG path per estrarre bounds (supporta M, L, Q commands)
         const pathString = annotation.drawingData.path;
@@ -268,7 +260,6 @@ export function ReviewAnnotationSelector({
           width: maxX - minX,
           height: maxY - minY
         };
-        console.log(`  📏 Freehand bounds calculated from path:`, baseBounds);
       } else {
         // Fallback: usa position
         const cssPos = convertNativeToCSS(annotation.position.x, annotation.position.y);
@@ -278,7 +269,6 @@ export function ReviewAnnotationSelector({
           width: 50,
           height: 50
         };
-        console.log(`  📏 Freehand fallback bounds from position:`, baseBounds);
       }
     } else if (annotation.drawingData.bounds) {
       const normalizedBounds = annotation.drawingData.bounds;
@@ -292,11 +282,6 @@ export function ReviewAnnotationSelector({
         width: normalizedBounds.width * containerWidth,
         height: normalizedBounds.height * containerHeight
       };
-      console.log(`  📏 Bounds converted from normalized to CSS:`, {
-        normalized: normalizedBounds,
-        css: baseBounds,
-        containerSize: { width: containerWidth, height: containerHeight }
-      });
     } else {
       const cssPos = convertNativeToCSS(annotation.position.x, annotation.position.y);
       baseBounds = {
@@ -305,28 +290,23 @@ export function ReviewAnnotationSelector({
         width: 50,
         height: 50
       };
-      console.log(`  📏 Default bounds from position:`, { position: annotation.position, cssPos, baseBounds });
     }
 
     // Apply optimistic updates
     const optimisticUpdate = optimisticUpdates.get(annotation._id);
     if (optimisticUpdate) {
-      console.log(`  📏 Applying optimistic update:`, optimisticUpdate);
       if (optimisticUpdate.type === 'move' && optimisticUpdate.deltaX !== undefined && optimisticUpdate.deltaY !== undefined) {
         const beforeMove = { ...baseBounds };
         baseBounds.x += optimisticUpdate.deltaX;
         baseBounds.y += optimisticUpdate.deltaY;
-        console.log(`    📏 Move applied:`, { before: beforeMove, after: baseBounds, delta: { x: optimisticUpdate.deltaX, y: optimisticUpdate.deltaY } });
       } else if (optimisticUpdate.type === 'resize' && optimisticUpdate.bounds) {
         const beforeResize = { ...baseBounds };
         baseBounds = optimisticUpdate.bounds;
-        console.log(`    📏 Resize applied:`, { before: beforeResize, after: baseBounds });
       }
     }
 
     // No complex local offsets - use direct position updates like board
 
-    console.log(`  📏 Final bounds for ${annotation._id}:`, baseBounds);
     return baseBounds;
   }, [convertNativeToCSS, optimisticUpdates]);
 
@@ -368,12 +348,6 @@ export function ReviewAnnotationSelector({
 
   // Use board's resizeBounds function with absolute coordinates
   const calculateResizeBounds = useCallback((initialBounds: XYWH, handle: ResizeHandle, currentPoint: Point) => {
-    console.log("📐 CalculateResizeBounds INPUT:", {
-      initialBounds,
-      handle,
-      currentPoint,
-      handleDescription: `${handle} (${convertResizeHandleToSide(handle)})`
-    });
 
     const side = convertResizeHandleToSide(handle);
     const newBounds = resizeBounds(initialBounds, side, currentPoint);
@@ -382,27 +356,12 @@ export function ReviewAnnotationSelector({
     newBounds.width = Math.max(10, newBounds.width);
     newBounds.height = Math.max(10, newBounds.height);
 
-    console.log("📐 CalculateResizeBounds OUTPUT:", {
-      side,
-      newBounds,
-      deltaFromOriginal: {
-        x: newBounds.x - initialBounds.x,
-        y: newBounds.y - initialBounds.y,
-        width: newBounds.width - initialBounds.width,
-        height: newBounds.height - initialBounds.height
-      },
-      scaleFactors: {
-        x: newBounds.width / initialBounds.width,
-        y: newBounds.height / initialBounds.height
-      }
-    });
 
     return newBounds;
   }, [convertResizeHandleToSide]);
 
   // Funzione per pulire le trasformazioni CSS
   const clearVisualTransforms = useCallback(() => {
-    console.log('🧹 Clearing visual transforms...');
     
     // Rimuovi trasformazioni CSS SOLO dagli elementi selezionati
     selectedAnnotationIds.forEach(annotationId => {
@@ -431,7 +390,6 @@ export function ReviewAnnotationSelector({
             } else {
               svgElement.removeAttribute('transform');
             }
-            console.log(`✅ Cleared SVG transform from ${annotationId}`);
           } else {
             // Ripristina le proprietà CSS originali
             const htmlElement = element as HTMLElement;
@@ -448,14 +406,12 @@ export function ReviewAnnotationSelector({
               htmlElement.style.transform = '';
             }
             
-            console.log(`✅ Cleared CSS properties from ${annotationId}`);
           }
         }
       }
     });
     
     // Comment bubbles now use optimistic bounds automatically, no CSS transforms to clear
-    console.log(`✅ Comments position cleared via optimistic bounds automatically`);
     
     // Rimuovi trasformazioni CSS dal layer se applicato
     const annotationLayer = document.querySelector('.absolute.inset-0.pointer-events-none');
@@ -466,15 +422,12 @@ export function ReviewAnnotationSelector({
         htmlLayer.style.transform = htmlLayer.dataset.originalTransform;
         delete htmlLayer.dataset.originalTransform;
       }
-      console.log(`✅ Cleared CSS transform from annotation layer`);
     }
     
-    console.log('✅ Visual transforms cleared');
   }, [selectedAnnotationIds, selectedCommentIds]);
 
   // Debounced save function - saves position after 10ms of inactivity
   const debouncedSave = useCallback(async (finalDelta: { x: number; y: number }) => {
-    console.log("💾 Debounced save triggered:", finalDelta);
     
     // Convert CSS delta to normalized delta
     const containerRect = selectorRef.current?.getBoundingClientRect();
@@ -493,7 +446,6 @@ export function ReviewAnnotationSelector({
         await onCommentMove(selectedCommentIds, normalizedDeltaX, normalizedDeltaY);
       }
       
-      console.log("✅ Position saved successfully");
       
       // Clear local offsets after successful save
       setLocalOffsets(prev => {
@@ -510,18 +462,6 @@ export function ReviewAnnotationSelector({
 
   // Optimized visual update function using optimistic state
   const updateVisualPreview = useCallback(() => {
-    console.log("🎯 ========== UpdateVisualPreview START ==========");
-    console.log("🎯 UpdateVisualPreview called:", { 
-      mode: dragState.mode, 
-      selectedIds: selectedAnnotationIds,
-      dragState: {
-        isDragging: dragState.isDragging,
-        resizeHandle: dragState.resizeHandle,
-        initialBounds: dragState.initialBounds
-      },
-      delta: currentDelta.current,
-      previewBounds: currentPreviewBounds.current
-    });
 
     if (dragState.mode === 'move') {
       // Update optimistic state for all selected annotations AND comments
@@ -568,7 +508,6 @@ export function ReviewAnnotationSelector({
       for (const selector of specificSelectors) {
         targetElement = document.querySelector(selector);
         if (targetElement) {
-          console.log(`🎯 Found target element for ${annotationId} with selector: ${selector}`, targetElement);
           break;
         }
       }
@@ -588,7 +527,6 @@ export function ReviewAnnotationSelector({
           }
           
           svgElement.setAttribute('transform', svgTransform);
-          console.log(`✅ Applied SVG transform to ${annotationId}:`, svgTransform);
         } else {
           // Per elementi HTML, usa CSS transform
           const deltaTransform = `translate(${currentDelta.current.x}px, ${currentDelta.current.y}px)`;
@@ -601,10 +539,8 @@ export function ReviewAnnotationSelector({
           
           // Applica la nuova trasformazione CSS
           htmlElement.style.transform = deltaTransform;
-          console.log(`✅ Applied CSS transform to ${annotationId}:`, deltaTransform);
         }
       } else {
-        console.log(`❌ Could not find specific element for annotation ${annotationId}`);
         
         // Fallback: Applica trasformazione CSS al container SVG layer
         const annotationLayer = document.querySelector('.absolute.inset-0.pointer-events-none');
@@ -622,13 +558,11 @@ export function ReviewAnnotationSelector({
           const newTransform = `${deltaTransform} ${currentStyle}`;
           
           htmlLayer.style.transform = newTransform;
-          console.log(`✅ Applied CSS transform to annotation layer:`, newTransform);
         }
       }
     });
 
     // Comment bubbles now use optimistic bounds automatically via getCommentBounds
-    console.log(`✅ Comments will update position via optimistic bounds automatically`);
 
 
     } else if (dragState.mode === 'resize' && currentPreviewBounds.current && selectedAnnotationIds.length === 1) {
@@ -648,11 +582,6 @@ export function ReviewAnnotationSelector({
       // PROBLEMA: Stavo manipolando gli attributi SVG invece di aggiornare annotation.drawingData.bounds
       // SOLUZIONE: Come le board - solo preview durante drag, poi API update al mouse up
       
-      console.log(`🎯 BOARD STYLE RESIZE (NO SVG MANIPULATION):
-        Original Bounds: x=${dragState.initialBounds.x.toFixed(1)}, y=${dragState.initialBounds.y.toFixed(1)}, w=${dragState.initialBounds.width.toFixed(1)}, h=${dragState.initialBounds.height.toFixed(1)}
-        Preview Bounds: x=${currentPreviewBounds.current.x.toFixed(1)}, y=${currentPreviewBounds.current.y.toFixed(1)}, w=${currentPreviewBounds.current.width.toFixed(1)}, h=${currentPreviewBounds.current.height.toFixed(1)}
-        Handle: ${dragState.resizeHandle}
-        Strategy: Update data at mouse up, let React re-render (like boards)`);
       
       // 🎯 NESSUNA MANIPOLAZIONE SVG DURANTE IL DRAG
       // - Preview bounds mostrati dal riquadro di selezione 
@@ -663,7 +592,6 @@ export function ReviewAnnotationSelector({
 
     }
     
-    console.log("🎯 ========== UpdateVisualPreview END ==========");
   }, [dragState.mode, dragState.initialBounds, selectedAnnotationIds, optimisticUpdates]);
 
   // Clean up old optimistic updates
@@ -746,7 +674,6 @@ export function ReviewAnnotationSelector({
     }
     
     // Fallback - if no onCommentClick handler, don't select comments on direct click
-    console.log('No onCommentClick handler - ignoring direct click on comment');
   }, [comments, onCommentClick]);
 
   // Handle area selection start
@@ -759,7 +686,6 @@ export function ReviewAnnotationSelector({
     
     // Se è un comment bubble, non iniziare l'area selection
     if (isCommentBubble) {
-      console.log('🚫 Area selection blocked: click on comment bubble');
       return;
     }
 
@@ -808,7 +734,6 @@ export function ReviewAnnotationSelector({
       const nearestIcon = clickedElement?.closest('svg, .lucide');
       
       if (isOnInteractiveElement || isInControlsArea || nearestButton || nearestTimeline || nearestScrubber || nearestIcon) {
-        console.log('🚫 Area selection blocked: click on video controls');
         return; // Non iniziare l'area selection
       }
     }
@@ -967,24 +892,6 @@ export function ReviewAnnotationSelector({
       y: e.clientY - containerRect.top
     } : { x: e.clientX, y: e.clientY };
 
-    console.log("🎯 RESIZE START:", {
-      handle,
-      handleDescription: `${handle}`,
-      selectedAnnotation: selectedAnnotationIds[0],
-      selectionBounds: bounds,
-      mouseStart: {
-        clientX: e.clientX,
-        clientY: e.clientY,
-        containerRelative: startPoint
-      },
-      containerRect: containerRect ? {
-        left: containerRect.left,
-        top: containerRect.top,
-        width: containerRect.width,
-        height: containerRect.height
-      } : null,
-      pointerCaptured: true
-    });
 
     setDragState({
       isDragging: true,
@@ -1006,7 +913,6 @@ export function ReviewAnnotationSelector({
     const deltaX = e.clientX - currentDragState.startX;
     const deltaY = e.clientY - currentDragState.startY;
 
-    console.log("🖱️ HandleDragMove:", { deltaX, deltaY, mode: currentDragState.mode });
 
     if (currentDragState.mode === 'move') {
       currentDelta.current = { x: deltaX, y: deltaY };
@@ -1020,14 +926,6 @@ export function ReviewAnnotationSelector({
         y: e.clientY - containerRect.top 
       };
       
-      console.log("🖱️ Mouse coordinates:", {
-        clientX: e.clientX,
-        clientY: e.clientY,
-        containerLeft: containerRect.left,
-        containerTop: containerRect.top,
-        currentPoint,
-        initialBounds: currentDragState.initialBounds
-      });
       
       currentPreviewBounds.current = calculateResizeBounds(currentDragState.initialBounds, currentDragState.resizeHandle, currentPoint);
     }
@@ -1055,7 +953,6 @@ export function ReviewAnnotationSelector({
         debouncedSave({ x: deltaX, y: deltaY });
       }, 10);
       
-      console.log("🏃‍♂️ Local movement applied:", { deltaX, deltaY, selectedIds: selectedAnnotationIds });
     }
   }, [calculateResizeBounds, selectedAnnotationIds, selectedCommentIds, debouncedSave]);
 
@@ -1064,7 +961,6 @@ export function ReviewAnnotationSelector({
     const currentDragState = dragStateRef.current;
     if (!currentDragState.isDragging) return;
 
-    console.log("🏁 HandleDragEnd called");
     
     // Release pointer capture if this is a PointerEvent
     if ('pointerId' in e && e.target instanceof HTMLElement) {
@@ -1118,7 +1014,6 @@ export function ReviewAnnotationSelector({
           height: newBounds.height / containerHeight
         };
         
-        console.log("📡 Calling API for resize:", normalizedBounds);
         
         // Mark annotation as pending update
         pendingUpdates.current.add(annotationId);
@@ -1167,7 +1062,6 @@ export function ReviewAnnotationSelector({
       initialBounds: { x: 0, y: 0, width: 0, height: 0 }
     });
 
-    console.log("✅ Drag end completed");
   }, [selectedAnnotationIds, selectedCommentIds, onAnnotationResize, optimisticUpdates, debouncedSave]);
 
   // Set up global pointer/mouse/touch events so drag/resize continues outside bounds

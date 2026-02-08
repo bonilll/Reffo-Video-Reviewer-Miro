@@ -30,14 +30,12 @@ export function SignInWithOAuthButton({
     
     // Check if user is already authenticated before proceeding
     if (isAuthLoaded && isSignedIn) {
-      console.log("User already authenticated, redirecting to dashboard");
       window.location.href = "/dashboard";
       return;
     }
     
     try {
       setIsLoading(true);
-      console.log(`Starting OAuth sign-in with ${provider}`);
       
       // Usa la configurazione standard di Clerk senza redirect manuali
       await signIn.authenticateWithRedirect({

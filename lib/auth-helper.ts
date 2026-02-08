@@ -14,13 +14,10 @@ const CACHE_TTL = 60000; // 1 minuto in millisecondi
  */
 export async function getCurrentUserId(): Promise<string | null> {
   try {
-    console.log('[AUTH] Getting current user ID...');
     const response = await fetch('/api/auth/me');
     const data = await response.json();
     
     if (data?.userId) {
-      console.log('[AUTH] User ID obtained:', data.userId, 
-        data.isDebugCredential ? '(DEBUG CREDENTIAL)' : '');
       return data.userId;
     }
     
@@ -37,15 +34,9 @@ export async function getCurrentUserId(): Promise<string | null> {
  */
 export async function isAuthenticated(): Promise<boolean> {
   try {
-    console.log('[AUTH] Checking if user is authenticated...');
     const response = await fetch('/api/auth/me');
     const data = await response.json();
     
-    console.log('[AUTH] Authentication check result:', {
-      success: !!data?.userId,
-      userId: data?.userId || null,
-      isDebugCredential: data?.isDebugCredential || false
-    });
     
     return !!data?.userId;
   } catch (error) {

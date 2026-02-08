@@ -15,7 +15,6 @@ export async function uploadToMinio(
   options?: FileUploadOptions
 ): Promise<string> {
   try {
-    console.log("[Safe MinIO Client] Usando l'API per caricare il file");
     
     // Se l'URL contiene uno schema, rimuovilo (per evitare problemi con localhost:3000)
     if (path.includes('://')) {
@@ -68,7 +67,6 @@ export async function uploadToMinio(
  */
 export async function deleteFromMinio(fileUrl: string): Promise<void> {
   try {
-    console.log(`[Safe MinIO Client] Richiesta eliminazione file: ${fileUrl}`);
     
     // Invia richiesta DELETE all'API
     const response = await fetch("/api/upload/file", {
@@ -84,7 +82,6 @@ export async function deleteFromMinio(fileUrl: string): Promise<void> {
       throw new Error(errorData.error || `Errore durante l'eliminazione (${response.status})`);
     }
     
-    console.log("[Safe MinIO Client] File eliminato con successo");
   } catch (error) {
     console.error("[Safe MinIO Client] Errore durante l'eliminazione:", error);
     throw error;

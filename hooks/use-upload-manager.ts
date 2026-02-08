@@ -92,7 +92,6 @@ export function useUploadManager({ orgId, userId: propUserId }: UseUploadManager
         try {
           // Extract top 2 most dominant colors that aren't black or white
           dominantColors = await extractTopDominantColorsFromUrl(preview);
-          console.log(`Extracted dominant colors for ${file.name}:`, dominantColors);
         } catch (error) {
           console.error(`Failed to extract dominant colors for ${file.name}:`, error);
         }
@@ -174,11 +173,6 @@ export function useUploadManager({ orgId, userId: propUserId }: UseUploadManager
     }
 
     // Additional debug logs
-    console.log("Upload Manager - Save Files - Authentication:", {
-      userId,
-      propUserId: propUserId,
-      authUserId: authUserId
-    });
 
     const validationErrors = validateFiles();
     if (validationErrors.length > 0) {
@@ -232,13 +226,6 @@ export function useUploadManager({ orgId, userId: propUserId }: UseUploadManager
           };
           
           // Debug log for metadata
-          console.log("Upload metadata:", {
-            ...metadata,
-            description: metadata.description,
-            hasDescription: !!metadata.description,
-            dominantColors: metadata.dominantColors,
-            hasDominantColors: !!(metadata.dominantColors && metadata.dominantColors.length > 0)
-          });
           
           // Carica il file a pezzi
           const result = await uploadFileInChunks(

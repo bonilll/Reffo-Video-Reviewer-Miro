@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "node scripts/run-convex-codegen.mjs && CONVEX_TELEMETRY_DISABLED=1 SENTRY_DSN= vite build",
+    "convex:dev": "env -u CONVEX_SELF_HOSTED_URL -u CONVEX_SELF_HOSTED_ADMIN_KEY npx convex dev --env-file .env.convex.dev.local",
+    "convex:deploy:selfhosted": "env -u CONVEX_DEPLOYMENT npx convex deploy --env-file .env.production.local",
     "preview": "vite preview"
   },
   "dependencies": {

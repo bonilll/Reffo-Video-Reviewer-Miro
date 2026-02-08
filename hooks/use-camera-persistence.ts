@@ -39,7 +39,6 @@ export const useCameraPersistence = ({
             scale: cameraState.scale
           }
         });
-        console.log("📷 Camera position saved to Convex:", cameraState);
       } catch (error) {
         console.error("❌ Error saving camera position:", error);
       }
@@ -50,7 +49,6 @@ export const useCameraPersistence = ({
   // Load saved camera position on component mount
   useEffect(() => {
     if (savedCamera && !hasCameraLoaded.current && onCameraLoad) {
-      console.log("📷 Loading saved camera position from Convex:", savedCamera);
       onCameraLoad(savedCamera);
       hasCameraLoaded.current = true;
     }

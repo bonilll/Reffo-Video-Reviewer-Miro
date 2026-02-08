@@ -526,26 +526,18 @@ export function ReviewVideoPlayer({
 
   // Comment creation handler - new anchored approach
   const handleCanvasDoubleClick = useCallback((e: React.MouseEvent) => {
-    console.log("handleCanvasDoubleClick", { 
-      showComments, 
-      canvasState, 
-      tool: canvasState?.tool 
-    });
     
     if (!showComments || !canvasState) {
-      console.log("Missing showComments or canvasState");
       return;
     }
     
     // Check if double-click is on an existing comment - if so, don't create new comment
     if (isClickOnComment(e.clientX, e.clientY)) {
-      console.log("Double-click on comment, ignoring");
       return;
     }
     
     // Allow comment creation with select tool OR comment tool
     if (canvasState.tool !== "select" && canvasState.tool !== "comment") {
-      console.log("Tool not supported for comments:", canvasState.tool);
       return;
     }
     
@@ -623,27 +615,18 @@ export function ReviewVideoPlayer({
     
     // Check if click is on a comment first - if so, don't handle it here
     if (isClickOnComment(e.clientX, e.clientY)) {
-      console.log("Click on comment, ignoring");
       return;
     }
     
     // Log current tool and state for debugging
-    console.log("✅ handleCanvasMouseDown TRIGGERED", { 
-      tool: canvasState.tool, 
-      isScrubbing, 
-      allowedTools: ["freehand", "rectangle", "circle", "arrow"],
-      coordinates: getCanvasCoordinates(e.clientX, e.clientY)
-    });
     
     // Prevent drawing during scrubbing
     if (isScrubbing) {
-      console.log("Scrubbing active, ignoring draw");
       return;
     }
     
     // Check if tool is a drawing tool
     if (!["freehand", "rectangle", "circle", "arrow"].includes(canvasState.tool)) {
-      console.log("Tool not supported for drawing:", canvasState.tool);
       return;
     }
 
@@ -984,7 +967,6 @@ export function ReviewVideoPlayer({
         
         const checkBothComplete = () => {
           if (primarySeeked && comparisonSeeked) {
-            console.log(`✅ Both videos seeked to frame ${clampedFrame}, time: ${time.toFixed(3)}s`);
             
             // Update state
             setCurrentFrame(clampedFrame);
@@ -1640,11 +1622,6 @@ export function ReviewVideoPlayer({
     
     // Only update if dimensions actually changed to avoid unnecessary operations
     if (canvas.width !== nativeWidth || canvas.height !== nativeHeight) {
-      console.log('🔧 Restoring canvas dimensions after split mode:', {
-        from: { width: canvas.width, height: canvas.height },
-        to: { width: nativeWidth, height: nativeHeight },
-        mode: comparisonMode
-      });
       
       canvas.width = nativeWidth;
       canvas.height = nativeHeight;
@@ -1791,32 +1768,22 @@ export function ReviewVideoPlayer({
             autoPlay={false}
             preload="metadata"
             onLoadStart={() => {
-              console.log('🎬 Comparison video load started:', comparisonVideoUrl);
               setComparisonVideoReady(false);
             }}
             onLoadedMetadata={() => {
-              console.log('🎬 Comparison video metadata loaded');
               const video = comparisonVideoRef.current;
               if (video) {
-                console.log('🎬 Comparison video dimensions:', {
-                  width: video.videoWidth,
-                  height: video.videoHeight,
-                  duration: video.duration
-                });
                 setComparisonVideoReady(true);
                 video.pause(); // Start paused
               }
             }}
             onCanPlay={() => {
-              console.log('🎬 Comparison video can play');
               setComparisonVideoReady(true);
             }}
             onPlay={() => {
-              console.log('🎬 Comparison video playing');
               setComparisonIsPlaying(true);
             }}
             onPause={() => {
-              console.log('🎬 Comparison video paused');
               setComparisonIsPlaying(false);
             }}
             onError={(e) => {
@@ -1864,12 +1831,10 @@ export function ReviewVideoPlayer({
                   : "cursor-default"
             }`}
             onVideoReady={(dimensions) => {
-              console.log('Overlay video ready:', dimensions);
             }}
             onFrameUpdate={(frame, time) => {
               // Comparison video should not update parent state - causes infinite loops
               // The main video controls the state
-              console.log('Overlay frame update:', frame, time);
             }}
           />
         ) : (comparisonMode === 'split-horizontal' || comparisonMode === 'split-vertical') && comparisonVideoUrl ? (
@@ -1891,12 +1856,10 @@ export function ReviewVideoPlayer({
                   : "cursor-default"
             }`}
             onVideoReady={(dimensions) => {
-              console.log('Split screen ready:', dimensions);
             }}
             onFrameUpdate={(frame, time) => {
               // Comparison video should not update parent state - causes infinite loops  
               // The main video controls the state
-              console.log('Split screen frame update:', frame, time);
             }}
             onClose={handleCloseComparison}
           />

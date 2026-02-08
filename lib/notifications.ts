@@ -182,7 +182,6 @@ export const queueWelcomeEmail = async (email: string, firstName?: string) => {
     }
 
     const result = await response.json();
-    console.log('✅ Welcome email queued successfully:', result);
     return result;
   } catch (error) {
     console.error('❌ Error queueing welcome email:', error);
@@ -217,7 +216,6 @@ export const queueSharingEmail = async (email: string, data: {
     }
 
     const result = await response.json();
-    console.log('✅ Sharing email queued successfully:', result);
     return result;
   } catch (error) {
     console.error('❌ Error queueing sharing email:', error);
@@ -248,7 +246,6 @@ export const queueSecurityEmail = async (email: string, data: {
     }
 
     const result = await response.json();
-    console.log('✅ Security email queued successfully:', result);
     return result;
   } catch (error) {
     console.error('❌ Error queueing security email:', error);
@@ -280,7 +277,6 @@ export const queueBillingEmail = async (email: string, data: {
     }
 
     const result = await response.json();
-    console.log('✅ Billing email queued successfully:', result);
     return result;
   } catch (error) {
     console.error('❌ Error queueing billing email:', error);

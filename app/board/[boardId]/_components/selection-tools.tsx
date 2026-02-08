@@ -36,16 +36,19 @@ import {
   File as FileIcon,
   Layers,
   Box,
-  Copy
+  Copy,
+  BookmarkPlus,
+  BookmarkCheck
 } from "lucide-react";
 import { memo, useState, useEffect, useRef } from "react";
 import React from "react";
+import { toast } from "sonner";
 
 import { useDeleteLayers } from "@/hooks/use-delete-layers";
 import { useLayerOrdering } from "@/hooks/use-layer-ordering";
 import { useSelectionBounds } from "@/hooks/use-selection-bounds";
 import { useMutation, useSelf, useStorage } from "@/liveblocks.config";
-import { useQuery } from "convex/react";
+import { useQuery, useMutation as useConvexMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { CanvasMode, LayerType } from "@/types/canvas";
 import type { Camera, Color } from "@/types/canvas";
@@ -1295,6 +1298,8 @@ export const SelectionTools = memo(
     // Stato per tracciare dropdown aperti
     const [openDropdowns, setOpenDropdowns] = useState<Set<string>>(new Set());
     const { hasMultipleSelection, selectedLayers, updateLayerPositions } = useSelection();
+    const createLibraryAsset = useConvexMutation(api.assets.createFromBoardMedia);
+    const [isSavingToLibrary, setIsSavingToLibrary] = useState(false);
 
     // Check if pencil is active
     const isPencilActive = canvasState && canvasState.mode === CanvasMode.Pencil;
@@ -1394,7 +1399,6 @@ export const SelectionTools = memo(
       if (!frame) return;
       const { x: fx, y: fy } = frame;
       
-      console.log('Exporting frame:', { frameId, fx, fy, frameWidth, frameHeight });
       
       // Trova l'SVG del canvas
       const svgElement = document.querySelector('svg.h-\\[100vh\\].w-\\[100vw\\].select-none') as SVGElement;
@@ -1421,7 +1425,6 @@ export const SelectionTools = memo(
 
       // Nuova strategia: cattura tutto quello che è visualmente dentro il frame
       const allGroups = svgElement.querySelectorAll('g[style*="transform"]');
-      console.log('Found groups:', allGroups.length);
       
       let foundElements = 0; // Dichiarazione della variabile mancante!
       
@@ -1441,12 +1444,6 @@ export const SelectionTools = memo(
           const scale = scaleMatch ? parseFloat(scaleMatch[1]) : 1;
           
           // Log per debug TUTTI i gruppi per vedere meglio
-          console.log(`Group ${index}:`, { 
-            gx, gy, scale,
-            withinX: gx >= (fx - tolerance) && gx <= (fx + frameWidth + tolerance), 
-            withinY: gy >= (fy - tolerance) && gy <= (fy + frameHeight + tolerance), 
-            style: style.substring(0, 150)
-          });
           
           // Strategia più precisa: solo elementi che hanno senso visualmente
           // 1. Dentro il frame con tolerance ragionevole
@@ -1465,7 +1462,6 @@ export const SelectionTools = memo(
                                         relativeY >= -200 && relativeY <= frameHeight + 200;
           
           if ((isWithinFrame || hasOverlap) && isReasonablyPositioned) {
-            console.log(`Including group at (${gx}, ${gy}) - within: ${isWithinFrame}, overlap: ${hasOverlap}, relativePos: (${relativeX}, ${relativeY})`);
             foundElements++;
             
             const groupClone = group.cloneNode(true) as Element;
@@ -1473,7 +1469,6 @@ export const SelectionTools = memo(
             // Rimuovi solo elementi IMG realmente problematici
             const problematicElements = groupClone.querySelectorAll('img[src^="http"], image[href^="http"], image[xlink\\:href^="http"]');
             problematicElements.forEach(el => {
-              console.log('Removing problematic image element:', el);
               const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
               rect.setAttribute('width', el.getAttribute('width') || '100');
               rect.setAttribute('height', el.getAttribute('height') || '100');
@@ -1494,14 +1489,12 @@ export const SelectionTools = memo(
         }
       });
       
-      console.log('Found elements inside frame:', foundElements);
       
       // Se non troviamo elementi, aggiungi almeno il frame stesso
       if (foundElements === 0) {
         // Cerca specificamente il frame stesso
         const frameElement = svgElement.querySelector(`g[style*="translate(${fx}px, ${fy}px)"]`);
         if (frameElement) {
-          console.log('Adding frame element itself');
           const frameClone = frameElement.cloneNode(true) as Element;
           const style = frameClone.getAttribute('style') || '';
           frameClone.setAttribute('style', style.replace(/translate\([^)]+\)/, `translate(0px, 0px)`));
@@ -1532,10 +1525,8 @@ export const SelectionTools = memo(
 
       // Export con html-to-image con gestione errori migliorata
       try {
-        console.log('Preparing export SVG with', foundElements, 'elements');
         
         // Debug: stampa il contenuto SVG
-        console.log('Export SVG content:', exportSvg.outerHTML.substring(0, 500));
         
         const { toPng } = await import('html-to-image');
         
@@ -1551,7 +1542,6 @@ export const SelectionTools = memo(
         container.appendChild(exportSvg);
         document.body.appendChild(container);
         
-        console.log('Container created, starting export...');
         
         const dataUrl = await toPng(container, {
           width: frameWidth,
@@ -1572,7 +1562,6 @@ export const SelectionTools = memo(
           }
         });
         
-        console.log('Export successful, cleaning up...');
         document.body.removeChild(container);
         
         // Download
@@ -1583,7 +1572,6 @@ export const SelectionTools = memo(
         a.click();
         document.body.removeChild(a);
         
-        console.log('Download initiated successfully');
         
       } catch (exportError) {
         console.error('HTML-to-image export failed:', exportError);
@@ -1596,7 +1584,6 @@ export const SelectionTools = memo(
         
         // Fallback: prova con Canvas API
         try {
-          console.log('Trying Canvas API fallback...');
           
           const svgString = new XMLSerializer().serializeToString(exportSvg);
           const svgBlob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
@@ -1830,6 +1817,7 @@ export const SelectionTools = memo(
                 fileName: (layer as any).fileName || `File_${id.slice(-4)}.${(layer as any).fileType || "bin"}`,
                 fileType: (layer as any).fileType || "file",
                 title: (layer as any).title || (layer as any).fileName || `File ${id.slice(-4)}`,
+                fileSize: (layer as any).fileSize,
                 x: layer.x,
                 y: layer.y,
                 width: layer.width,
@@ -1869,13 +1857,57 @@ export const SelectionTools = memo(
           }
           return null;
         })
-        .filter(Boolean) as Array<{ id: string; type: "file" | "image" | "video"; url: string; fileName: string; fileType: string; title: string; [key: string]: any }>;
+        .filter(Boolean) as Array<{ id: string; type: "file" | "image" | "video"; url: string; fileName: string; fileType: string; title: string; fileSize?: number; [key: string]: any }>;
       
       return downloadables;
     });
     
     const hasDownloadableAssets = selectedDownloadableData.length > 0;
     const singleDownloadableSelected = selectedDownloadableData.length === 1;
+    const selectedDownloadableUrls = Array.from(
+      new Set(
+        selectedDownloadableData
+          .map((item) => item.url)
+          .filter((url) => Boolean(url))
+      )
+    );
+    const savedLibraryUrls = useQuery(
+      api.assets.getByFileUrls,
+      selectedDownloadableUrls.length > 0 ? { fileUrls: selectedDownloadableUrls } : "skip"
+    );
+    const savedLibraryUrlSet = new Set(savedLibraryUrls ?? []);
+    const allSelectedSaved =
+      selectedDownloadableUrls.length > 0 &&
+      selectedDownloadableUrls.every((url) => savedLibraryUrlSet.has(url));
+    const unsavedCount = selectedDownloadableUrls.filter((url) => !savedLibraryUrlSet.has(url)).length;
+
+    const handleSaveToLibrary = async () => {
+      if (isSavingToLibrary || selectedDownloadableData.length === 0 || allSelectedSaved) return;
+      setIsSavingToLibrary(true);
+      try {
+        let saved = 0;
+        for (const item of selectedDownloadableData) {
+          if (!item.url) continue;
+          await createLibraryAsset({
+            fileUrl: item.url,
+            fileName: item.fileName || item.title || `Asset_${item.id.slice(-4)}`,
+            type: item.type,
+            title: item.title,
+            fileSize: item.fileSize,
+            source: "board",
+          });
+          saved += 1;
+        }
+        if (saved > 0) {
+          toast.success(`${saved} item${saved > 1 ? "s" : ""} saved to library`);
+        }
+      } catch (error) {
+        console.error("❌ Error saving to library:", error);
+        toast.error("Error saving to library");
+      } finally {
+        setIsSavingToLibrary(false);
+      }
+    };
 
     // Legacy support - keep existing selectedFileData for backward compatibility
     const selectedFileData = selectedDownloadableData.filter(item => item.type === "file");
@@ -1916,7 +1948,6 @@ export const SelectionTools = memo(
     // Debug log when data changes
     useEffect(() => {
       if (debugData && selectedAssetId) {
-        console.log(`[DEBUG] Review sessions for asset ${selectedAssetId}:`, debugData);
       }
     }, [debugData, selectedAssetId]);
 
@@ -1981,7 +2012,6 @@ export const SelectionTools = memo(
       }
 
       try {
-        console.log(`[Download] Attempting to download: ${fileName} from ${fileUrl}`);
 
         // Method 1: Try fetch with blob (best for CORS-enabled files)
         try {
@@ -2026,7 +2056,6 @@ export const SelectionTools = memo(
             }
           }, 100);
           
-          console.log(`[Download] Successfully downloaded: ${fileName} (${blob.size} bytes)`);
           return;
         } catch (fetchError) {
           console.warn(`[Download] Fetch method failed for ${fileName}:`, fetchError);
@@ -2064,7 +2093,6 @@ export const SelectionTools = memo(
               }
             }, 100);
             
-            console.log(`[Download] Successfully downloaded via proxy: ${fileName}`);
             return;
           }
         } catch (proxyError) {
@@ -2100,7 +2128,6 @@ export const SelectionTools = memo(
             }
           }, 100);
           
-          console.log(`[Download] Attempted direct download for: ${fileName}`);
           return;
         } catch (directError) {
           console.warn(`[Download] Direct method failed for ${fileName}:`, directError);
@@ -2483,6 +2510,46 @@ export const SelectionTools = memo(
                         }
                       }}
                     />
+                  </div>
+                </SelectionTooltip>
+              )}
+
+              {hasDownloadableAssets && (
+                <SelectionTooltip label="Save to library" isVisible={shouldShowSelectionTooltip("Save to library")}>
+                  <div
+                    onMouseEnter={() => handleMouseEnter("Save to library")}
+                    onMouseLeave={handleMouseLeave}
+                  >
+                    <button
+                      onClick={handleSaveToLibrary}
+                      className={`${CONTROL_BUTTON_CLASSES} min-w-[160px] justify-between ${
+                        allSelectedSaved
+                          ? "bg-slate-900 text-white border-slate-900 hover:bg-slate-900 hover:text-white"
+                          : ""
+                      }`}
+                      disabled={isSavingToLibrary || allSelectedSaved}
+                      aria-pressed={allSelectedSaved}
+                    >
+                      <span className="flex items-center gap-2">
+                        {allSelectedSaved ? (
+                          <BookmarkCheck className="w-4 h-4 text-white" />
+                        ) : (
+                          <BookmarkPlus className="w-4 h-4 text-slate-500" />
+                        )}
+                        <span className={`font-medium ${allSelectedSaved ? "text-white" : "text-slate-700"}`}>
+                          {allSelectedSaved ? "In library" : "Save to library"}
+                        </span>
+                      </span>
+                      {isSavingToLibrary ? (
+                        <span className={`text-xs ${allSelectedSaved ? "text-white/70" : "text-slate-400"}`}>
+                          Saving…
+                        </span>
+                      ) : (
+                        <span className={`text-xs ${allSelectedSaved ? "text-white/70" : "text-slate-400"}`}>
+                          {allSelectedSaved ? "Saved" : unsavedCount}
+                        </span>
+                      )}
+                    </button>
                   </div>
                 </SelectionTooltip>
               )}

@@ -207,10 +207,6 @@ export function SplitScreenContainer({
     const primaryIsVideo = isVideoUrl(primaryVideoUrl);
     const comparisonIsVideo = isVideoUrl(comparisonVideoUrl);
     
-    console.log('🔍 Split file type validation:', {
-      primary: { url: primaryVideoUrl, isVideo: primaryIsVideo },
-      comparison: { url: comparisonVideoUrl, isVideo: comparisonIsVideo }
-    });
 
     if (!primaryIsVideo) {
       console.error('❌ Primary asset is not a video:', primaryVideoUrl);
@@ -230,7 +226,6 @@ export function SplitScreenContainer({
 
     // Primary video handlers
     const handlePrimaryReady = () => {
-      console.log('✅ Split primary video ready:', primaryVideoUrl);
       setPrimaryReady(true);
     };
 
@@ -248,7 +243,6 @@ export function SplitScreenContainer({
     };
 
     const handleComparisonReady = () => {
-      console.log('✅ Split comparison video ready:', comparisonVideoUrl);
       setComparisonReady(true);
     };
 
@@ -272,13 +266,6 @@ export function SplitScreenContainer({
     }
 
     // Setup video sources and properties
-    console.log('🔄 Setting up split videos:', { primaryVideoUrl, comparisonVideoUrl });
-    console.log('🔍 Split URL validation:', {
-      primaryValid: primaryVideoUrl && (primaryVideoUrl.startsWith('http') || primaryVideoUrl.startsWith('blob:')),
-      comparisonValid: comparisonVideoUrl && (comparisonVideoUrl.startsWith('http') || comparisonVideoUrl.startsWith('blob:')),
-      primaryLength: primaryVideoUrl?.length,
-      comparisonLength: comparisonVideoUrl?.length
-    });
     
     primaryVideo.src = primaryVideoUrl;
     comparisonVideo.src = comparisonVideoUrl;
@@ -309,7 +296,6 @@ export function SplitScreenContainer({
     }, 30000);
 
     // Force load
-    console.log('🚀 Starting split video load...');
     primaryVideo.load();
     comparisonVideo.load();
 
@@ -343,11 +329,6 @@ export function SplitScreenContainer({
     const containerWidth = viewportWidth * 0.98; // 98% of viewport width
     const containerHeight = viewportHeight * 0.95; // 95% of viewport height
     
-    console.log('📐 Container sizing analysis:', {
-      viewport: { width: viewportWidth, height: viewportHeight },
-      finalUsed: { width: containerWidth, height: containerHeight },
-      propsProvided: { width, height }
-    });
     
     // Get video aspect ratio for proper scaling
     const videoAspectRatio = primaryVideo.videoWidth / primaryVideo.videoHeight;
@@ -482,13 +463,6 @@ export function SplitScreenContainer({
       comparisonHeight: Math.floor(comparisonHeight)
     });
     
-    console.log('✅ Split screen canvases initialized with aspect ratio:', {
-      mode,
-      videoAspectRatio: videoAspectRatio.toFixed(2),
-      primary: { width: Math.floor(primaryWidth), height: Math.floor(primaryHeight) },
-      comparison: { width: Math.floor(comparisonWidth), height: Math.floor(comparisonHeight) },
-      container: { width: containerWidth, height: containerHeight }
-    });
     
     setCanvasInitialized(true);
     
@@ -557,7 +531,6 @@ export function SplitScreenContainer({
     const handleResize = () => {
       if (!bothVideosReady) return;
       
-      console.log('🔄 Window resized, recalculating video dimensions...');
       // Trigger canvas re-initialization with new viewport dimensions
       setCanvasInitialized(false);
       setTimeout(() => setCanvasInitialized(true), 100);

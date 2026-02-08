@@ -162,7 +162,6 @@ export const GridRenderer = memo(({ camera, config }: GridRendererProps) => {
   } = gridData;
   
   // Debug: log delle informazioni della griglia
-  console.log("🔲 Grid Info:", gridData.debugInfo);
   
   // Renderizza in base al tipo di griglia
   if (config.type === "lines") {

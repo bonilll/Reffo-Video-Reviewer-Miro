@@ -1009,11 +1009,9 @@ export const EditorPage: React.FC<EditorPageProps> = ({ compositionId, onExit, o
         sources: data.sources as any,
         videoUrls,
         onProgress: (value, label) => {
-          console.log('[ClientExport:onProgress]', label, Math.round(value * 100) + '%');
           setClientExportProgress({ value: Math.min(0.95, value), label });
         },
         debug: true,
-        logger: (msg, data) => console.log(msg, data ?? ''),
         masterVolume,
         retimeWebM: !!fastPublish,
       });

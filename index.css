@@ -321,19 +321,19 @@
   }
 
   /* Library button baseline for dashboard/profile/project */
-  .library-skin button,
-  .library-skin button * {
+  .library-skin button:not(.library-unstyled),
+  .library-skin button:not(.library-unstyled) * {
     background: #ffffff !important;
     color: #0f172a !important;
     border-color: #0f172a !important;
   }
-  .library-skin button {
+  .library-skin button:not(.library-unstyled) {
     border-width: 1px !important;
     border-style: solid !important;
     transition: background-color 200ms ease, color 200ms ease, border-color 200ms ease;
   }
-  .library-skin button:hover:not(:disabled),
-  .library-skin button:hover:not(:disabled) * {
+  .library-skin button:not(.library-unstyled):hover:not(:disabled),
+  .library-skin button:not(.library-unstyled):hover:not(:disabled) * {
     background: #f1f5f9 !important;
     color: #0f172a !important;
   }
@@ -345,19 +345,19 @@
   .library-skin .dashboard-icon-button:hover:not(:disabled) * {
     border-color: transparent !important;
   }
-  .library-skin .tab-button-active,
-  .library-skin .tab-button-active * {
+  .library-skin button.tab-button-active,
+  .library-skin button.tab-button-active * {
     background: #0f172a !important;
     color: #ffffff !important;
     border-color: #0f172a !important;
   }
-  .library-skin .tab-button-inactive:hover:not(:disabled),
-  .library-skin .tab-button-inactive:hover:not(:disabled) * {
+  .library-skin button.tab-button-inactive:hover:not(:disabled),
+  .library-skin button.tab-button-inactive:hover:not(:disabled) * {
     background: #f1f5f9 !important;
     color: #0f172a !important;
     border-color: #0f172a !important;
   }
-  .library-skin button:disabled {
+  .library-skin button:not(.library-unstyled):disabled {
     opacity: 0.5;
   }
 }

@@ -84,11 +84,9 @@ export const CalendarFullscreenDialog = ({ onClose }: CalendarFullscreenDialogPr
         if (allCalendars.length === 0) {
             // Create default calendar
             const defaultCalendarId = await createDefaultCalendar({});
-          console.log("Created default calendar:", defaultCalendarId);
             
           // Initialize default labels
             await initializeLabels({});
-          console.log("Initialized labels");
             
             if (defaultCalendarId) {
               setSelectedCalendars([defaultCalendarId]);

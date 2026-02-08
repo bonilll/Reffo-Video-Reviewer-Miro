@@ -232,7 +232,6 @@ export async function sendEmail(data: EmailData): Promise<{ success: boolean; er
       return { success: false, error: result.error.message };
     }
 
-    console.log('✅ Email sent successfully:', result.data?.id);
     return { success: true };
 
   } catch (error: any) {

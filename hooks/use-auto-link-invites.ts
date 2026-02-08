@@ -28,7 +28,6 @@ export const useAutoLinkInvites = () => {
     linkInvites()
       .then((linkedCount) => {
         if (linkedCount && linkedCount > 0) {
-          console.log(`🔗 Linked ${linkedCount} pending project invites`);
         }
         // Mark as completed for this session
         sessionStorage.setItem(sessionKey, "true");

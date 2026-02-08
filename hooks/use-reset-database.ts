@@ -12,7 +12,6 @@ export function useResetDatabase() {
   try {
     // @ts-ignore - Prova a usare l'API generata prima
     resetDatabaseMutation = useMutation(api.admin.resetDatabase);
-    console.log("Reset database mutation loaded:", !!resetDatabaseMutation);
   } catch (e) {
     console.warn("Error loading resetDatabase from API:", e);
     
@@ -20,7 +19,6 @@ export function useResetDatabase() {
     try {
       // @ts-ignore - Dinamicamente accedi alla funzione resetDatabase
       resetDatabaseMutation = useMutation("admin:resetDatabase");
-      console.log("Reset database mutation loaded via direct path");
     } catch (e) {
       console.error("Reset database function not available via direct path:", e);
     }
@@ -31,22 +29,17 @@ export function useResetDatabase() {
   try {
     // @ts-ignore - Usa la versione semplificata
     simpleResetMutation = useMutation(api.admin.resetDb);
-    console.log("Simple reset mutation loaded:", !!simpleResetMutation);
   } catch (e) {
     console.warn("Error loading simple resetDb:", e);
   }
 
   const resetConvexDatabase = async (): Promise<boolean> => {
-    console.log("resetConvexDatabase called, mutations available:",
-      { full: !!resetDatabaseMutation, simple: !!simpleResetMutation });
     
     // Prova prima la versione completa
     if (resetDatabaseMutation) {
       try {
         setIsResetting(true);
-        console.log("Calling resetDatabaseMutation...");
         const result = await resetDatabaseMutation();
-        console.log("Reset database result:", result);
         
         toast({
           title: "Database reset completato",
@@ -65,9 +58,7 @@ export function useResetDatabase() {
     if (simpleResetMutation) {
       try {
         setIsResetting(true);
-        console.log("Calling simpleResetMutation...");
         const result = await simpleResetMutation();
-        console.log("Simple reset result:", result);
         
         toast({
           title: "Test di reset completato",

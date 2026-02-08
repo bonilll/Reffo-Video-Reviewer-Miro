@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -64,6 +65,11 @@ const formatBytes = (bytes?: number) => {
 };
 
 const normalize = (value: string) => value.toLowerCase().trim();
+const tokenize = (value: string) =>
+  normalize(value)
+    .split(/[\s,]+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
 
 const normalizeTag = (tag: string) => {
   const cleaned = tag
@@ -92,6 +98,31 @@ const mergeTags = (existing: string[], next: string[]) => {
   });
   return merged;
 };
+
+const getUserTags = (asset: Doc<"assets">) => {
+  if (asset.userTokens && asset.userTokens.length > 0) {
+    return mergeTags([], asset.userTokens);
+  }
+  return mergeTags([], asset.tokens ?? []);
+};
+
+const getAiTags = (asset: Doc<"assets">) => {
+  const ai = mergeTags([], [
+    ...(asset.aiTokensI18n?.it ?? []),
+    ...(asset.aiTokensI18n?.en ?? []),
+  ]);
+  if (ai.length > 0) return ai;
+  if (asset.userTokens && asset.userTokens.length > 0 && asset.tokens?.length) {
+    const userSet = new Set(getUserTags(asset).map((tag) => normalize(tag)));
+    return mergeTags(
+      [],
+      asset.tokens.filter((token) => !userSet.has(normalize(token))),
+    );
+  }
+  return [];
+};
+
+const getAllTags = (asset: Doc<"assets">) => mergeTags([], [...getUserTags(asset), ...getAiTags(asset)]);
 
 const TagInput: React.FC<{
   tags: string[];
@@ -161,8 +192,15 @@ const TagInput: React.FC<{
 
 const filterByTags = (asset: Doc<"assets">, tags: string[]) => {
   if (tags.length === 0) return true;
-  const assetTokens = asset.tokens?.map(normalize) ?? [];
-  const haystack = [asset.title, asset.description, asset.fileName]
+  const assetTokens = getAllTags(asset).map(normalize);
+  const haystack = [
+    asset.title,
+    asset.description,
+    asset.fileName,
+    asset.captionsI18n?.it,
+    asset.captionsI18n?.en,
+    asset.ocrText,
+  ]
     .filter(Boolean)
     .map((v) => normalize(String(v)));
   return tags.some(
@@ -197,14 +235,81 @@ const averageColor = (colors: string[]) => {
 const matchesSearch = (asset: Doc<"assets">, query: string) => {
   if (!query) return true;
   const q = normalize(query);
-  const fields = [asset.title, asset.description, asset.fileName, asset.ocrText]
+  const fields = [
+    asset.title,
+    asset.description,
+    asset.fileName,
+    asset.ocrText,
+    asset.captionsI18n?.it,
+    asset.captionsI18n?.en,
+    asset.author,
+  ]
     .filter(Boolean)
     .map((v) => normalize(String(v)));
-  const tokens = asset.tokens?.map(normalize) ?? [];
+  const tokens = getAllTags(asset).map(normalize);
   return (
     fields.some((field) => field.includes(q)) ||
     tokens.some((token) => token.includes(q))
   );
+};
+
+const scoreTagMatch = (token: string, tags: string[], exactWeight: number, partialWeight: number) => {
+  for (const tag of tags) {
+    if (tag === token) return exactWeight;
+  }
+  for (const tag of tags) {
+    if (tag.includes(token) || token.includes(tag)) return partialWeight;
+  }
+  return 0;
+};
+
+const computeSearchScore = (asset: Doc<"assets">, query: string) => {
+  const q = normalize(query);
+  if (!q) return 0;
+
+  const userTags = getUserTags(asset).map((tag) => normalize(tag));
+  const aiTags = getAiTags(asset).map((tag) => normalize(tag));
+  const title = normalize(asset.title ?? "");
+  const description = normalize(asset.description ?? "");
+  const captions = normalize(
+    `${asset.captionsI18n?.it ?? ""} ${asset.captionsI18n?.en ?? ""}`,
+  );
+  const ocr = normalize(asset.ocrText ?? "");
+  const fileName = normalize(asset.fileName ?? "");
+  const author = normalize(asset.author ?? "");
+
+  let score = 0;
+  let matchedTokens = 0;
+
+  if (title.includes(q)) score += 120;
+  if (description.includes(q)) score += 70;
+  if (captions.includes(q)) score += 50;
+  if (ocr.includes(q)) score += 35;
+  if (author.includes(q)) score += 30;
+  if (fileName.includes(q)) score += 20;
+
+  const tokens = tokenize(q);
+  tokens.forEach((token) => {
+    let tokenScore = 0;
+    tokenScore = Math.max(tokenScore, scoreTagMatch(token, userTags, 110, 80));
+    tokenScore = Math.max(tokenScore, scoreTagMatch(token, aiTags, 55, 30));
+
+    if (title.includes(token)) tokenScore = Math.max(tokenScore, 85);
+    if (description.includes(token)) tokenScore = Math.max(tokenScore, 55);
+    if (captions.includes(token)) tokenScore = Math.max(tokenScore, 40);
+    if (ocr.includes(token)) tokenScore = Math.max(tokenScore, 30);
+    if (author.includes(token)) tokenScore = Math.max(tokenScore, 25);
+    if (fileName.includes(token)) tokenScore = Math.max(tokenScore, 20);
+
+    if (tokenScore > 0) matchedTokens += 1;
+    score += tokenScore;
+  });
+
+  if (matchedTokens > 0) {
+    score += matchedTokens * 6;
+  }
+
+  return score;
 };
 
 export const Library: React.FC<LibraryProps> = ({
@@ -238,11 +343,22 @@ export const Library: React.FC<LibraryProps> = ({
     isPrivate: false,
   });
 
-  const assets = useQuery(api.assets.getUserLibrary, {
+  const searchTerm = filters.search.trim();
+  const shouldUseServerSearch = searchTerm.length >= 2;
+  const searchResults = useQuery(api.assets.getUserLibrary, {
     userId,
     orgId,
-    searchQuery: filters.search,
+    searchQuery: shouldUseServerSearch ? searchTerm : undefined,
   });
+  const allAssets = useQuery(api.assets.getUserLibrary, {
+    userId,
+    orgId,
+    searchQuery: undefined,
+  });
+  const searchBoostSet = useMemo(() => {
+    if (!searchResults) return new Set<string>();
+    return new Set(searchResults.map((asset) => String(asset._id)));
+  }, [searchResults]);
   const updateMetadata = useMutation(api.assets.updateMetadata);
   const deleteAsset = useMutation(api.assets.deleteAsset);
 
@@ -268,8 +384,8 @@ export const Library: React.FC<LibraryProps> = ({
 
   const availableTags = useMemo(() => {
     const map = new Map<string, { label: string; count: number }>();
-    (assets ?? []).forEach((asset) => {
-      asset.tokens?.forEach((token) => {
+    (allAssets ?? []).forEach((asset) => {
+      getAllTags(asset).forEach((token) => {
         const label = token.trim();
         if (!label) return;
         const key = normalize(label);
@@ -279,7 +395,7 @@ export const Library: React.FC<LibraryProps> = ({
       });
     });
     return Array.from(map.values()).sort((a, b) => b.count - a.count);
-  }, [assets]);
+  }, [allAssets]);
 
   const filteredAvailableTags = useMemo(() => {
     const query = normalize(tagSearch);
@@ -300,9 +416,9 @@ export const Library: React.FC<LibraryProps> = ({
   }, [availableTags, editForm.tagDraft, editForm.tags]);
 
   const colorClusters = useMemo(() => {
-    if (!assets) return [] as { rep: string; colors: string[] }[];
+    if (!allAssets) return [] as { rep: string; colors: string[] }[];
     const palette: string[] = [];
-    assets.forEach((asset) => {
+    allAssets.forEach((asset) => {
       asset.dominantColors?.forEach((color) => palette.push(color));
     });
     const clusters: { rep: string; colors: string[] }[] = [];
@@ -316,25 +432,42 @@ export const Library: React.FC<LibraryProps> = ({
       }
     });
     return clusters.slice(0, 12);
-  }, [assets]);
+  }, [allAssets]);
 
   const filteredAssets = useMemo(() => {
-    if (!assets) return [] as Doc<"assets">[];
-    return assets
-      .filter((asset) => {
+    if (!allAssets) return [] as Doc<"assets">[];
+    const scored = allAssets
+      .map((asset) => {
+        let score = searchTerm ? computeSearchScore(asset, searchTerm) : 0;
+        if (searchTerm && searchBoostSet.has(String(asset._id))) {
+          score += 45;
+        }
+        return { asset, score };
+      })
+      .filter(({ asset, score }) => {
         if (filters.type !== "all" && asset.type !== filters.type) return false;
         if (filters.color) {
           const matchesColor = (asset.dominantColors ?? []).some(
-            (color) => colorDistance(filters.color!, color) <= COLOR_THRESHOLD
+            (color) => colorDistance(filters.color!, color) <= COLOR_THRESHOLD,
           );
           if (!matchesColor) return false;
         }
-        if (!matchesSearch(asset, filters.search)) return false;
+        if (searchTerm && score <= 0 && !matchesSearch(asset, searchTerm)) return false;
         if (!filterByTags(asset, tagFilters)) return false;
         return true;
-      })
-      .sort((a, b) => (b.updatedAt ?? b._creationTime) - (a.updatedAt ?? a._creationTime));
-  }, [assets, filters, tagFilters]);
+      });
+
+    const sorted = scored.sort((a, b) => {
+      if (searchTerm) {
+        if (b.score !== a.score) return b.score - a.score;
+      }
+      const aTime = a.asset.updatedAt ?? a.asset._creationTime;
+      const bTime = b.asset.updatedAt ?? b.asset._creationTime;
+      return bTime - aTime;
+    });
+
+    return sorted.map((entry) => entry.asset);
+  }, [allAssets, filters, tagFilters, searchTerm, searchBoostSet]);
 
   const hasActiveFilters =
     Boolean(filters.search) ||
@@ -347,6 +480,23 @@ export const Library: React.FC<LibraryProps> = ({
     ? viewerItems.findIndex((item) => item._id === viewerAssetId)
     : -1;
   const viewerAsset = viewerIndex >= 0 ? viewerItems[viewerIndex] : null;
+  const viewerUserTags = useMemo(() => (viewerAsset ? getUserTags(viewerAsset) : []), [viewerAsset]);
+  const viewerSuggestedTags = useMemo(() => {
+    if (!viewerAsset) return [];
+    const aiTagsEn = mergeTags([], viewerAsset.aiTokensI18n?.en ?? []);
+    if (aiTagsEn.length === 0) return [];
+    const userSet = new Set(viewerUserTags.map((tag) => normalize(tag)));
+    return aiTagsEn.filter((tag) => !userSet.has(normalize(tag))).slice(0, 16);
+  }, [viewerAsset, viewerUserTags]);
+
+  const viewerSuggestedDescription = useMemo(() => {
+    if (!viewerAsset) return "";
+    const suggestion = (viewerAsset.captionsI18n?.en ?? "").trim();
+    if (!suggestion) return "";
+    const current = (viewerAsset.description ?? "").trim();
+    if (current && normalize(current) === normalize(suggestion)) return "";
+    return suggestion;
+  }, [viewerAsset]);
 
   useEffect(() => {
     if (viewerAssetId && viewerIndex === -1) {
@@ -412,7 +562,7 @@ export const Library: React.FC<LibraryProps> = ({
     setEditForm({
       title: asset.title ?? "",
       description: asset.description ?? "",
-      tags: mergeTags([], asset.tokens ?? []),
+      tags: getUserTags(asset),
       tagDraft: "",
       externalLink: asset.externalLink ?? "",
       isPrivate: Boolean(asset.isPrivate),
@@ -427,7 +577,7 @@ export const Library: React.FC<LibraryProps> = ({
         id: editingAsset._id,
         title: editForm.title.trim() || editingAsset.title,
         description: editForm.description.trim() || undefined,
-        tokens,
+        userTokens: tokens,
         externalLink: editForm.externalLink.trim() || undefined,
         isPrivate: editForm.isPrivate,
       });
@@ -481,7 +631,7 @@ export const Library: React.FC<LibraryProps> = ({
     onTagsChange?.([]);
   };
 
-  const isLoading = assets === undefined;
+  const isLoading = allAssets === undefined;
 
   return (
     <div className="space-y-6">
@@ -492,7 +642,7 @@ export const Library: React.FC<LibraryProps> = ({
             <Input
               value={filters.search}
               onChange={(event) => handleFilterChange("search", event.target.value)}
-              placeholder="Search title, filename, tags..."
+              placeholder="Search title, filename, tags, captions, OCR..."
               className="pl-9"
             />
           </div>
@@ -524,6 +674,9 @@ export const Library: React.FC<LibraryProps> = ({
         <DialogContent className="sm:max-w-[520px] bg-white text-gray-900">
           <DialogHeader>
             <DialogTitle>Filters</DialogTitle>
+            <DialogDescription className="sr-only">
+              Filter library references by type, tags, and color.
+            </DialogDescription>
           </DialogHeader>
           <div className="grid gap-5">
             <div className="space-y-2">
@@ -621,6 +774,9 @@ export const Library: React.FC<LibraryProps> = ({
                     <DialogTitle className="text-xl">
                       {viewerAsset.title || viewerAsset.fileName}
                     </DialogTitle>
+                    <DialogDescription className="sr-only">
+                      Asset preview with metadata and suggested tags.
+                    </DialogDescription>
                     <p className="text-xs text-gray-500">
                       {viewerIndex + 1} of {viewerItems.length}
                     </p>
@@ -710,11 +866,37 @@ export const Library: React.FC<LibraryProps> = ({
                       <p className="text-xs font-semibold uppercase text-gray-500">Description</p>
                       <p>{viewerAsset.description || "—"}</p>
                     </div>
+                    {viewerSuggestedDescription && (
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-xs font-semibold uppercase text-gray-500">Suggested description (EN)</p>
+                          <button
+                            type="button"
+                            className="text-[11px] font-semibold text-gray-600 hover:text-gray-900"
+                            onClick={async () => {
+                              try {
+                                await updateMetadata({
+                                  id: viewerAsset._id,
+                                  description: viewerSuggestedDescription,
+                                });
+                                toast.success("Description updated");
+                              } catch (error) {
+                                console.error(error);
+                                toast.error("Unable to update description");
+                              }
+                            }}
+                          >
+                            {viewerAsset.description ? "Replace" : "Use"}
+                          </button>
+                        </div>
+                        <p className="text-sm text-gray-700">{viewerSuggestedDescription}</p>
+                      </div>
+                    )}
                     <div className="space-y-2">
-                      <p className="text-xs font-semibold uppercase text-gray-500">Tags</p>
-                      {viewerAsset.tokens && viewerAsset.tokens.length > 0 ? (
+                      <p className="text-xs font-semibold uppercase text-gray-500">Your tags</p>
+                      {viewerUserTags.length > 0 ? (
                         <div className="flex flex-wrap gap-2">
-                          {viewerAsset.tokens.map((token) => (
+                          {viewerUserTags.map((token) => (
                             <Badge key={token} variant="secondary" className="bg-gray-100 text-gray-600">
                               {token}
                             </Badge>
@@ -724,6 +906,60 @@ export const Library: React.FC<LibraryProps> = ({
                         <p>—</p>
                       )}
                     </div>
+                    {viewerSuggestedTags.length > 0 && (
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-xs font-semibold uppercase text-gray-500">Suggested tags</p>
+                          <button
+                            type="button"
+                            className="text-[11px] font-semibold text-gray-600 hover:text-gray-900"
+                            onClick={async () => {
+                              try {
+                                const next = mergeTags(viewerUserTags, viewerSuggestedTags);
+                                await updateMetadata({
+                                  id: viewerAsset._id,
+                                  userTokens: next,
+                                });
+                                toast.success("Tags added");
+                              } catch (error) {
+                                console.error(error);
+                                toast.error("Unable to add tags");
+                              }
+                            }}
+                          >
+                            Add all
+                          </button>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {viewerSuggestedTags.map((tag) => (
+                            <button
+                              key={tag}
+                              type="button"
+                              className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-2.5 py-1 text-xs font-semibold text-gray-700 hover:border-gray-300"
+                              onClick={async () => {
+                                try {
+                                  const next = mergeTags(viewerUserTags, [tag]);
+                                  await updateMetadata({
+                                    id: viewerAsset._id,
+                                    userTokens: next,
+                                  });
+                                  toast.success(`Added "${tag}"`);
+                                } catch (error) {
+                                  console.error(error);
+                                  toast.error("Unable to add tag");
+                                }
+                              }}
+                            >
+                              <span className="text-[10px]">+</span>
+                              {tag}
+                            </button>
+                          ))}
+                        </div>
+                        <p className="text-[11px] text-gray-500">
+                          AI suggestions help refine search and filters without overwriting your tags.
+                        </p>
+                      </div>
+                    )}
                     <div className="space-y-2">
                       <p className="text-xs font-semibold uppercase text-gray-500">External link</p>
                       {viewerAsset.externalLink ? (
@@ -837,6 +1073,9 @@ export const Library: React.FC<LibraryProps> = ({
         <DialogContent className="sm:max-w-[520px] bg-white text-gray-900">
           <DialogHeader>
             <DialogTitle>Edit reference</DialogTitle>
+            <DialogDescription className="sr-only">
+              Update title, description, and tags for this reference.
+            </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4">
             <div className="space-y-2">

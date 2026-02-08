@@ -6,7 +6,7 @@ type ImageProps = Omit<React.ImgHTMLAttributes<HTMLImageElement>, "src"> & {
   priority?: boolean;
 };
 
-const Image = ({ fill, style, ...props }: ImageProps) => {
+const Image = ({ fill, style, priority: _priority, ...props }: ImageProps) => {
   if (fill) {
     return (
       <img

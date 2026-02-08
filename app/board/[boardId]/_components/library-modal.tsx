@@ -63,18 +63,14 @@ export const LibraryModal = ({
 
   // Funzione per calcolare il centro della vista camera
   const getCameraViewCenter = useCallback(() => {
-    console.log("🎯 LibraryModal getCameraViewCenter called with camera:", camera);
     
     if (typeof window === 'undefined' || !camera) {
-      console.log("⚠️ No camera or window, using fallback position");
       return { x: 500, y: 300 }; // Fallback visibile
     }
     
     const centerX = window.innerWidth / 2;
     const centerY = window.innerHeight / 2;
     
-    console.log("📐 Screen center:", { centerX, centerY });
-    console.log("📷 Camera state:", { x: camera.x, y: camera.y, scale: camera.scale });
     
     // Converti le coordinate dello schermo in coordinate del canvas
     const canvasCenter = {
@@ -82,7 +78,6 @@ export const LibraryModal = ({
       y: (centerY - camera.y) / camera.scale
     };
     
-    console.log("🎯 Calculated canvas center:", canvasCenter);
     return canvasCenter;
   }, [camera]);
 
@@ -117,18 +112,15 @@ export const LibraryModal = ({
 
   // Liveblocks mutations for adding elements to canvas
   const insertImageLayer = useLibeblocksMutation(async ({ storage, setMyPresence }, imageUrl: string, title: string) => {
-    console.log("🚀 LibraryModal insertImageLayer called:", { imageUrl, title, camera });
     
     const liveLayers = storage.get("layers");
     const liveLayerIds = storage.get("layerIds");
     
     // Calcola il centro della vista PRIMA di ottenere le dimensioni
     const centerPoint = getCameraViewCenter();
-    console.log("📍 Library center point calculated:", centerPoint);
     
     // Precarica l'immagine per ottenere le dimensioni originali
     const dimensions = await getImageDimensions(imageUrl);
-    console.log("🖼️ Library image dimensions:", dimensions);
     
     const maxSize = 500; // Dimensione massima per l'inserimento iniziale
     
@@ -142,7 +134,6 @@ export const LibraryModal = ({
       width = Math.round(height * dimensions.width / dimensions.height);
     }
     
-    console.log("📏 Library calculated dimensions:", { width, height });
     
     const layerId = nanoid();
     const layer = new LiveObject({
@@ -157,7 +148,6 @@ export const LibraryModal = ({
       value: ""
     } as ImageLayer);
 
-    console.log("🖼️ Library created image layer:", layer.toObject());
 
     // Insert the layer using proper layering rules (images are non-frames, so they go at the end)
     liveLayerIds.push(layerId);
@@ -166,23 +156,19 @@ export const LibraryModal = ({
     // Select the newly added layer
     setMyPresence({ selection: [layerId] }, { addToHistory: true });
     
-    console.log("✅ Library image layer created and positioned at view center:", layerId);
     return layerId;
   }, [getCameraViewCenter]);
 
   const insertVideoLayer = useLibeblocksMutation(async ({ storage, setMyPresence }, videoUrl: string, title: string) => {
-    console.log("🚀 LibraryModal insertVideoLayer called:", { videoUrl, title, camera });
     
     const liveLayers = storage.get("layers");
     const liveLayerIds = storage.get("layerIds");
     
     // Calcola il centro della vista PRIMA di ottenere le dimensioni
     const centerPoint = getCameraViewCenter();
-    console.log("📍 Library center point calculated:", centerPoint);
     
     // Precarica il video per ottenere le dimensioni originali
     const dimensions = await getVideoDimensions(videoUrl);
-    console.log("🎬 Library video dimensions:", dimensions);
     
     const maxSize = 500; // Dimensione massima per l'inserimento iniziale
     
@@ -196,7 +182,6 @@ export const LibraryModal = ({
       width = Math.round(height * dimensions.width / dimensions.height);
     }
     
-    console.log("📏 Library calculated dimensions:", { width, height });
     
     const layerId = nanoid();
     const layer = new LiveObject({
@@ -211,7 +196,6 @@ export const LibraryModal = ({
       value: ""
     } as VideoLayer);
 
-    console.log("🎬 Library created video layer:", layer.toObject());
 
     // Insert the layer using proper layering rules (videos are non-frames, so they go at the end)
     liveLayerIds.push(layerId);
@@ -220,19 +204,16 @@ export const LibraryModal = ({
     // Select the newly added layer
     setMyPresence({ selection: [layerId] }, { addToHistory: true });
     
-    console.log("✅ Library video layer created and positioned at view center:", layerId);
     return layerId;
   }, [getCameraViewCenter]);
 
   const insertFileLayer = useLibeblocksMutation(async ({ storage, setMyPresence }, fileUrl: string, fileName: string, fileType: string, fileSize?: number) => {
-    console.log("🚀 LibraryModal insertFileLayer called:", { fileUrl, fileName, fileType, fileSize, camera });
     
     const liveLayers = storage.get("layers");
     const liveLayerIds = storage.get("layerIds");
     
     // Calcola il centro della vista
     const centerPoint = getCameraViewCenter();
-    console.log("📍 Library file center point calculated:", centerPoint);
     
     // Dimensioni standard per i file
     const width = 200;
@@ -252,7 +233,6 @@ export const LibraryModal = ({
       fileSize: fileSize
     } as FileLayer);
 
-    console.log("📄 Library created file layer:", layer.toObject());
 
     // Insert the layer using proper layering rules (files are non-frames, so they go at the end)
     liveLayerIds.push(layerId);
@@ -261,7 +241,6 @@ export const LibraryModal = ({
     // Select the newly added layer
     setMyPresence({ selection: [layerId] }, { addToHistory: true });
     
-    console.log("✅ Library file layer created and positioned at view center:", layerId);
     return layerId;
   }, [getCameraViewCenter]);
 
@@ -295,7 +274,6 @@ export const LibraryModal = ({
             name: ref.title || ref.fileName || (ref.type === 'image' ? 'Image' : 'Video')
           });
           
-          console.log(`✅ Library media registered: ${ref.fileUrl} (isFromLibrary: true)`);
           
           let layerId: string | undefined;
           if (ref.type === 'image') {
@@ -307,7 +285,6 @@ export const LibraryModal = ({
           }
           
           if (layerId) {
-            console.log(`🎉 Library media (${ref.type}) added to canvas: ${ref.fileUrl}, layerId: ${layerId}`);
             importedCount++;
           } else {
             console.warn(`⚠️ Could not create layer for library media: ${ref.fileUrl}`);

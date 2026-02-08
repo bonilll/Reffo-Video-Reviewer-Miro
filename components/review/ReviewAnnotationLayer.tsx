@@ -110,7 +110,6 @@ export const ReviewAnnotationLayer = memo(function ReviewAnnotationLayer({
   
   useEffect(() => {
     const handleResize = () => {
-      // console.log('🔄 ReviewAnnotationLayer: Container resized, forcing re-render');
       setForceRender(prev => prev + 1);
     };
 
@@ -419,7 +418,6 @@ export const ReviewAnnotationLayer = memo(function ReviewAnnotationLayer({
                   comment={main}
                   replies={replies}
                   onClick={(e: any) => {
-                    console.log('🟡 ReviewAnnotationLayer onClick received:', main._id);
                     // Always open popup on click regardless of drag state
                     if (onCommentClick) {
                       onCommentClick(main, { x: 0, y: 0 });
@@ -433,11 +431,6 @@ export const ReviewAnnotationLayer = memo(function ReviewAnnotationLayer({
                   isDropdownOpen={openDropdownCommentId === main._id}
                   showPopup={(() => {
                     const shouldShow = openPopupCommentId === main._id;
-                    console.log('🎯 showPopup calculation:', {
-                      commentId: main._id,
-                      openPopupCommentId,
-                      shouldShow
-                    });
                     return shouldShow;
                   })()}
                   onPopupClose={onPopupClose}

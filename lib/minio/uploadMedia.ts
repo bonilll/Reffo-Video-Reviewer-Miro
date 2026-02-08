@@ -30,7 +30,6 @@ export const uploadMedia = async (
   // Suddividi il file in chunk (1MB per chunk)
   const chunkSize = 1024 * 1024; // 1MB
   const totalChunks = Math.ceil(file.size / chunkSize);
-  console.log(`Caricamento di ${file.name}: ${totalChunks} chunks da ${chunkSize} bytes`);
   
   let lastProgressUpdate = 0;
   

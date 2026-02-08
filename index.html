@@ -189,7 +189,6 @@
                   } catch (_) {}
                 }, 50);
               }
-              console.log('Reffo Reviewer: icon:click registered; panel-load prompt initialized');
             });
           }
         } catch (e) {
@@ -321,7 +320,6 @@
           try {
             if (window.miro && window.miro.board && window.miro.board.ui) {
               await window.miro.board.ui.on('icon:click', handleIconClick);
-              console.log('Reffo Reviewer: icon:click registered (clean)');
             }
           } catch (_) {}
         }
@@ -337,7 +335,6 @@
             await window.miro.board.ui.on("icon:click", async () => {
               await window.miro.board.ui.openPanel({ url: "/" });
             });
-            console.log("Miro icon:click registered (minimal)");
           }
         } catch (e) {
           // Ignore outside Miro

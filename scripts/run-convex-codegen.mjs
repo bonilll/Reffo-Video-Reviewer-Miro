@@ -11,9 +11,6 @@ const hasSelfHostedCredentials =
 const shouldSkipCodegen = isVercel && !hasCloudCredentials && !hasSelfHostedCredentials;
 
 if (shouldSkipCodegen) {
-  console.log(
-    "Skipping Convex codegen: no deployment configuration found in Vercel build environment."
-  );
   process.exit(0);
 }
 

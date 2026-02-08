@@ -201,14 +201,11 @@ function processColorPalette(palette: [number, number, number][]): string[] {
   // Convert to hex
   const hexColors = palette.map(rgb => rgbToHex(rgb[0], rgb[1], rgb[2]));
   
-  console.log(`Raw palette has ${hexColors.length} colors`);
   
   // Log a sample of raw colors before filtering
-  console.log('Sample colors from raw palette:');
   hexColors.slice(0, 10).forEach((color, i) => {
     const [r, g, b] = hexToRgb(color);
     const brightness = getColorBrightness(color);
-    console.log(`  Color ${i+1}: ${color} - RGB(${r}, ${g}, ${b}) - Brightness: ${brightness.toFixed(1)}`);
   });
   
   // Filter out colors that are too close to black or white
@@ -223,11 +220,9 @@ function processColorPalette(palette: [number, number, number][]): string[] {
     return !tooBlack && !tooWhite;
   });
   
-  console.log(`After filtering black/white: ${filteredColors.length} colors remain`);
   
   // If filtered results are too small, use less strict filters
   if (filteredColors.length < 3) {
-    console.log('Too few colors remain after filtering, using less strict filters');
     // Try with even more relaxed thresholds
     const lessStrictFiltered = hexColors.filter(color => {
       const brightness = getColorBrightness(color);
@@ -235,7 +230,6 @@ function processColorPalette(palette: [number, number, number][]): string[] {
     });
     
     if (lessStrictFiltered.length > 0) {
-      console.log(`Found ${lessStrictFiltered.length} colors with relaxed filters`);
       // Use these if we found any
       return lessStrictFiltered.slice(0, 2);
     }
@@ -243,7 +237,6 @@ function processColorPalette(palette: [number, number, number][]): string[] {
   
   // If no valid colors remain after filtering, return a variety of defaults instead of the same ones
   if (filteredColors.length === 0) {
-    console.log('No valid colors remain, returning defaults');
     // Generate a semi-random default based on the image data to avoid always the same defaults
     // Use the first RGB values in the palette to influence which defaults we return
     if (palette.length > 0) {
@@ -267,7 +260,6 @@ function processColorPalette(palette: [number, number, number][]): string[] {
   
   // Return top 2 colors (or fewer if not enough available)
   const result = filteredColors.slice(0, 2);
-  console.log(`Final selected colors: ${result.join(', ')}`);
   return result;
 }
 
@@ -296,7 +288,6 @@ export async function extractDominantColors(
             
             // Cluster similar colors to get more diverse and representative colors
             const representativeColors = clusterSimilarColors(hexColors, 40, maxReturnColors);
-            console.log(`Extracted ${hexColors.length} colors, clustered into ${representativeColors.length} groups`);
             
             resolve(representativeColors);
           } catch (error) {
@@ -316,7 +307,6 @@ export async function extractDominantColors(
           
           // Cluster similar colors to get more diverse and representative colors
           const representativeColors = clusterSimilarColors(hexColors, 40, maxReturnColors);
-          console.log(`Extracted ${hexColors.length} colors, clustered into ${representativeColors.length} groups`);
           
           resolve(representativeColors);
         } catch (error) {
@@ -377,7 +367,6 @@ export async function extractTopDominantColorsFromUrl(imageUrl: string): Promise
     img.onload = async () => {
       try {
         const colors = await extractTopDominantColors(img);
-        console.log(`Extracted top dominant colors for ${imageUrl}:`, colors);
         resolve(colors);
       } catch (error) {
         console.error('Error extracting top colors:', error);

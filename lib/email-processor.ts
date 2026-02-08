@@ -6,7 +6,6 @@ const PROCESSING_INTERVAL = 30 * 1000; // 30 seconds
 
 async function processEmailQueue() {
   if (isProcessing) {
-    console.log('⏭️ Email processing already in progress, skipping...');
     return;
   }
 
@@ -24,7 +23,6 @@ async function processEmailQueue() {
     const result = await response.json();
     
     if (result.success && result.summary.total > 0) {
-      console.log(`✅ Background processed ${result.summary.sent} emails, ${result.summary.failed} failed`);
     }
   } catch (error: any) {
     console.error('❌ Background email processing error:', error);
@@ -35,11 +33,9 @@ async function processEmailQueue() {
 
 export function startEmailProcessor() {
   if (processingInterval) {
-    console.log('📧 Email processor already running');
     return;
   }
 
-  console.log('🚀 Starting background email processor (every 30 seconds)');
   
   // Process immediately on start
   processEmailQueue();
@@ -52,7 +48,6 @@ export function stopEmailProcessor() {
   if (processingInterval) {
     clearInterval(processingInterval);
     processingInterval = null;
-    console.log('🛑 Email processor stopped');
   }
 }
 

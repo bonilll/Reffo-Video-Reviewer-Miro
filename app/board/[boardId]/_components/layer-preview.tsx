@@ -4,7 +4,7 @@ import React, { memo, useState, useCallback, useEffect } from "react";
 
 import { colorToCSS } from "@/lib/utils";
 import { useStorage, useSelf, useMutation } from "@/liveblocks.config";
-import { 
+import {
   LayerType, 
   RectangleLayer, 
   EllipseLayer,
@@ -21,7 +21,9 @@ import {
   TableLayer,
   Layer,
   CanvasState,
-  CanvasMode
+  CanvasMode,
+  Camera,
+  Point
 } from "@/types/canvas";
 
 import { Ellipse } from "./eliipse";
@@ -48,7 +50,9 @@ type LayerPreviewProps = {
   onLayerContextMenu?: (e: React.MouseEvent, layerId: string) => void;
   selectionColor?: string;
   lastUsedColor?: { r: number; g: number; b: number };
-  camera?: { x: number; y: number; scale: number };
+  camera?: Camera;
+  cameraRef?: React.MutableRefObject<Camera>;
+  lodBucket?: "low" | "mid" | "high";
   canvasState: CanvasState;
   boardId?: Id<"boards">;
   backgroundColor?: string; // Colore di sfondo per calcolare contrasto
@@ -64,12 +68,13 @@ type LayerPreviewProps = {
 };
 
 export const LayerPreview = memo(
-  ({ id, onLayerPointerDown, onLayerContextMenu, selectionColor, lastUsedColor, camera, canvasState, boardId, backgroundColor = "#f5f5f5", onDrawingStart, onDrawingContinue, onDrawingEnd, onDrawingModeStart, onDrawingModeMove, onDrawingModeEnd, onCommentClick }: LayerPreviewProps) => {
+  ({ id, onLayerPointerDown, onLayerContextMenu, selectionColor, lastUsedColor, camera, cameraRef, lodBucket = "high", canvasState, boardId, backgroundColor = "#f5f5f5", onDrawingStart, onDrawingContinue, onDrawingEnd, onDrawingModeStart, onDrawingModeMove, onDrawingModeEnd, onCommentClick }: LayerPreviewProps) => {
     const layer = useStorage((root) => root.layers.get(id));
     const selection = useSelf((me) => me.presence.selection);
     const [isDraggingOverTable, setIsDraggingOverTable] = useState(false);
     const [isDragActive, setIsDragActive] = useState(false);
     const [dragStarted, setDragStarted] = useState(false);
+    const [imageHiResReady, setImageHiResReady] = useState(false);
     
     // Determina se questo layer è selezionato
     const isSelected = selection.includes(id);
@@ -79,14 +84,6 @@ export const LayerPreview = memo(
       api.review.getReviewSessionsForAsset,
       boardId ? { boardId: boardId as any, primaryAssetId: id } : "skip"
     );
-
-    // Log di debug opzionale solo per immagini/video
-    useEffect(() => {
-      if ((layer?.type === LayerType.Image || layer?.type === LayerType.Video) && reviewSessions !== undefined) {
-        const kind = layer?.type === LayerType.Image ? "Image" : "Video";
-        console.log(`[LayerPreview] ${kind} ${id} - reviewSessions:`, reviewSessions);
-      }
-    }, [reviewSessions, id, layer?.type]);
 
     const isReviewed = Array.isArray(reviewSessions) && reviewSessions.length > 0;
 
@@ -117,7 +114,7 @@ export const LayerPreview = memo(
         const centerY = todoLayer.y + todoLayer.height / 2;
         
         // Convertiamo le coordinate del canvas in coordinate dello schermo
-        const currentCamera = camera || { x: 0, y: 0, scale: 1 };
+        const currentCamera = cameraRef?.current ?? camera ?? { x: 0, y: 0, scale: 1 };
         const screenX = centerX * currentCamera.scale + currentCamera.x;
         const screenY = centerY * currentCamera.scale + currentCamera.y;
         
@@ -140,6 +137,11 @@ export const LayerPreview = memo(
         onLayerPointerDown(fakeEvent, id);
       }
     };
+
+    useEffect(() => {
+      if (!layer || layer.type !== LayerType.Image) return;
+      setImageHiResReady(false);
+    }, [layer?.type, (layer as any)?.url, lodBucket]);
 
     // Funzione per rilevare se si sta trascinando sopra una tabella
     const checkIfOverTable = useCallback((clientX: number, clientY: number) => {
@@ -465,6 +467,8 @@ export const LayerPreview = memo(
         );
       case LayerType.Image:
         const imageLayer = layer as ImageLayer;
+        const useImageLOD = lodBucket !== "high";
+
         return (
           <foreignObject
             id={id}
@@ -482,12 +486,47 @@ export const LayerPreview = memo(
               className="relative w-full h-full"
               draggable={false}
             >
-              <img 
-                src={imageLayer.url} 
-                alt="Image content"
-                className="w-full h-full object-cover"
-                draggable={false}
-              />
+              {useImageLOD ? (
+                imageLayer.previewUrl ? (
+                  <img
+                    src={imageLayer.previewUrl}
+                    alt="Image preview"
+                    className="w-full h-full object-cover origin-center"
+                    draggable={false}
+                    loading="lazy"
+                    decoding="async"
+                  />
+                ) : (
+                  <div className="w-full h-full bg-slate-100/80 flex items-center justify-center text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                    Image
+                  </div>
+                )
+              ) : (
+                <div className="relative w-full h-full">
+                  {imageLayer.previewUrl ? (
+                    <img
+                      src={imageLayer.previewUrl}
+                      alt="Image preview"
+                      className="absolute inset-0 w-full h-full object-cover"
+                      draggable={false}
+                      loading="lazy"
+                      decoding="async"
+                    />
+                  ) : (
+                    <div className="absolute inset-0 w-full h-full bg-slate-100/80" />
+                  )}
+                  <img 
+                    src={imageLayer.url} 
+                    alt="Image content"
+                    className="absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ease-out"
+                    style={{ opacity: imageHiResReady ? 1 : 0 }}
+                    draggable={false}
+                    loading="lazy"
+                    decoding="async"
+                    onLoad={() => setImageHiResReady(true)}
+                  />
+                </div>
+              )}
               
               {/* Media Drawing Overlay */}
               <MediaDrawingOverlay
@@ -501,10 +540,10 @@ export const LayerPreview = memo(
                 onDrawingModeMove={onDrawingModeMove}
                 onDrawingModeEnd={onDrawingModeEnd}
                 onCommentClick={onCommentClick}
-                camera={camera}
+                cameraRef={cameraRef}
               />
               
-              {isReviewed && (
+              {!useImageLOD && isReviewed && (
                 <div 
                   className="absolute top-2 right-2 bg-white text-black text-[9px] font-semibold px-2.5 py-1 rounded-full shadow-sm border border-gray-200 flex items-center gap-1 animate-pulse-glow cursor-pointer hover:shadow-md transition-shadow"
                   style={{
@@ -529,6 +568,8 @@ export const LayerPreview = memo(
         );
       case LayerType.Video:
         const videoLayer = layer as VideoLayer;
+        const useVideoLOD = lodBucket !== "high";
+
         return (
           <foreignObject
             id={id}
@@ -563,12 +604,19 @@ export const LayerPreview = memo(
             >
               <div className="relative w-full h-full">
                 {/* Custom player */}
-                <VideoPlayer
-                  src={videoLayer.url}
-                  fit="cover"
-                  autoPlay={false}
-                  muted={true}
-                />
+                {useVideoLOD ? (
+                  <div className="w-full h-full bg-slate-100/80 flex items-center justify-center text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                    Video
+                  </div>
+                ) : (
+                  <VideoPlayer
+                    src={videoLayer.url}
+                    fit="cover"
+                    autoPlay={false}
+                    muted={true}
+                    preload={isSelected ? "metadata" : "none"}
+                  />
+                )}
                 
                 {/* Media Drawing Overlay */}
                 <MediaDrawingOverlay
@@ -582,10 +630,10 @@ export const LayerPreview = memo(
                   onDrawingModeMove={onDrawingModeMove}
                   onDrawingModeEnd={onDrawingModeEnd}
                   onCommentClick={onCommentClick}
-                  camera={camera}
-                />
+                cameraRef={cameraRef}
+              />
                 
-                {isReviewed && (
+                {!useVideoLOD && isReviewed && (
                   <div 
                     className="absolute top-2 right-2 bg-white text-black text-[9px] font-semibold px-2.5 py-1 rounded-full shadow-sm border border-gray-200 flex items-center gap-1 animate-pulse-glow cursor-pointer hover:shadow-md transition-shadow"
                     style={{

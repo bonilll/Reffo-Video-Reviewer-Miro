@@ -49,7 +49,6 @@ export function SignInForm() {
 
     // Check if user is already authenticated before proceeding
     if (isAuthLoaded && isSignedIn) {
-      console.log("User already authenticated, redirecting to dashboard");
       window.location.href = "/dashboard";
       return;
     }
@@ -63,10 +62,8 @@ export function SignInForm() {
       });
 
       if (result.status === "complete") {
-        console.log("Login completato con successo");
         await setActive({ session: result.createdSessionId });
         // Rimuovo il redirect manuale - sarà gestito da AuthStateHandler
-        console.log("Login successful, AuthStateHandler will handle redirect");
       } else {
         console.error("Login fallito:", result);
         toast({

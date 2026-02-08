@@ -245,11 +245,6 @@ export class ReviewBoardStorage {
 
   // Utility per debugging
   debug() {
-    console.log("🔍 ReviewBoardStorage Debug:", {
-      layerCount: this.layers.size,
-      layerIds: this.layerIds,
-      layers: Array.from(this.layers.entries()),
-    });
   }
 }
 

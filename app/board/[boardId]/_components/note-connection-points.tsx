@@ -48,11 +48,9 @@ export const NoteConnectionPoints = memo(({ lastUsedColor, lastUsedFontSize, las
   // Gestisce la creazione di note collegate
   const handleConnectionClick = (noteId: string, side: ConnectionSide, e: React.MouseEvent) => {
     e.stopPropagation();
-    console.log("🎯 handleConnectionClick called:", { noteId, side });
     
     try {
       const result = createConnectedNote(noteId, side);
-      console.log("✅ createConnectedNote result:", result);
     } catch (error) {
       console.error("❌ Error in createConnectedNote:", error);
     }
@@ -115,13 +113,11 @@ export const NoteConnectionPoints = memo(({ lastUsedColor, lastUsedFontSize, las
                 onMouseDown={(e) => {
                   e.stopPropagation();
                   e.preventDefault();
-                  console.log("🔗 Connection area mouse down:", { noteId: note.id, side });
                   handleConnectionClick(note.id, side, e as any);
                 }}
                 onClick={(e) => {
                   e.stopPropagation();
                   e.preventDefault();
-                  console.log("🔗 Connection area clicked:", { noteId: note.id, side });
                   handleConnectionClick(note.id, side, e);
                 }}
               />

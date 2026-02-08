@@ -57,7 +57,6 @@ export const liveblocksAuth = httpAction(async (ctx, request) => {
 
   const identity = await ctx.auth.getUserIdentity();
   if (!identity) {
-    console.log("liveblocks-auth: missing identity");
     return new Response(
       JSON.stringify({
         error: "Unauthorized",
@@ -79,7 +78,6 @@ export const liveblocksAuth = httpAction(async (ctx, request) => {
       boardId: room as Id<"boards">,
     });
   } catch (error) {
-    console.log("liveblocks-auth: invalid board id", room);
     return new Response(
       JSON.stringify({
         error: "Bad Request",
@@ -96,7 +94,6 @@ export const liveblocksAuth = httpAction(async (ctx, request) => {
   }
 
   if (!permissions?.resourceExists) {
-    console.log("liveblocks-auth: board not found", room);
     return new Response(
       JSON.stringify({
         error: "Not Found",
@@ -113,7 +110,6 @@ export const liveblocksAuth = httpAction(async (ctx, request) => {
   }
 
   if (!permissions.canRead) {
-    console.log("liveblocks-auth: access denied", room, identity.subject);
     return new Response(
       JSON.stringify({
         error: "Forbidden",
@@ -146,7 +142,6 @@ export const liveblocksAuth = httpAction(async (ctx, request) => {
       },
     });
 
-    console.log("liveblocks-auth: session authorized", room, identity.subject);
     return new Response(body, {
       status,
       headers: {
@@ -155,7 +150,6 @@ export const liveblocksAuth = httpAction(async (ctx, request) => {
       },
     });
   } catch (error) {
-    console.log("liveblocks-auth: authorize failed", error);
     return new Response(
       JSON.stringify({
         error: "Liveblocks authorization failed",

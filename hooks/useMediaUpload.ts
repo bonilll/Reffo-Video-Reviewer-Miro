@@ -79,18 +79,14 @@ const getVideoDimensions = (url: string): Promise<{width: number, height: number
 
 // Funzione per calcolare il centro della vista camera
 const getCameraViewCenter = (camera?: Camera): Point => {
-  console.log("🎯 getCameraViewCenter called with camera:", camera);
   
   if (!camera || typeof window === 'undefined') {
-    console.log("⚠️ No camera or window, using fallback position");
     return { x: 500, y: 300 }; // Fallback visibile
   }
   
   const centerX = window.innerWidth / 2;
   const centerY = window.innerHeight / 2;
   
-  console.log("📐 Screen center:", { centerX, centerY });
-  console.log("📷 Camera state:", { x: camera.x, y: camera.y, scale: camera.scale });
   
   // Converti le coordinate dello schermo in coordinate del canvas
   const canvasCenter = {
@@ -98,7 +94,6 @@ const getCameraViewCenter = (camera?: Camera): Point => {
     y: (centerY - camera.y) / camera.scale
   };
   
-  console.log("🎯 Calculated canvas center:", canvasCenter);
   return canvasCenter;
 };
 
@@ -109,9 +104,9 @@ export const useMediaUpload = ({ boardId, camera }: UseMediaUploadOptions) => {
     async (
       { storage, setMyPresence }, 
       mediaType: "image" | "video", 
-      mediaUrl: string
+      mediaUrl: string,
+      previewUrl?: string
     ) => {
-      console.log("🚀 insertMediaLayerAtViewCenter called:", { mediaType, mediaUrl, camera });
       
       const liveLayers = storage.get("layers");
       const liveLayerIds = storage.get("layerIds");
@@ -121,7 +116,6 @@ export const useMediaUpload = ({ boardId, camera }: UseMediaUploadOptions) => {
       
       // Calcola il centro della vista PRIMA di ottenere le dimensioni
       const centerPoint = getCameraViewCenter(camera);
-      console.log("📍 Center point calculated:", centerPoint);
       
       // Ottiene le dimensioni originali del media e calcola le proporzioni
       const maxSize = 500; // Dimensione massima per limitare l'inserimento iniziale
@@ -130,7 +124,6 @@ export const useMediaUpload = ({ boardId, camera }: UseMediaUploadOptions) => {
       if (mediaType === "image") {
         // Precarica l'immagine per ottenere le dimensioni originali
         const dimensions = await getImageDimensions(mediaUrl);
-        console.log("🖼️ Image dimensions:", dimensions);
         
         // Calcola le dimensioni mantenendo le proporzioni
         if (dimensions.width > dimensions.height) {
@@ -141,7 +134,6 @@ export const useMediaUpload = ({ boardId, camera }: UseMediaUploadOptions) => {
           width = Math.round(height * dimensions.width / dimensions.height);
         }
         
-        console.log("📏 Calculated dimensions:", { width, height });
         
         // Crea un oggetto ImageLayer DIRETTAMENTE posizionato al centro della vista
         const imageLayer: ImageLayer = {
@@ -151,10 +143,10 @@ export const useMediaUpload = ({ boardId, camera }: UseMediaUploadOptions) => {
           height,
           width,
           url: mediaUrl,
+          previewUrl: previewUrl || undefined,
           title: "Immagine caricata"
         };
         
-        console.log("🖼️ Created image layer:", imageLayer);
         
         // Aggiungiamo il layer alla board (images are non-frames, so they go at the end)
         liveLayerIds.push(layerId);
@@ -162,7 +154,6 @@ export const useMediaUpload = ({ boardId, camera }: UseMediaUploadOptions) => {
       } else {
         // Precarica il video per ottenere le dimensioni originali
         const dimensions = await getVideoDimensions(mediaUrl);
-        console.log("🎬 Video dimensions:", dimensions);
         
         // Calcola le dimensioni mantenendo le proporzioni
         if (dimensions.width > dimensions.height) {
@@ -173,7 +164,6 @@ export const useMediaUpload = ({ boardId, camera }: UseMediaUploadOptions) => {
           width = Math.round(height * dimensions.width / dimensions.height);
         }
         
-        console.log("📏 Calculated dimensions:", { width, height });
         
         // Crea un oggetto VideoLayer DIRETTAMENTE posizionato al centro della vista
         const videoLayer: VideoLayer = {
@@ -186,7 +176,6 @@ export const useMediaUpload = ({ boardId, camera }: UseMediaUploadOptions) => {
           title: "Video caricato"
         };
         
-        console.log("🎬 Created video layer:", videoLayer);
         
         // Aggiungiamo il layer alla board (videos are non-frames, so they go at the end)
         liveLayerIds.push(layerId);
@@ -196,7 +185,6 @@ export const useMediaUpload = ({ boardId, camera }: UseMediaUploadOptions) => {
       // Selezioniamo il nuovo layer
       setMyPresence({ selection: [layerId] }, { addToHistory: true });
 
-      console.log("✅ Layer created and positioned at view center:", layerId);
       return layerId;
     },
     [camera]
@@ -211,7 +199,6 @@ export const useMediaUpload = ({ boardId, camera }: UseMediaUploadOptions) => {
       fileType: string,
       fileSize?: number
     ) => {
-      console.log("🚀 insertFileLayerAtViewCenter called:", { fileUrl, fileName, fileType, fileSize, camera });
       
       const liveLayers = storage.get("layers");
       const liveLayerIds = storage.get("layerIds");
@@ -221,7 +208,6 @@ export const useMediaUpload = ({ boardId, camera }: UseMediaUploadOptions) => {
       
       // Calcola il centro della vista
       const centerPoint = getCameraViewCenter(camera);
-      console.log("📍 File center point calculated:", centerPoint);
       
       // Dimensioni standard per i file (più spazio per preview)
       const width = 240;
@@ -241,7 +227,6 @@ export const useMediaUpload = ({ boardId, camera }: UseMediaUploadOptions) => {
         fileSize: fileSize
       };
       
-      console.log("📄 Created file layer:", fileLayer);
       
       // Aggiungiamo il layer alla board (files are non-frames, so they go at the end)
       liveLayerIds.push(layerId);
@@ -250,21 +235,18 @@ export const useMediaUpload = ({ boardId, camera }: UseMediaUploadOptions) => {
       // Selezioniamo il nuovo layer
       setMyPresence({ selection: [layerId] }, { addToHistory: true });
 
-      console.log("✅ File layer created and positioned at view center:", layerId);
       return layerId;
     },
     [camera]
   );
 
   // Handler chiamato quando il componente UploadOverlay completa un upload
-  const handleMediaUploaded = useCallback(async (type: "image" | "video", url: string) => {
+  const handleMediaUploaded = useCallback(async (type: "image" | "video", url: string, previewUrl?: string) => {
     try {
-      console.log("📤 handleMediaUploaded called:", { type, url });
       
       // Aggiungi il layer DIRETTAMENTE al centro della vista
-      const layerId = await insertMediaLayerAtViewCenter(type, url);
+      const layerId = await insertMediaLayerAtViewCenter(type, url, previewUrl);
       
-      console.log(`✅ Media uploaded and positioned at view center: ${url}, layerId: ${layerId}`);
     } catch (error) {
       console.error("❌ Error uploading media:", error);
     }
@@ -273,12 +255,10 @@ export const useMediaUpload = ({ boardId, camera }: UseMediaUploadOptions) => {
   // Handler chiamato quando viene caricato un file
   const handleFileUploaded = useCallback(async (url: string, fileName: string, fileType: string, fileSize?: number) => {
     try {
-      console.log("📤 handleFileUploaded called:", { url, fileName, fileType, fileSize });
       
       // Aggiungi il layer DIRETTAMENTE al centro della vista
       const layerId = await insertFileLayerAtViewCenter(url, fileName, fileType, fileSize);
       
-      console.log(`✅ File uploaded and positioned at view center: ${url}, layerId: ${layerId}`);
     } catch (error) {
       console.error("❌ Error uploading file:", error);
     }

@@ -50,7 +50,6 @@ export async function uploadFileToStorage(file: File, userId: string): Promise<s
       throw new Error('ID utente non disponibile. Impossibile caricare il file.');
     }
     
-    console.log(`[Upload] Inizializzazione upload per utente ${authenticatedUserId}, file: ${fileName} (${file.size} bytes, ${file.type})`);
     
     // Use the upload/file endpoint which has storage limit checks
     const formData = new FormData();
@@ -59,14 +58,12 @@ export async function uploadFileToStorage(file: File, userId: string): Promise<s
     formData.append('contentType', file.type);
     formData.append('isPrivate', 'false');
     
-    console.log(`[Upload] Uploading file via /api/upload/file endpoint`);
     const response = await fetch('/api/upload/file', {
       method: 'POST',
       body: formData,
     });
     
     // Log della risposta HTTP per diagnostica
-    console.log(`[Upload] Risposta API upload: ${response.status} ${response.statusText}`);
     
     if (!response.ok) {
       let errorMessage = `Errore API (${response.status}): ${response.statusText}`;
@@ -105,13 +102,11 @@ export async function uploadFileToStorage(file: File, userId: string): Promise<s
     
     const fileUrl = responseData.url;
     
-    console.log(`[Upload] File caricato con successo: ${fileUrl}`);
     
     // Verifica che l'URL sia accessibile
     try {
       const checkResponse = await fetch(fileUrl, { method: 'HEAD' });
       if (checkResponse.ok) {
-        console.log('[Upload] Verifica URL riuscita:', fileUrl);
       } else {
         console.warn('[Upload] URL caricato ma non accessibile:', fileUrl, checkResponse.status);
       }
@@ -129,12 +124,9 @@ export async function uploadFileToStorage(file: File, userId: string): Promise<s
 // Salvataggio reale dei metadati su Convex
 export async function saveReferenceMetadata(reference: UploadedReference, userId: string): Promise<string> {
   try {
-    console.log('[Convex Save] Preparing to save reference to Convex:', reference);
-    console.log('[Convex Save] User ID passed to function:', userId);
     
     // Ottieni l'ID utente autenticato
     const authenticatedUserId = await getCurrentUserId();
-    console.log('[Convex Save] Authenticated user ID from getCurrentUserId():', authenticatedUserId);
     
     if (!authenticatedUserId) {
       console.error('[Convex Save] No authenticated user ID available!');
@@ -165,13 +157,10 @@ export async function saveReferenceMetadata(reference: UploadedReference, userId
       fileName: fileUrl.split('/').pop() || 'file'
     };
     
-    console.log('[Convex Save] Calling Convex mutation with params:', convexParams);
     
     try {
-      console.log('[Convex Save] Sending mutation to Convex API createReference...');
       const assetId = await convex.mutation(api.assets.create, convexParams);
       
-      console.log('[Convex Save] Reference saved successfully, ID:', assetId);
       return assetId;
     } catch (error) {
       console.error('[Convex Save] ERROR during Convex mutation:', error);
@@ -187,12 +176,9 @@ export async function saveReferenceMetadata(reference: UploadedReference, userId
 // Funzione principale per gestire l'upload e il salvataggio di più file
 export async function uploadReferences(uploadItems: UploadItem[], userId: string): Promise<UploadedReference[]> {
   try {
-    console.log('[UPLOAD PROCESS START] ------------------------------------------');
-    console.log('[UPLOAD PROCESS] Starting upload process for', uploadItems.length, 'files');
     
     // Verifica che l'utente sia autenticato
     const isUserAuthenticated = await isAuthenticated();
-    console.log('[UPLOAD PROCESS] User authenticated:', isUserAuthenticated);
     
     if (!isUserAuthenticated) {
       console.error('[UPLOAD PROCESS] Upload failed: User not authenticated');
@@ -201,7 +187,6 @@ export async function uploadReferences(uploadItems: UploadItem[], userId: string
     
     // Ottieni l'ID utente reale dal server
     const authenticatedUserId = await getCurrentUserId();
-    console.log('[UPLOAD PROCESS] Got user ID from server:', authenticatedUserId);
     
     if (!authenticatedUserId) {
       console.error('[UPLOAD PROCESS] Upload failed: No user ID available');
@@ -216,22 +201,12 @@ export async function uploadReferences(uploadItems: UploadItem[], userId: string
     // Always use the server-authenticated user ID for security
     const finalUserId = authenticatedUserId;
     
-    console.log('[UPLOAD PROCESS] Using final userId:', finalUserId);
-    console.log('[UPLOAD PROCESS] Sample file data:', uploadItems.map(item => ({
-      id: item.id,
-      name: item.file.name,
-      size: item.file.size,
-      type: item.file.type,
-      metadataTitle: item.metadata.title
-    })));
     
     // Carichiamo tutti i file in parallelo
     const uploadPromises = uploadItems.map(async (item, index) => {
-      console.log(`[UPLOAD PROCESS] Starting upload for file ${index + 1}/${uploadItems.length}: ${item.file.name}`);
       
       try {
         const fileUrl = await uploadFileToStorage(item.file, finalUserId);
-        console.log(`[UPLOAD PROCESS] File ${index + 1} uploaded successfully, got URL:`, fileUrl);
         
         // Creiamo l'oggetto reference
         const reference: UploadedReference = {
@@ -245,12 +220,9 @@ export async function uploadReferences(uploadItems: UploadItem[], userId: string
           uploadedAt: Date.now(),
         };
         
-        console.log(`[UPLOAD PROCESS] Created reference object for file ${index + 1}:`, reference);
         
         // Salviamo i metadati
-        console.log(`[UPLOAD PROCESS] Saving metadata for file ${index + 1} to Convex...`);
         const referenceId = await saveReferenceMetadata(reference, finalUserId);
-        console.log(`[UPLOAD PROCESS] Metadata saved for file ${index + 1} with ID:`, referenceId);
         
         return reference;
       } catch (error) {
@@ -260,10 +232,7 @@ export async function uploadReferences(uploadItems: UploadItem[], userId: string
     });
     
     // Attendiamo il completamento di tutti gli upload
-    console.log('[UPLOAD PROCESS] Waiting for all file uploads to complete...');
     const uploadedReferences = await Promise.all(uploadPromises);
-    console.log('[UPLOAD PROCESS] All files uploaded successfully:', uploadedReferences.length);
-    console.log('[UPLOAD PROCESS END] ------------------------------------------');
     
     return uploadedReferences;
   } catch (error) {

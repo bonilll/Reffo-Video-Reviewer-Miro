@@ -25,7 +25,6 @@ export function useProfileImage() {
     
     const fileName = file.name.replace(/\s+/g, '-').toLowerCase();
     
-    console.log(`[Profile Image Upload] Starting upload for user ${user.id}, file: ${fileName}`);
     
     // Get signed URL for profile images directory
     const response = await fetch('/api/storage/credentials', {
@@ -64,7 +63,6 @@ export function useProfileImage() {
       throw new Error(`Upload failed (${uploadResponse.status})`);
     }
     
-    console.log('[Profile Image Upload] Upload successful:', fileUrl);
     return fileUrl;
   }, [user]);
   
@@ -91,12 +89,10 @@ export function useProfileImage() {
     setIsUploading(true);
     
     try {
-      console.log('[Profile Image] Starting upload:', file.name);
       
       // Upload the image
       const uploadedUrl = await uploadProfileImage(file);
       
-      console.log('[Profile Image] Upload successful:', uploadedUrl);
       
       // Update the profile in the database
       await updateProfile({
@@ -106,7 +102,6 @@ export function useProfileImage() {
       // Update Clerk user image if possible
       try {
         await user.setProfileImage({ file });
-        console.log('[Profile Image] Clerk profile image updated');
       } catch (clerkError) {
         console.warn('[Profile Image] Could not update Clerk image:', clerkError);
         // Continue anyway, our database has the correct image
@@ -117,7 +112,6 @@ export function useProfileImage() {
         window.dispatchEvent(new CustomEvent('profileImageUpdated', { 
           detail: { imageUrl: uploadedUrl } 
         }));
-        console.log('[Profile Image] Global refresh event dispatched');
       }
       
       toast.success('Profile image updated successfully!');

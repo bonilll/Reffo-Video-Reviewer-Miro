@@ -38,7 +38,6 @@ export const useArrowSnap = () => {
     });
 
     if (nearestNote) {
-      console.log(`✅ Snap found: ${nearestNote.id} ${nearestNote.side} (${nearestNote.distance.toFixed(1)}px)`);
     }
 
     return nearestNote;
@@ -99,7 +98,6 @@ export const useArrowSnap = () => {
         sourceSide = sourceSnap.side;
         isSnappedToSource = true;
         hasChanges = true;
-        console.log("🎯 Snap source to note:", sourceSnap.id, "side:", sourceSnap.side);
       } else {
         // Rimuovi snap se non c'è più una nota vicina
         if (arrowData.isSnappedToSource) {
@@ -107,7 +105,6 @@ export const useArrowSnap = () => {
           sourceSide = undefined;
           isSnappedToSource = false;
           hasChanges = true;
-          console.log("🔓 Unsnap source");
         }
       }
 
@@ -120,7 +117,6 @@ export const useArrowSnap = () => {
         targetSide = targetSnap.side;
         isSnappedToTarget = true;
         hasChanges = true;
-        console.log("🎯 Snap target to note:", targetSnap.id, "side:", targetSnap.side);
       } else {
         // Rimuovi snap se non c'è più una nota vicina
         if (arrowData.isSnappedToTarget) {
@@ -128,7 +124,6 @@ export const useArrowSnap = () => {
           targetSide = undefined;
           isSnappedToTarget = false;
           hasChanges = true;
-          console.log("🔓 Unsnap target");
         }
       }
 
@@ -158,12 +153,6 @@ export const useArrowSnap = () => {
           isSnappedToTarget,
         });
 
-        console.log("✅ Arrow snap updated:", arrowId, {
-          snappedSource: isSnappedToSource,
-          snappedTarget: isSnappedToTarget,
-          sourceNote: sourceNoteId,
-          targetNote: targetNoteId
-        });
       }
 
       return {

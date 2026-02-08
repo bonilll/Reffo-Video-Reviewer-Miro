@@ -53,7 +53,6 @@ export function SignUpForm() {
 
     // Check if user is already authenticated before proceeding
     if (isAuthLoaded && isSignedIn) {
-      console.log("User already authenticated, redirecting to dashboard");
       window.location.href = "/dashboard";
       return;
     }

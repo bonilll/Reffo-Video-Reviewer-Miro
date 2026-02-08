@@ -10,13 +10,17 @@
 
 import type * as annotations from "../annotations.js";
 import type * as assetJobs from "../assetJobs.js";
+import type * as assetWorker from "../assetWorker.js";
 import type * as assets from "../assets.js";
+import type * as assetsSimilarity from "../assetsSimilarity.js";
 import type * as board from "../board.js";
 import type * as boards from "../boards.js";
 import type * as comments from "../comments.js";
 import type * as compliance from "../compliance.js";
 import type * as edits from "../edits.js";
 import type * as friends from "../friends.js";
+import type * as http_deleteMedia from "../http/deleteMedia.js";
+import type * as http_libraryWorker from "../http/libraryWorker.js";
 import type * as http_liveblocksAuth from "../http/liveblocksAuth.js";
 import type * as http_uploadMultipart from "../http/uploadMultipart.js";
 import type * as http from "../http.js";
@@ -25,6 +29,7 @@ import type * as maintenance from "../maintenance.js";
 import type * as media from "../media.js";
 import type * as notifications from "../notifications.js";
 import type * as projects from "../projects.js";
+import type * as qdrant from "../qdrant.js";
 import type * as render from "../render.js";
 import type * as review from "../review.js";
 import type * as settings from "../settings.js";
@@ -58,13 +63,17 @@ import type {
 declare const fullApi: ApiFromModules<{
   annotations: typeof annotations;
   assetJobs: typeof assetJobs;
+  assetWorker: typeof assetWorker;
   assets: typeof assets;
+  assetsSimilarity: typeof assetsSimilarity;
   board: typeof board;
   boards: typeof boards;
   comments: typeof comments;
   compliance: typeof compliance;
   edits: typeof edits;
   friends: typeof friends;
+  "http/deleteMedia": typeof http_deleteMedia;
+  "http/libraryWorker": typeof http_libraryWorker;
   "http/liveblocksAuth": typeof http_liveblocksAuth;
   "http/uploadMultipart": typeof http_uploadMultipart;
   http: typeof http;
@@ -73,6 +82,7 @@ declare const fullApi: ApiFromModules<{
   media: typeof media;
   notifications: typeof notifications;
   projects: typeof projects;
+  qdrant: typeof qdrant;
   render: typeof render;
   review: typeof review;
   settings: typeof settings;

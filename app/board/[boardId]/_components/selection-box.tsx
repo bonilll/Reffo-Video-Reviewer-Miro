@@ -14,6 +14,7 @@ interface SelectionBoxProps {
   scaleX?: number;
   scaleY?: number;
   camera: Camera;
+  previewOffset?: { x: number; y: number } | null;
 }
 
 const BASE_HANDLE_WIDTH = 8;
@@ -21,7 +22,7 @@ const MIN_HANDLE_WIDTH = 4;
 const MAX_HANDLE_WIDTH = 100;
 
 export const SelectionBox = memo(
-  ({ onResizeHandlePointerDown, onArrowLinePointPointerDown, canvasState, scaleX = 1, scaleY = 1, camera }: SelectionBoxProps) => {
+  ({ onResizeHandlePointerDown, onArrowLinePointPointerDown, canvasState, scaleX = 1, scaleY = 1, camera, previewOffset }: SelectionBoxProps) => {
     const selection = useSelf((me) => me.presence.selection);
     const selectionCount = selection.length;
     
@@ -174,12 +175,15 @@ export const SelectionBox = memo(
       height: typeof bounds === 'object' && 'height' in bounds ? (bounds as any).height : 0
     };
 
+    const offsetX = previewOffset?.x ?? 0;
+    const offsetY = previewOffset?.y ?? 0;
+
     return (
       <>
         <rect
           className="fill-transparent stroke-blue-500 stroke-1 pointer-events-none"
           style={{
-            transform: `translate(${typedBounds.x}px, ${typedBounds.y}px)`,
+            transform: `translate(${typedBounds.x + offsetX}px, ${typedBounds.y + offsetY}px)`,
           }}
           x={0}
           y={0}
@@ -192,7 +196,7 @@ export const SelectionBox = memo(
               <rect
                 className="fill-blue-500/10 stroke-blue-500 stroke-1 pointer-events-none"
                 style={{
-                  transform: `translate(${typedBounds.x}px, ${typedBounds.y}px)`,
+                  transform: `translate(${typedBounds.x + offsetX}px, ${typedBounds.y + offsetY}px)`,
                 }}
                 x={0}
                 y={0}
@@ -206,16 +210,16 @@ export const SelectionBox = memo(
               <g>
                 <rect
                   className="fill-white stroke-1 stroke-blue-500 shadow-md"
-                  x={typedBounds.x + typedBounds.width / 2 - 40}
-                  y={typedBounds.y - 36}
+                  x={typedBounds.x + offsetX + typedBounds.width / 2 - 40}
+                  y={typedBounds.y + offsetY - 36}
                   width={80}
                   height={28}
                   rx={4}
                 />
                 <text
                   className="text-xs fill-blue-800 font-semibold"
-                  x={typedBounds.x + typedBounds.width / 2}
-                  y={typedBounds.y - 20}
+                  x={typedBounds.x + offsetX + typedBounds.width / 2}
+                  y={typedBounds.y + offsetY - 20}
                   textAnchor="middle"
                   dominantBaseline="middle"
                 >
@@ -234,8 +238,8 @@ export const SelectionBox = memo(
                 height: `${handleSize}px`,
                 transform: `
                 translate(
-                  ${typedBounds.x - handleSize / 2}px,
-                  ${typedBounds.y - handleSize / 2}px
+                  ${typedBounds.x + offsetX - handleSize / 2}px,
+                  ${typedBounds.y + offsetY - handleSize / 2}px
                 )
               `,
               }}
@@ -254,8 +258,8 @@ export const SelectionBox = memo(
                 height: `${handleSize}px`,
                 transform: `
                 translate(
-                  ${typedBounds.x + typedBounds.width / 2 - handleSize / 2}px, 
-                  ${typedBounds.y - handleSize / 2}px
+                  ${typedBounds.x + offsetX + typedBounds.width / 2 - handleSize / 2}px, 
+                  ${typedBounds.y + offsetY - handleSize / 2}px
                 )
               `,
               }}
@@ -274,8 +278,8 @@ export const SelectionBox = memo(
                 height: `${handleSize}px`,
                 transform: `
                 translate(
-                  ${typedBounds.x - handleSize / 2 + typedBounds.width}px,
-                  ${typedBounds.y - handleSize / 2}px
+                  ${typedBounds.x + offsetX - handleSize / 2 + typedBounds.width}px,
+                  ${typedBounds.y + offsetY - handleSize / 2}px
                 )`,
               }}
               onPointerDown={(e) => {
@@ -293,8 +297,8 @@ export const SelectionBox = memo(
                 height: `${handleSize}px`,
                 transform: `
                 translate(
-                  ${typedBounds.x - handleSize / 2 + typedBounds.width}px, 
-                  ${typedBounds.y + typedBounds.height / 2 - handleSize / 2}px
+                  ${typedBounds.x + offsetX - handleSize / 2 + typedBounds.width}px, 
+                  ${typedBounds.y + offsetY + typedBounds.height / 2 - handleSize / 2}px
                 )`,
               }}
               onPointerDown={(e) => {
@@ -312,8 +316,8 @@ export const SelectionBox = memo(
                 height: `${handleSize}px`,
                 transform: `
                 translate(
-                  ${typedBounds.x - handleSize / 2 + typedBounds.width}px, 
-                  ${typedBounds.y - handleSize / 2 + typedBounds.height}px
+                  ${typedBounds.x + offsetX - handleSize / 2 + typedBounds.width}px, 
+                  ${typedBounds.y + offsetY - handleSize / 2 + typedBounds.height}px
                 )`,
               }}
               onPointerDown={(e) => {
@@ -331,8 +335,8 @@ export const SelectionBox = memo(
                 height: `${handleSize}px`,
                 transform: `
                 translate(
-                  ${typedBounds.x + typedBounds.width / 2 - handleSize / 2}px,
-                  ${typedBounds.y - handleSize / 2 + typedBounds.height}px
+                  ${typedBounds.x + offsetX + typedBounds.width / 2 - handleSize / 2}px,
+                  ${typedBounds.y + offsetY - handleSize / 2 + typedBounds.height}px
                 )`,
               }}
               onPointerDown={(e) => {
@@ -350,8 +354,8 @@ export const SelectionBox = memo(
                 height: `${handleSize}px`,
                 transform: `
                 translate(
-                  ${typedBounds.x - handleSize / 2}px,
-                  ${typedBounds.y - handleSize / 2 + typedBounds.height}px
+                  ${typedBounds.x + offsetX - handleSize / 2}px,
+                  ${typedBounds.y + offsetY - handleSize / 2 + typedBounds.height}px
                 )`,
               }}
               onPointerDown={(e) => {
@@ -369,8 +373,8 @@ export const SelectionBox = memo(
                 height: `${handleSize}px`,
                 transform: `
                 translate(
-                  ${typedBounds.x - handleSize / 2}px,
-                  ${typedBounds.y + typedBounds.height / 2 - handleSize / 2}px
+                  ${typedBounds.x + offsetX - handleSize / 2}px,
+                  ${typedBounds.y + offsetY + typedBounds.height / 2 - handleSize / 2}px
                 )`,
               }}
               onPointerDown={(e) => {
@@ -387,8 +391,8 @@ export const SelectionBox = memo(
             {/* Handle punto di inizio */}
             <circle
               className="fill-white stroke-2 stroke-blue-500"
-              cx={arrowLineData.startX}
-              cy={arrowLineData.startY}
+              cx={arrowLineData.startX + offsetX}
+              cy={arrowLineData.startY + offsetY}
               r={handleSize / 2}
               style={{
                 cursor: "move",
@@ -402,8 +406,8 @@ export const SelectionBox = memo(
             {/* Handle punto di fine */}
             <circle
               className="fill-white stroke-2 stroke-blue-500"
-              cx={arrowLineData.endX}
-              cy={arrowLineData.endY}
+              cx={arrowLineData.endX + offsetX}
+              cy={arrowLineData.endY + offsetY}
               r={handleSize / 2}
               style={{
                 cursor: "move",
@@ -418,8 +422,8 @@ export const SelectionBox = memo(
             {arrowLineData.type === LayerType.Arrow && (
               <circle
                 className="fill-blue-500"
-                cx={arrowLineData.endX}
-                cy={arrowLineData.endY}
+                cx={arrowLineData.endX + offsetX}
+                cy={arrowLineData.endY + offsetY}
                 r={handleSize / 4}
                 style={{ pointerEvents: "none" }}
               />

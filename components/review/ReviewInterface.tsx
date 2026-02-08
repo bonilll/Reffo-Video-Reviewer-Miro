@@ -317,28 +317,20 @@ export function ReviewInterface({ session }: ReviewInterfaceProps) {
       // Update all comment positions in batch
       await batchUpdateCommentPositions({ updates: commentsToUpdate });
       
-      console.log(`Successfully moved ${commentsToUpdate.length} comments`);
     } catch (error) {
       console.error("Error moving comments:", error);
     }
   };
 
   const handleCommentClick = (comment: ReviewComment, position: { x: number; y: number }) => {
-    console.log('🟢 ReviewInterface handleCommentClick called:', {
-      commentId: comment._id,
-      currentActiveCommentId: activeCommentId,
-      willToggle: activeCommentId === comment._id
-    });
     
     // Toggle behavior: if clicking on the same comment that's already open, close it
     if (activeCommentId === comment._id) {
       // Same comment clicked - close it
-      console.log('📄 Closing comment');
       setActiveCommentId(null);
       setActiveComment(null);
     } else {
       // Different comment clicked - open it (or first time opening)
-      console.log('📝 Opening comment');
       setActiveComment(comment);
       setActiveCommentId(comment._id);
     }
@@ -405,7 +397,6 @@ export function ReviewInterface({ session }: ReviewInterfaceProps) {
         const annotation = annotations?.find(a => a._id === id);
         if (!annotation) continue;
 
-        console.log("Moving annotation:", { id, deltaX, deltaY, currentPosition: annotation.position });
 
         // Update position with delta (coordinates should already be normalized)
         const newPosition = {
@@ -432,11 +423,6 @@ export function ReviewInterface({ session }: ReviewInterfaceProps) {
           }));
         }
 
-        console.log("Updating annotation with:", { 
-          newPosition, 
-          newBounds, 
-          pointsCount: newPoints?.length 
-        });
 
         // Update the annotation via API
         await updateAnnotation({ 
@@ -523,7 +509,6 @@ export function ReviewInterface({ session }: ReviewInterfaceProps) {
 
   const handleAnnotationRotate = async (annotationId: string, rotation: number) => {
     // TODO: Implement rotation when schema supports it
-    console.log("Rotation not yet supported in schema:", { annotationId, rotation });
   };
 
   const handleAnnotationTransform = async (annotationId: string, transform: { x: number; y: number; width: number; height: number; rotation?: number }) => {
@@ -644,23 +629,19 @@ export function ReviewInterface({ session }: ReviewInterfaceProps) {
     if (isVideo && videoReady) {
       // Test sequence: frame 1 -> frame 0 -> stop
       const testSequence = async () => {
-        console.log("🔄 Starting frame jump test sequence...");
         
         // Wait for video to be ready
         await new Promise(resolve => setTimeout(resolve, 500));
         
         // Jump to frame 1
-        console.log("📍 Jumping to frame 1");
         handleFrameJump(1);
         
         // Wait 1 second
         await new Promise(resolve => setTimeout(resolve, 1000));
         
         // Jump to frame 0
-        console.log("📍 Jumping to frame 0");
         handleFrameJump(0);
         
-        console.log("✅ Frame jump test sequence completed");
       };
       
       testSequence();

@@ -89,10 +89,6 @@ export const ReviewSelectionBox = memo(
     // Log when containerRect changes for debugging (disabled to reduce console noise)
     useEffect(() => {
       // if (containerRect) {
-      //   console.log('🔄 ReviewSelectionBox: Container rect updated:', {
-      //     width: containerRect.width,
-      //     height: containerRect.height
-      //   });
       // }
     }, [containerRect]);
 

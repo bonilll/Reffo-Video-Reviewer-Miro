@@ -983,7 +983,6 @@ const useBoardElementDragDrop = (onElementDrop: (layerId: string, layerUrl: stri
       const file = files[0];
       if (file.type.startsWith('image/') || file.type.startsWith('video/')) {
         // Questo caso ora dovrebbe essere gestito diversamente o rimosso
-        console.log('File drop detected, but board element drop is preferred');
       }
     }
   }, [onElementDrop]);

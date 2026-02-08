@@ -6,6 +6,13 @@ import {
   completeMultipartUploadRequest,
   abortMultipartUploadRequest,
 } from "./http/uploadMultipart";
+import { deleteMediaByPublicUrl } from "./http/deleteMedia";
+import {
+  claimJob as claimLibraryJob,
+  heartbeat as heartbeatLibraryJob,
+  complete as completeLibraryJob,
+  fail as failLibraryJob,
+} from "./http/libraryWorker";
 
 const http = httpRouter();
 
@@ -67,6 +74,66 @@ http.route({
   path: "/api/upload/multipart/abort",
   method: "OPTIONS",
   handler: abortMultipartUploadRequest,
+});
+
+http.route({
+  path: "/api/delete-media",
+  method: "POST",
+  handler: deleteMediaByPublicUrl,
+});
+
+http.route({
+  path: "/api/delete-media",
+  method: "OPTIONS",
+  handler: deleteMediaByPublicUrl,
+});
+
+http.route({
+  path: "/api/library-worker/claim",
+  method: "POST",
+  handler: claimLibraryJob,
+});
+
+http.route({
+  path: "/api/library-worker/claim",
+  method: "OPTIONS",
+  handler: claimLibraryJob,
+});
+
+http.route({
+  path: "/api/library-worker/heartbeat",
+  method: "POST",
+  handler: heartbeatLibraryJob,
+});
+
+http.route({
+  path: "/api/library-worker/heartbeat",
+  method: "OPTIONS",
+  handler: heartbeatLibraryJob,
+});
+
+http.route({
+  path: "/api/library-worker/complete",
+  method: "POST",
+  handler: completeLibraryJob,
+});
+
+http.route({
+  path: "/api/library-worker/complete",
+  method: "OPTIONS",
+  handler: completeLibraryJob,
+});
+
+http.route({
+  path: "/api/library-worker/fail",
+  method: "POST",
+  handler: failLibraryJob,
+});
+
+http.route({
+  path: "/api/library-worker/fail",
+  method: "OPTIONS",
+  handler: failLibraryJob,
 });
 
 export default http;

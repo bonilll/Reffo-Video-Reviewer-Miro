@@ -10,13 +10,11 @@ import { deleteFromMinio } from "./minio-client";
 export const deleteMediaByUrl = async (url: string | null): Promise<void> => {
   try {
     if (!url) {
-      console.log("URL non fornito o media importato dalla libreria che non deve essere eliminato");
       return;
     }
 
     // Elimina il file da MinIO
     await deleteFromMinio(url);
-    console.log(`File eliminato con successo: ${url}`);
   } catch (error) {
     // Gestisci gli errori in modo più specifico
     if (error instanceof Error) {
@@ -49,16 +47,13 @@ export const deleteBoardMedia = async (boardId: string, urls: string[]): Promise
     const validUrls = urls.filter(url => url && url.trim() !== "");
     
     if (validUrls.length === 0) {
-      console.log(`Nessun file da eliminare per la lavagna ${boardId}`);
       return;
     }
     
-    console.log(`Eliminazione di ${validUrls.length} file per la lavagna ${boardId}`);
     
     // Elimina tutti i file in parallelo
     await Promise.all(validUrls.map(url => deleteMediaByUrl(url)));
     
-    console.log(`Tutti i file della lavagna ${boardId} sono stati eliminati con successo`);
   } catch (error) {
     console.error(`Errore durante l'eliminazione dei file della lavagna ${boardId}:`, error);
     // Non propagare l'errore per evitare di bloccare altre operazioni
@@ -77,16 +72,13 @@ export const deleteUserMedia = async (userId: string, urls: string[]): Promise<v
     const validUrls = urls.filter(url => url && url.trim() !== "");
     
     if (validUrls.length === 0) {
-      console.log(`Nessun file da eliminare per l'utente ${userId}`);
       return;
     }
     
-    console.log(`Eliminazione di ${validUrls.length} file per l'utente ${userId}`);
     
     // Elimina tutti i file in parallelo
     await Promise.all(validUrls.map(url => deleteMediaByUrl(url)));
     
-    console.log(`Tutti i file dell'utente ${userId} sono stati eliminati con successo`);
   } catch (error) {
     console.error(`Errore durante l'eliminazione dei file dell'utente ${userId}:`, error);
     // Non propagare l'errore per evitare di bloccare altre operazioni

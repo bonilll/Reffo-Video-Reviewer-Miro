@@ -176,7 +176,6 @@ export async function uploadFileMultipart(
   try {
     let uploadedBytes = 0;
     
-    console.log(`📤 Starting multipart upload: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)}MB, ${totalParts} parts, ${concurrency} concurrent)`);
     
     // Upload parti in parallelo con controllo della concorrenza
     const uploadQueue: Promise<void>[] = [];
@@ -203,7 +202,6 @@ export async function uploadFileMultipart(
         opts.onProgress?.(progress);
         
         if (completed % 10 === 0 || completed === totalParts) {
-          console.log(`📊 Upload progress: ${completed}/${totalParts} parts (${progress}%)`);
         }
       })();
 
@@ -224,7 +222,6 @@ export async function uploadFileMultipart(
     // Ordina le parti per numero (importante per S3)
     parts.sort((a, b) => a.partNumber - b.partNumber);
 
-    console.log(`✅ All parts uploaded successfully, completing multipart upload...`);
     const completedResult = await completeMultipart({
       key: init.key,
       uploadId: init.uploadId,
@@ -238,7 +235,6 @@ export async function uploadFileMultipart(
       context: opts.context,
       contextId: opts.contextId,
     });
-    console.log(`🎉 Upload completed: ${completedResult.url}`);
     return completedResult;
   } catch (e) {
     console.error(`❌ Upload failed, aborting multipart upload:`, e);

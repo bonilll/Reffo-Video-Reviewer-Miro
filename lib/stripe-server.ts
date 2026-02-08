@@ -33,7 +33,6 @@ export const STRIPE_PRICE_IDS = {
 // Helper functions for server-side use
 export function getPriceId(planType: 'medium' | 'pro' | 'premium', interval: 'monthly' | 'yearly') {
   const priceId = STRIPE_PRICE_IDS[planType][interval];
-  console.log(`Getting price ID for ${planType} ${interval}: ${priceId}`);
   return priceId;
 }
 

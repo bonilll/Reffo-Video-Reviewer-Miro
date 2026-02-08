@@ -35,7 +35,6 @@ async function getAuthenticatedUserId(): Promise<string | null> {
       const data = await response.json();
       
       if (!data.error && data.userId) {
-        console.log('Utente autenticato via Clerk API:', data.userId);
         return data.userId;
       }
     }
@@ -57,14 +56,12 @@ export async function uploadFileInChunks(
   onProgress?: (progress: ChunkUploadProgress) => void
 ): Promise<ChunkUploadResult> {
   try {
-    console.log("[CHUNKED UPLOAD] Starting upload with chunked uploader...");
     
     // Ottieni l'ID utente autenticato
     const authenticatedUserId = await getAuthenticatedUserId();
     if (!authenticatedUserId) {
       console.warn('[CHUNKED UPLOAD] ID utente non disponibile, l\'upload potrebbe utilizzare il percorso "anonymous"');
     } else {
-      console.log(`[CHUNKED UPLOAD] Upload per utente autenticato: ${authenticatedUserId}`);
     }
     
     // Aggiungi l'ID utente autenticato ai metadati
@@ -73,7 +70,6 @@ export async function uploadFileInChunks(
       userId: authenticatedUserId || 'anonymous'
     };
     
-    console.log("[CHUNKED UPLOAD] Enhanced metadata:", enhancedMetadata);
     
     // Calcola il numero totale di pezzi
     const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
@@ -108,11 +104,9 @@ export async function uploadFileInChunks(
           : true; // Default to true if not specified
         
         formData.append("autoSaveToLibrary", shouldSaveToLibrary ? "true" : "false");
-        console.log("[CHUNKED UPLOAD] Setting autoSaveToLibrary explicitly:", shouldSaveToLibrary);
         
         // Only set createAsset to true if we should save to library
         formData.append("createAsset", shouldSaveToLibrary ? "true" : "false");
-        console.log("[CHUNKED UPLOAD] Setting createAsset based on autoSaveToLibrary:", shouldSaveToLibrary);
         
         // Aggiungi tutti i metadati per il file, incluso l'userId autenticato
         Object.entries(enhancedMetadata).forEach(([key, value]) => {
@@ -125,7 +119,6 @@ export async function uploadFileInChunks(
           } else if (key === 'dominantColors' && Array.isArray(value)) {
             // Handle dominantColors array specially
             formData.append("dominantColors", JSON.stringify(value));
-            console.log("[CHUNKED UPLOAD] Setting dominantColors explicitly:", value);
           } else if (key === 'isPrivate') {
             // Handle isPrivate boolean specially
             formData.append("isPrivate", value ? "true" : "false");
@@ -139,40 +132,24 @@ export async function uploadFileInChunks(
         // Make sure we explicitly add title, externalLink, and isPrivate fields
         if (enhancedMetadata.title) {
           formData.append("title", enhancedMetadata.title.toString());
-          console.log("[CHUNKED UPLOAD] Setting title explicitly:", enhancedMetadata.title);
         }
         
         if (enhancedMetadata.externalLink !== undefined) {
           formData.append("externalLink", enhancedMetadata.externalLink.toString());
-          console.log("[CHUNKED UPLOAD] Setting externalLink explicitly:", enhancedMetadata.externalLink);
         }
         
         if (enhancedMetadata.isPrivate !== undefined) {
           formData.append("isPrivate", enhancedMetadata.isPrivate ? "true" : "false");
-          console.log("[CHUNKED UPLOAD] Setting isPrivate explicitly:", enhancedMetadata.isPrivate);
         }
         
         // Add boardId explicitly with higher priority
         if (enhancedMetadata.projectId || enhancedMetadata.boardId) {
           const boardId = enhancedMetadata.boardId || enhancedMetadata.projectId;
           formData.append("boardId", boardId.toString());
-          console.log(`[CHUNKED UPLOAD] Setting boardId explicitly: ${boardId}`);
         } else {
           formData.append("boardId", "none"); // Default value
-          console.log("[CHUNKED UPLOAD] No boardId available, using default 'none'");
         }
         
-        console.log("[CHUNKED UPLOAD] Final chunk flags:", {
-          autoSaveToLibrary: shouldSaveToLibrary,
-          createAsset: shouldSaveToLibrary,
-          isLastChunk: true,
-          hasTokens: Array.isArray((enhancedMetadata as any).tokens),
-          tokensCount: Array.isArray((enhancedMetadata as any).tokens) ? (enhancedMetadata as any).tokens.length : 0,
-          hasDominantColors: Array.isArray((enhancedMetadata as any).dominantColors),
-          dominantColorsCount: Array.isArray((enhancedMetadata as any).dominantColors) ? (enhancedMetadata as any).dominantColors.length : 0,
-          userId: enhancedMetadata.userId || 'missing',
-          boardId: formData.get("boardId")
-        });
       } else {
         formData.append("isLastChunk", "false");
       }
@@ -186,7 +163,6 @@ export async function uploadFileInChunks(
         });
       }
       
-      console.log(`[CHUNKED UPLOAD] Uploading chunk ${chunkIndex + 1}/${totalChunks}`);
       
       // Carica il pezzo con timeout progressivo basato sulla dimensione del file
       const isProduction = process.env.NODE_ENV === 'production';
@@ -207,7 +183,6 @@ export async function uploadFileInChunks(
       
       const uploadTimeout = isProduction ? baseTimeout * 1.5 : baseTimeout; // 1.5x in produzione per maggiore sicurezza
       
-      console.log(`[CHUNKED UPLOAD] Using timeout: ${uploadTimeout}ms for ${fileSizeMB.toFixed(1)}MB file (chunk ${chunkIndex + 1}/${totalChunks})`);
       
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), uploadTimeout);
@@ -270,7 +245,6 @@ export async function uploadFileInChunks(
         }
         
         result = await response.json();
-        console.log(`[CHUNKED UPLOAD] Chunk ${chunkIndex + 1} uploaded successfully, response:`, result);
         
       } catch (fetchError) {
         clearTimeout(timeoutId);
@@ -299,21 +273,15 @@ export async function uploadFileInChunks(
           assetId: result.assetId // Add assetId if the server created an asset directly
         };
         
-        console.log("[CHUNKED UPLOAD] Final upload result:", {
-          ...finalResult,
-          fileUrl: finalResult.fileUrl?.substring(0, 50) + "..." // Truncate URL for readability
-        });
         
         // Add additional debug info about asset ID
         if (!finalResult.assetId) {
           console.warn("[CHUNKED UPLOAD] No assetId returned in the response. This could indicate a problem with asset creation.");
         } else {
-          console.log("[CHUNKED UPLOAD] Asset successfully created with ID:", finalResult.assetId);
         }
         
         // If the assetId is null but we have a fileUrl, try to check for the asset manually
         if (!finalResult.assetId && finalResult.fileUrl) {
-          console.log("[CHUNKED UPLOAD] No assetId returned, checking if asset was created separately...");
           
           // Check if we should actually create an asset based on autoSaveToLibrary setting
           const shouldSaveToLibrary = enhancedMetadata.autoSaveToLibrary !== undefined 
@@ -321,7 +289,6 @@ export async function uploadFileInChunks(
             : true; // Default to true if not specified
           
           if (!shouldSaveToLibrary) {
-            console.log("[CHUNKED UPLOAD] autoSaveToLibrary is false - skipping asset creation check");
             return finalResult; // Don't try to create assets if user doesn't want them
           }
           
@@ -332,11 +299,9 @@ export async function uploadFileInChunks(
               const verifyResult = await verifyResponse.json();
               
               if (verifyResult.assetFound && verifyResult.assetId) {
-                console.log("[CHUNKED UPLOAD] Found asset through verification:", verifyResult.assetId);
                 finalResult.assetId = verifyResult.assetId;
               } else {
                 // No asset found, try to create it manually
-                console.log("[CHUNKED UPLOAD] No asset found. Attempting to create asset manually...");
                 try {
                   const createAssetResponse = await fetch("/api/create-asset", {
                     method: "POST",
@@ -365,7 +330,6 @@ export async function uploadFileInChunks(
                   if (createAssetResponse.ok) {
                     const createResult = await createAssetResponse.json();
                     if (createResult.assetId) {
-                      console.log("[CHUNKED UPLOAD] Successfully created asset manually:", createResult.assetId);
                       finalResult.assetId = createResult.assetId;
                     }
                   } else {

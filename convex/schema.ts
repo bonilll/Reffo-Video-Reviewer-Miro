@@ -6,6 +6,26 @@ const pointValidator = v.object({
   y: v.number(),
 });
 
+// Asset analysis/variants are optional and filled progressively (upload pipeline + async AI jobs).
+const assetVariantValidator = v.object({
+  url: v.string(),
+  storageKey: v.optional(v.string()),
+  width: v.optional(v.number()),
+  height: v.optional(v.number()),
+  byteSize: v.optional(v.number()),
+  mimeType: v.optional(v.string()),
+});
+
+const i18nTextValidator = v.object({
+  it: v.optional(v.string()),
+  en: v.optional(v.string()),
+});
+
+const i18nStringArrayValidator = v.object({
+  it: v.optional(v.array(v.string())),
+  en: v.optional(v.array(v.string())),
+});
+
 export default defineSchema({
   users: defineTable({
     clerkId: v.string(),
@@ -95,28 +115,44 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("byUser", ["userId"])
-    .index("byBoard", ["boardId"]),
+    .index("byBoard", ["boardId"])
+    .index("byUrl", ["url"]),
 
   assets: defineTable({
     userId: v.id("users"),
     title: v.string(),
     fileUrl: v.string(),
+    storageKey: v.optional(v.string()),
     type: v.string(),
     fileName: v.string(),
     createdAt: v.number(),
     updatedAt: v.optional(v.number()),
     tokens: v.optional(v.array(v.string())),
+    userTokens: v.optional(v.array(v.string())),
+    aiTokensI18n: v.optional(i18nStringArrayValidator),
     description: v.optional(v.string()),
+    captionsI18n: v.optional(i18nTextValidator),
+    searchText: v.optional(v.string()),
     externalLink: v.optional(v.string()),
     author: v.optional(v.string()),
     isPrivate: v.optional(v.boolean()),
     fileSize: v.optional(v.number()),
     mimeType: v.optional(v.string()),
+    sha256: v.optional(v.string()),
     width: v.optional(v.number()),
     height: v.optional(v.number()),
     durationSeconds: v.optional(v.number()),
     fps: v.optional(v.number()),
     aspectRatio: v.optional(v.number()),
+    blurDataUrl: v.optional(v.string()),
+    variants: v.optional(
+      v.object({
+        original: v.optional(assetVariantValidator),
+        hires: v.optional(assetVariantValidator),
+        preview: v.optional(assetVariantValidator),
+        thumb: v.optional(assetVariantValidator),
+      })
+    ),
     dominantColors: v.optional(v.array(v.string())),
     colorFingerprint: v.optional(v.array(v.number())),
     phash: v.optional(v.string()),
@@ -128,6 +164,9 @@ export default defineSchema({
     analysisVersion: v.optional(v.string()),
     embeddingProvider: v.optional(v.string()),
     embeddingRef: v.optional(v.string()),
+    embeddingModel: v.optional(v.string()),
+    embeddingDim: v.optional(v.number()),
+    embeddingUpdatedAt: v.optional(v.number()),
     source: v.optional(v.string()),
     orgId: v.optional(v.string()),
   })
@@ -136,8 +175,14 @@ export default defineSchema({
     .index("byUserType", ["userId", "type"])
     .index("byUserUpdatedAt", ["userId", "updatedAt"])
     .index("byUserAnalysisStatus", ["userId", "analysisStatus"])
+    .index("byFileUrl", ["fileUrl"])
+    .index("byStorageKey", ["storageKey"])
     .searchIndex("search_assets", {
       searchField: "title",
+      filterFields: ["userId", "type"],
+    })
+    .searchIndex("search_assets_full", {
+      searchField: "searchText",
       filterFields: ["userId", "type"],
     }),
 
@@ -166,6 +211,23 @@ export default defineSchema({
     .index("byUserCreatedAt", ["userId", "createdAt"])
     .index("byStatusUpdatedAt", ["status", "updatedAt"])
     .index("byAsset", ["assetId"]),
+
+  assetUsages: defineTable({
+    assetId: v.id("assets"),
+    userId: v.id("users"),
+    // "board" | "review" (review = videos table)
+    targetType: v.string(),
+    targetId: v.string(),
+    boardId: v.optional(v.id("boards")),
+    videoId: v.optional(v.id("videos")),
+    createdAt: v.number(),
+    updatedAt: v.optional(v.number()),
+  })
+    .index("byAsset", ["assetId"])
+    .index("byUser", ["userId"])
+    .index("byTarget", ["targetType", "targetId"])
+    .index("byBoard", ["boardId"])
+    .index("byVideo", ["videoId"]),
 
   todoLists: defineTable({
     ownerId: v.id("users"),

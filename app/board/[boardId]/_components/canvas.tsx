@@ -100,6 +100,8 @@ const ZOOM_SPEED = 0.0007; // Aumentato per sensibilità 7% per scatto di rotell
 const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 5;
 
+const debugLog = (..._args: unknown[]) => {};
+
 type CanvasProps = {
   boardId: string;
   userRole?: string;
@@ -129,13 +131,6 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
   // Get board permissions and project info for todo list selector
   const { projectId } = useResourcePermissions("board", boardId as Id<"boards">);
   
-  console.log("🔒 Canvas Security Check:", {
-    boardId,
-    userRole,
-    isViewer,
-    timestamp: new Date().toISOString()
-  });
-
   // 🛡️ SECURITY: Board toolbar actions with permission checking
   const {
     handleShareBoard,
@@ -213,6 +208,21 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
 
   // Sistema camera semplificato - stato locale per performance
   const [camera, setCamera] = useState<Camera>({ x: 0, y: 0, scale: 1 });
+  const cameraRef = useRef(camera);
+  
+  useEffect(() => {
+    cameraRef.current = camera;
+  }, [camera]);
+
+  const [dragPreviewOffset, setDragPreviewOffset] = useState<Point | null>(null);
+  const dragPreviewStartRef = useRef<Point | null>(null);
+
+  useEffect(() => {
+    if (canvasState.mode !== CanvasMode.Translating) {
+      dragPreviewStartRef.current = null;
+      setDragPreviewOffset(null);
+    }
+  }, [canvasState.mode]);
   
   // Sistema di snap - linee guida attive durante il drag
   const [activeSnapLines, setActiveSnapLines] = useState<SnapLine[]>([]);
@@ -230,7 +240,6 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
     boardId,
     camera,
     onCameraLoad: (loadedCamera) => {
-      console.log("📷 Canvas: Loading camera from Convex:", loadedCamera);
       setCamera(loadedCamera);
     }
   });
@@ -242,7 +251,6 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
   useEffect(() => {
     // Solo sincronizza dopo che la camera è stata caricata da Convex
     if (hasCameraLoaded) {
-      console.log("📷 Canvas camera updated, syncing with context:", camera);
       setContextCamera(camera);
     }
   }, [camera, setContextCamera, hasCameraLoaded]);
@@ -291,6 +299,9 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
   // Stato per la posizione corrente del mouse (per snap indicators)
   const [currentMousePosition, setCurrentMousePosition] = useState<Point>({ x: 0, y: 0 });
 
+  // Mobile device detection
+  const [isTouchDevice, setIsTouchDevice] = useState(false);
+
   // Stato per la creazione del widget todo
   const [showTodoListSelector, setShowTodoListSelector] = useState(false);
 
@@ -330,7 +341,6 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
       let layer;
       
       if (layerType === LayerType.Frame) {
-        console.log('🏗️ insertLayer received frameFormat:', frameFormat, 'endPosition:', endPosition);
         // Per frame, crea un frame con dimensioni di default o drag
         let frameWidth = 300;
         let frameHeight = 200;
@@ -339,7 +349,6 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
         
         // Se c'è un formato preset, usalo (a meno che non ci sia un drag)
         if (frameFormat && !endPosition) {
-          console.log('✅ Using frameFormat dimensions:', frameFormat.width, 'x', frameFormat.height);
           frameWidth = frameFormat.width;
           frameHeight = frameFormat.height;
         } else if (endPosition) {
@@ -680,11 +689,6 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
 
       setMyPresence({ selection: [layerId] }, { addToHistory: true });
       
-      console.log("✅ Created arrow with snap metadata:", layerId, {
-        sourceSnap: sourceSnap ? `${sourceSnap.id}:${sourceSnap.side}` : 'none',
-        targetSnap: targetSnap ? `${targetSnap.id}:${targetSnap.side}` : 'none'
-      });
-      
       return layerId;
     },
     [lastUsedColor],
@@ -744,16 +748,9 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
           isMindMapConnection: layerData.isMindMapConnection,
         });
         liveLayers.set(layerId, newLayer);
-        
-        console.log("🔄 Arrow/Line translated with snap:", layerId, {
-          offset,
-          snapApplied: !!snapResult,
-          snappedToSource: snapResult?.snappedToSource,
-          snappedToTarget: snapResult?.snappedToTarget
-        });
       }
     },
-    [updateArrowSnap]
+    [isShiftPressed, checkSnapPreview, getSnapPoint]
   );
 
   // Helper function per aggiornare TUTTE le frecce connesse (più aggressive)
@@ -886,41 +883,21 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
 
   // Helper function per aggiornare le frecce Mind Map quando le note vengono spostate
   const updateMindMapArrows = (liveLayers: any, movedNoteIds: Set<string>) => {
-    console.log("🔄 Updating Mind Map arrows for moved notes:", Array.from(movedNoteIds));
     
     // Trova tutte le frecce Mind Map che sono connesse alle note spostate
     const arrowsToUpdate: Array<{ id: string; arrow: any }> = [];
     
     liveLayers.forEach((layer: any, layerId: string) => {
       const layerData = layer.toObject();
-      if (layerData.type === LayerType.Arrow) {
-        // Includi frecce Mind Map e frecce snappate
-        const isMindMapArrow = layerData.isMindMapConnection;
-        const isSnappedArrow = layerData.isSnappedToSource || layerData.isSnappedToTarget;
-        
-        // Debug solo per frecce che hanno metadati di snap
-        if (isSnappedArrow || isMindMapArrow) {
-          console.log("🔍 Connected arrow", layerId, "metadata:", {
-            type: isMindMapArrow ? "Mind Map" : "Snapped",
-            sourceNoteId: layerData.sourceNoteId,
-            targetNoteId: layerData.targetNoteId,
-            sourceSide: layerData.sourceSide,
-            targetSide: layerData.targetSide
-          });
-        }
-        
-        if (isMindMapArrow || isSnappedArrow) {
-          const needsUpdate = 
-            (layerData.sourceNoteId && movedNoteIds.has(layerData.sourceNoteId)) ||
-            (layerData.targetNoteId && movedNoteIds.has(layerData.targetNoteId));
-          
-          if (needsUpdate) {
-            arrowsToUpdate.push({ id: layerId, arrow: layerData });
-            console.log("🎯 Found arrow to update:", layerId, 
-              isMindMapArrow ? "(Mind Map)" : "(Snapped)", 
-              "connected to notes:", layerData.sourceNoteId, "->", layerData.targetNoteId);
-          }
-        }
+      if (layerData.type !== LayerType.Arrow) return;
+      const isMindMapArrow = layerData.isMindMapConnection;
+      const isSnappedArrow = layerData.isSnappedToSource || layerData.isSnappedToTarget;
+      if (!isSnappedArrow && !isMindMapArrow) return;
+      const needsUpdate =
+        (layerData.sourceNoteId && movedNoteIds.has(layerData.sourceNoteId)) ||
+        (layerData.targetNoteId && movedNoteIds.has(layerData.targetNoteId));
+      if (needsUpdate) {
+        arrowsToUpdate.push({ id: layerId, arrow: layerData });
       }
     });
 
@@ -1057,9 +1034,6 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
 
         // Aggiorna la freccia
         arrowLayer.update(updateData);
-
-        console.log("✅ Updated", isMindMapArrow ? "Mind Map" : "Snapped", "arrow:", id, 
-          "new positions:", { newStartX, newStartY, newEndX, newEndY });
       }
     });
   };
@@ -1200,27 +1174,22 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
       const selectedIds = self.presence.selection;
 
       // DEBUG: Log what's happening
-      console.log("🔥 TRANSLATE DEBUG - Selected IDs:", selectedIds);
       
       // DEBUG: Show current frame hierarchy for selected frames
       for (const selectedId of selectedIds) {
         const layer = liveLayers.get(selectedId);
         if (layer && layer.get("type") === LayerType.Frame) {
           const frameData = layer.toObject() as any;
-          console.log("🔥 TRANSLATE DEBUG - Selected frame", selectedId, "has children:", frameData.children);
           
           // Show details of each child
           if (frameData.children && frameData.children.length > 0) {
             for (const childId of frameData.children) {
               const childLayer = liveLayers.get(childId);
               if (childLayer) {
-                console.log("   🔸 Child", childId, "type:", childLayer.get("type"), "at:", childLayer.get("x"), childLayer.get("y"));
               } else {
-                console.log("   ❌ Child", childId, "NOT FOUND in layers!");
               }
             }
           } else {
-            console.log("   📭 Frame has NO children");
           }
         }
       }
@@ -1241,7 +1210,6 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
           
           // CRITICAL: Never block a frame that is explicitly selected
           if (selectedIds.includes(potentialParentId)) {
-            console.log("🔒 NOT BLOCKING parent", potentialParentId, "because it's explicitly selected");
             continue;
           }
           
@@ -1254,12 +1222,10 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
           // Block this parent if it contains the selected layer but is not itself selected
           if (children.includes(selectedId)) {
             blockedParentFrames.add(potentialParentId);
-            console.log("🔒 BLOCKING parent frame:", potentialParentId, "because child", selectedId, "is selected (and parent is not)");
           }
         }
       }
       
-      console.log("🔒 BLOCKED parent frames:", Array.from(blockedParentFrames));
 
       // Build the complete set of layers to move
       const layersToMove = new Set<string>();
@@ -1267,7 +1233,6 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
       // Add all explicitly selected layers
       for (const id of selectedIds) {
         layersToMove.add(id);
-        console.log("🔥 TRANSLATE DEBUG - Adding selected layer:", id);
       }
       
       // For each selected frame, add ALL its children recursively
@@ -1275,24 +1240,20 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
       function addFrameChildrenRecursively(frameId: string, depth = 0) {
         const frame = liveLayers.get(frameId);
         if (!frame || frame.get("type") !== LayerType.Frame) {
-          console.log("❌ TRANSLATE DEBUG - Frame", frameId, "not found or not a frame");
           return;
         }
         
         const frameData = frame.toObject() as any;
         const children = frameData.children as string[] || [];
         
-        console.log("🔥 TRANSLATE DEBUG - Frame", frameId, "at depth", depth, "has children:", children);
         
         if (children.length === 0) {
-          console.log("📭 TRANSLATE DEBUG - Frame", frameId, "has NO children to add");
           return;
         }
         
         for (const childId of children) {
           // Skip if this child is explicitly selected (already handled)
           if (selectedIds.includes(childId)) {
-            console.log("🔥 TRANSLATE DEBUG - Skipping child", childId, "(explicitly selected)");
             continue;
           }
           
@@ -1304,33 +1265,26 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
           // Check if child exists
           const childLayer = liveLayers.get(childId);
           if (!childLayer) {
-            console.log("❌ TRANSLATE DEBUG - Child", childId, "not found in layers, skipping");
             continue;
           }
           
           // Add this child to movement set (even if it's a blocked parent frame)
           layersToMove.add(childId);
-          console.log("✅ TRANSLATE DEBUG - Added child:", childId, "type:", childLayer.get("type"), "(moving with selected parent)");
           
           // If the child is also a frame, recursively add its children
           if (childLayer.get("type") === LayerType.Frame) {
-            console.log("🔄 TRANSLATE DEBUG - Child", childId, "is a frame, adding its children recursively");
             addFrameChildrenRecursively(childId, depth + 1);
           }
         }
       }
       
       // Process all selected frames to add their children
-      console.log("🔄 TRANSLATE DEBUG - Processing selected frames to add their children...");
       for (const selectedId of selectedIds) {
         const layer = liveLayers.get(selectedId);
         if (layer && layer.get("type") === LayerType.Frame) {
-          console.log("🔄 TRANSLATE DEBUG - Processing selected frame:", selectedId);
           addFrameChildrenRecursively(selectedId);
         } else if (layer) {
-          console.log("🔄 TRANSLATE DEBUG - Selected layer", selectedId, "is not a frame, type:", layer.get("type"));
         } else {
-          console.log("❌ TRANSLATE DEBUG - Selected layer", selectedId, "not found!");
         }
       }
 
@@ -1367,21 +1321,23 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
       for (const blockedFrameId of blockedParentFrames) {
         if (!childrenOfSelectedFrames.has(blockedFrameId)) {
           layersToMove.delete(blockedFrameId);
-          console.log("🔒 TRANSLATE DEBUG - Removed blocked parent frame:", blockedFrameId, "(not a child of selected frame)");
         } else {
-          console.log("🔒 TRANSLATE DEBUG - Keeping blocked frame:", blockedFrameId, "(child of selected frame)");
         }
       }
 
-      console.log("🔥 TRANSLATE DEBUG - Final layers to move:", Array.from(layersToMove));
-      console.log("🔥 TRANSLATE DEBUG - Total layers to move:", layersToMove.size);
+
+      const snapThreshold = isTouchDevice ? 20 : 40;
+      const enableSnapping = layersToMove.size <= snapThreshold;
+      if (!enableSnapping) {
+        setActiveSnapLines([]);
+        setCurrentMovingLayer(null);
+      }
 
       // Move all identified layers
       let movedCount = 0;
       for (const id of layersToMove) {
         const layer = liveLayers.get(id);
         if (!layer) {
-          console.log("❌ TRANSLATE DEBUG - Layer", id, "not found, skipping");
           continue;
         }
 
@@ -1389,7 +1345,6 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
         const oldX = layer.get("x");
         const oldY = layer.get("y");
         
-        console.log("🔥 TRANSLATE DEBUG - Moving layer", id, "of type", layerType, "from", oldX, oldY, "by offset", offset);
 
         // Verifica che le coordinate siano valide
         if (isNaN(oldX) || isNaN(oldY)) {
@@ -1406,7 +1361,6 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
         if (layer.get("type") === LayerType.Arrow || layer.get("type") === LayerType.Line) {
           // Handle arrows and lines specially
           translateArrowLine(id, offset);
-          console.log("↗️ TRANSLATE DEBUG - Moved arrow/line:", id);
         } else {
           // Move regular layers and frames normally
           let newX = oldX + offset.x;
@@ -1419,7 +1373,7 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
           }
           
           // Applica sistema di snap solo per il primo layer selezionato (per performance)
-          if (movedCount === 0) {
+          if (enableSnapping && movedCount === 0) {
             const layerWidth = layer.get("width") || 0;
             const layerHeight = layer.get("height") || 0;
             const layerType = layer.get("type");
@@ -1495,12 +1449,10 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
             x: newX,
             y: newY
           });
-          console.log("📦 TRANSLATE DEBUG - Moved layer:", id, "to", newX, newY);
         }
         movedCount++;
       }
       
-      console.log("✅ TRANSLATE DEBUG - Successfully moved", movedCount, "layers total");
 
       // Aggiorna le frecce Mind Map connesse alle note spostate
       const movedNotes = new Set<string>();
@@ -1510,13 +1462,13 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
           movedNotes.add(id);
         }
       }
-      if (movedNotes.size > 0) {
+      if (enableSnapping && movedNotes.size > 0) {
         updateMindMapArrows(liveLayers, movedNotes);
       }
 
       setCanvasState({ mode: CanvasMode.Translating, current: point });
     },
-    [canvasState, translateArrowLine],
+    [canvasState, translateArrowLine, isTouchDevice],
   );
 
   const unselectLayers = useMutation(({ self, setMyPresence }) => {
@@ -1614,7 +1566,6 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
       if (canvasState.mode === CanvasMode.Drawing && canvasState.current) {
         // Same logic as onPointerUp for Drawing mode
         if (canvasState.layerType === LayerType.Arrow || canvasState.layerType === LayerType.Line) {
-          console.log("🎯 Applying snap to new arrow/line during creation");
           const snapped = snapArrowToConnectionPoints(
             { x: canvasState.origin.x, y: canvasState.origin.y },
             point,
@@ -1667,7 +1618,6 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
       const liveLayers = storage.get("layers");
       const liveLayerIds = storage.get("layerIds");
       
-      console.log("🔄 UPDATING frame children relationships");
       
       // First, clear all children arrays to rebuild them
       for (const layerId of liveLayerIds) {
@@ -1728,7 +1678,6 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
         return layer && layer.get("type") !== LayerType.Frame;
       });
       
-      console.log("🔄 ASSIGNING", nonFrameObjects.length, "non-frame objects to their most specific frames");
       
       // For each non-frame object, find the smallest frame that contains it
       for (const objectId of nonFrameObjects) {
@@ -1761,15 +1710,11 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
           currentChildren.push(objectId);
           tempChildrenAssignments.set(smallestFrameId, currentChildren);
           
-          console.log("🔄 ASSIGNED", objectData.type, objectId, "to SMALLEST containing frame", smallestFrameId, "(area:", containingFrames[0].area, ")");
-          console.log("   📏 Other containing frames:", containingFrames.slice(1).map(f => `${f.frameId}(${f.area})`).join(", "));
         } else {
-          console.log("🔄 Object", objectId, "is not contained in any frame");
         }
       }
       
       // Then, handle frame-to-frame relationships
-      console.log("🔄 BUILDING frame hierarchy...");
       
       // For each frame, check if it should be a child of another frame
       for (const frameId of frameIds) {
@@ -1810,9 +1755,7 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
             currentChildren.push(frameId);
             tempChildrenAssignments.set(parentFrameId, currentChildren);
             
-            console.log("🔄 ASSIGNED FRAME", frameId, "(area:", frameArea, ") as child of frame", parentFrameId, "(area:", containingFrames[0].area, ")");
           } else {
-            console.log("🚫 PREVENTED circular dependency: frame", parentFrameId, "cannot contain frame", frameId);
           }
         }
       }
@@ -1822,7 +1765,6 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
         const frame = liveLayers.get(frameId);
         if (frame) {
           frame.update({ children });
-          console.log("🔄 Frame", frameId, "now has children:", children);
         }
       }
     },
@@ -2345,7 +2287,6 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
           const snapPoint = getSnapPoint(nearestNote.note, nearestNote.side);
           finalPoint = snapPoint;
           snapInfo = nearestNote;
-          console.log("🎯 Snapped arrow point to:", nearestNote.id, nearestNote.side);
         }
         
         // Calcola le nuove coordinate
@@ -2484,18 +2425,39 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
           ...updatedMetadata,
         });
         liveLayers.set(layerId, newLayer);
-        
-        console.log("✅ Updated arrow point with snap:", layerId, {
-          isStartPoint,
-          snapped: !!snapInfo,
-          snapTo: snapInfo ? `${snapInfo.id}:${snapInfo.side}` : 'none'
-        });
       }
     },
     [isShiftPressed, checkSnapPreview, getSnapPoint]
   );
 
   const svgRef = useRef<SVGSVGElement>(null);
+  const dragPreviewRaf = useRef<number | null>(null);
+  const pendingDragOffset = useRef<Point | null>(null);
+
+  const scheduleDragPreview = useCallback((offset: Point) => {
+    pendingDragOffset.current = offset;
+    if (dragPreviewRaf.current !== null) return;
+
+    dragPreviewRaf.current = window.requestAnimationFrame(() => {
+      dragPreviewRaf.current = null;
+      if (pendingDragOffset.current) {
+        setDragPreviewOffset(pendingDragOffset.current);
+      }
+    });
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (dragPreviewRaf.current !== null) {
+        window.cancelAnimationFrame(dragPreviewRaf.current);
+      }
+    };
+  }, []);
+
+  const beginDragPreview = useCallback((point: Point) => {
+    dragPreviewStartRef.current = point;
+    setDragPreviewOffset({ x: 0, y: 0 });
+  }, []);
 
   // Funzione per lo zoom fluido
   const smoothZoom = useCallback((targetCamera: Camera) => {
@@ -2521,7 +2483,11 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
       } else if (canvasState.mode === CanvasMode.SelectionNet) {
         updateSelectionNet(current, canvasState.origin);
       } else if (canvasState.mode === CanvasMode.Translating) {
-        translateSelectedLayers(current);
+        const startPoint = dragPreviewStartRef.current ?? canvasState.current ?? current;
+        scheduleDragPreview({
+          x: current.x - startPoint.x,
+          y: current.y - startPoint.y,
+        });
       } else if (canvasState.mode === CanvasMode.Resizing) {
         resizeSelectedLayer(current, e);
       } else if (canvasState.mode === CanvasMode.GroupResizing) {
@@ -2542,7 +2508,6 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
           }
         }
         
-        console.log("🎨 Drawing mode - updating current:", constrainedCurrent);
         // Aggiorna la posizione corrente per frecce e linee
         setCanvasState({
           ...canvasState,
@@ -2564,7 +2529,7 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
       canvasState,
       resizeSelectedLayer,
       resizeSelectedLayers,
-      translateSelectedLayers,
+      scheduleDragPreview,
       isPanning,
       camera,
       setCanvasState,
@@ -2728,6 +2693,110 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
     return result;
   }, [selections]);
 
+  const visibleLayerIds = useMemo(() => {
+    if (!allLayers || !layerIds) return layerIds;
+    if (typeof window === "undefined") return layerIds;
+
+    const getLayerValue = (layer: any, key: string) =>
+      layer?.get ? layer.get(key) : layer?.[key];
+
+    const marginPx = 800;
+    const scale = camera.scale || 1;
+    const margin = marginPx / scale;
+
+    const worldLeft = (-camera.x) / scale - margin;
+    const worldTop = (-camera.y) / scale - margin;
+    const worldRight = (window.innerWidth - camera.x) / scale + margin;
+    const worldBottom = (window.innerHeight - camera.y) / scale + margin;
+
+    const selectionSet = new Set(mySelection ?? []);
+    const result: string[] = [];
+
+    for (const layerId of layerIds) {
+      const layer = allLayers.get(layerId);
+      if (!layer) continue;
+
+      if (selectionSet.has(layerId)) {
+        result.push(layerId);
+        continue;
+      }
+
+      const x = getLayerValue(layer, "x");
+      const y = getLayerValue(layer, "y");
+      const width = getLayerValue(layer, "width");
+      const height = getLayerValue(layer, "height");
+
+      if (
+        typeof x !== "number" ||
+        typeof y !== "number" ||
+        typeof width !== "number" ||
+        typeof height !== "number"
+      ) {
+        result.push(layerId);
+        continue;
+      }
+
+      const isVisible =
+        x + width >= worldLeft &&
+        x <= worldRight &&
+        y + height >= worldTop &&
+        y <= worldBottom;
+
+      if (isVisible) {
+        result.push(layerId);
+      }
+    }
+
+    return result;
+  }, [allLayers, layerIds, camera, mySelection]);
+
+  const lodBucket = useMemo<"low" | "mid" | "high">(() => {
+    if (camera.scale < 0.2) return "low";
+    if (camera.scale < 0.6) return "mid";
+    return "high";
+  }, [camera.scale]);
+
+  const activePreviewOffset =
+    canvasState.mode === CanvasMode.Translating &&
+    dragPreviewOffset &&
+    (dragPreviewOffset.x !== 0 || dragPreviewOffset.y !== 0)
+      ? dragPreviewOffset
+      : null;
+  const previewLayerIds = useMemo(() => {
+    if (!allLayers || canvasState.mode !== CanvasMode.Translating) {
+      return new Set<string>();
+    }
+
+    const selectedIds = mySelection ?? [];
+    const result = new Set<string>(selectedIds);
+
+    const getLayerType = (layer: any) => (layer?.get ? layer.get("type") : layer?.type);
+    const getLayerChildren = (layer: any) =>
+      (layer?.get ? layer.get("children") : layer?.children) ?? [];
+
+    const addFrameChildrenRecursively = (frameId: string) => {
+      const frame = allLayers.get(frameId);
+      if (!frame || getLayerType(frame) !== LayerType.Frame) return;
+
+      const children = getLayerChildren(frame) as string[];
+      for (const childId of children) {
+        if (!result.has(childId)) {
+          result.add(childId);
+        }
+        addFrameChildrenRecursively(childId);
+      }
+    };
+
+    for (const selectedId of selectedIds) {
+      const layer = allLayers.get(selectedId);
+      if (layer && getLayerType(layer) === LayerType.Frame) {
+        addFrameChildrenRecursively(selectedId);
+      }
+    }
+
+    return result;
+  }, [allLayers, canvasState.mode, mySelection]);
+
   const deleteLayers = useDeleteLayers();
 
   // === COPY & PASTE MUTATIONS ===
@@ -2740,7 +2809,6 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
       const liveLayers = storage.get("layers");
       const copiedLayers: Array<any> = [];
 
-      console.log("📋 COPY - Copying", selection.length, "selected layers");
 
       for (const layerId of selection) {
         const layer = liveLayers.get(layerId);
@@ -2750,15 +2818,12 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
             ...layerData,
             originalId: layerId // Store original ID for reference
           });
-          console.log("📋 COPY - Copied layer", layerId, "type:", layerData.type);
         }
       }
 
       setClipboard(copiedLayers);
-      console.log("📋 COPY - Clipboard updated with", copiedLayers.length, "layers");
       
       // Show user feedback
-      console.log(`✅ Copied ${copiedLayers.length} item${copiedLayers.length > 1 ? 's' : ''} to clipboard`);
     },
     []
   );
@@ -2774,7 +2839,6 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
       
       const newLayerIds: string[] = [];
       
-      console.log("🔄 ALT+DRAG - Duplicating", selectedIds.length, "selected layers with offset", offset);
       
       for (const id of selectedIds) {
         const layer = liveLayers.get(id);
@@ -2823,14 +2887,12 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
           liveLayers.set(newLayerId, duplicatedLayer);
           newLayerIds.push(newLayerId);
           
-          console.log("🔄 ALT+DRAG - Duplicated layer", id, "→", newLayerId, "type:", layerData.type);
         }
       }
       
       // Seleziona i layer duplicati
       if (newLayerIds.length > 0) {
         setMyPresence({ selection: newLayerIds }, { addToHistory: true });
-        console.log("🔄 ALT+DRAG - Selected", newLayerIds.length, "duplicated layers");
       }
       
       return newLayerIds;
@@ -2841,7 +2903,6 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
   const pasteClipboardLayers = useMutation(
     ({ storage, setMyPresence }) => {
       if (!clipboard || clipboard.length === 0) {
-        console.log("📋 PASTE - Clipboard is empty");
         return;
       }
 
@@ -2849,7 +2910,6 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
       const liveLayerIds = storage.get("layerIds");
 
       if (MAX_LAYERS >= 0 && (liveLayers.size + clipboard.length > MAX_LAYERS)) {
-        console.log("📋 PASTE - Cannot paste: would exceed max layers");
         return;
       }
 
@@ -2857,7 +2917,6 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
       // Smart offset: use multiple of 20 based on how many times we've pasted
       const pasteOffset = 20; 
 
-      console.log("📋 PASTE - Pasting", clipboard.length, "layers");
 
       for (const clipboardLayer of clipboard) {
         const newLayerId = nanoid();
@@ -2898,7 +2957,6 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
         liveLayerIds.push(newLayerId);
         pastedLayerIds.push(newLayerId);
 
-        console.log("📋 PASTE - Pasted layer", newLayerId, "type:", clipboardLayer.type, "at offset", pasteOffset);
       }
 
       // Select the pasted layers
@@ -2909,8 +2967,6 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
         updateFrameChildren();
       }, 100);
 
-      console.log("📋 PASTE - Successfully pasted", pastedLayerIds.length, "layers");
-      console.log(`✅ Pasted ${pastedLayerIds.length} item${pastedLayerIds.length > 1 ? 's' : ''}`);
     },
     [clipboard, updateFrameChildren]
   );
@@ -2921,12 +2977,10 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
       const allLayerIds = Array.from(liveLayerIds) as string[];
       
       if (allLayerIds.length === 0) {
-        console.log("🔲 SELECT ALL - No layers to select");
         return;
       }
 
       setMyPresence({ selection: allLayerIds }, { addToHistory: true });
-      console.log(`🔲 SELECT ALL - Selected ${allLayerIds.length} layers`);
     },
     []
   );
@@ -3323,7 +3377,6 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
 
       // 🛡️ SECURITY: Block editing interactions for viewers
       if (isViewer) {
-        console.log("🔒 Viewer mode: Editing interactions disabled");
         // For viewers, only allow selection mode - no editing
         setCanvasState({ mode: CanvasMode.None });
         return;
@@ -3336,8 +3389,6 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
             canvasState.layerType === LayerType.Rectangle ||
             canvasState.layerType === LayerType.Ellipse ||
             canvasState.layerType === LayerType.Frame) {
-          console.log("🎨 Starting drawing mode:", canvasState.layerType, "at point:", point);
-          console.log('🎨 Switching to Drawing mode with frameFormat:', canvasState.frameFormat);
           setCanvasState({
             mode: CanvasMode.Drawing,
             layerType: canvasState.layerType,
@@ -3358,7 +3409,6 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
       // Se Shift è premuto, non deselezionare quando si clicca su area vuota
       // Mantieni la selezione corrente per permettere selezione multipla
       if (isShiftPressed) {
-        console.log("🔘 SHIFT+CLICK - Clicked on empty area, maintaining selection");
         // Non avviare il pressing mode per evitare selection net
         return;
       }
@@ -3368,8 +3418,8 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
     [camera, canvasState.mode, setCanvasState, startDrawing, isViewer, isShiftPressed],
   );
 
-  const onPointerUp = useMutation(
-    ({}, e) => {
+  const onPointerUp = useCallback(
+    (e: React.PointerEvent) => {
       const point = pointerEventToCanvasPoint(e, camera);
 
       if (
@@ -3391,7 +3441,6 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
         if (canvasState.current) {
           // Per frecce e linee, applica lo snap automatico prima di inserire
           if (canvasState.layerType === LayerType.Arrow || canvasState.layerType === LayerType.Line) {
-            console.log("🎯 Applying snap to new arrow/line during creation");
             
             // Trova punti di snap per inizio e fine
             const sourceSnap = checkSnapPreview(canvasState.origin.x, canvasState.origin.y);
@@ -3407,14 +3456,12 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
               const snapPoint = getSnapPoint(sourceSnap.note, sourceSnap.side);
               finalStartX = snapPoint.x;
               finalStartY = snapPoint.y;
-              console.log("🎯 Snapped start to:", sourceSnap.id, sourceSnap.side);
             }
             
             if (targetSnap) {
               const snapPoint = getSnapPoint(targetSnap.note, targetSnap.side);
               finalEndX = snapPoint.x;
               finalEndY = snapPoint.y;
-              console.log("🎯 Snapped end to:", targetSnap.id, targetSnap.side);
             }
             
             // Inserisci il layer con coordinate snappate e metadati
@@ -3466,14 +3513,11 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
             );
           } else if (canvasState.layerType === LayerType.Frame) {
             // Per frame, usa preset se disponibile, altrimenti dimensioni default
-            console.log('📐 onPointerUp Frame creation - frameFormat:', canvasState.frameFormat);
             if (canvasState.frameFormat) {
               // Se c'è un preset, non passare endPosition per usare le dimensioni preset
-              console.log('📐 Using preset dimensions:', canvasState.frameFormat);
               insertLayer(canvasState.layerType, canvasState.origin, undefined, currentUser?.info, canvasState.frameFormat);
             } else {
               // Solo per custom size senza preset
-              console.log('📐 Using default dimensions (300x200)');
               endPoint = { x: canvasState.origin.x + 300, y: canvasState.origin.y + 200 };
               insertLayer(canvasState.layerType, canvasState.origin, endPoint, currentUser?.info, canvasState.frameFormat);
             }
@@ -3491,6 +3535,20 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
           // Ritorna automaticamente allo strumento di selezione dopo aver creato il layer
           setCanvasState({ mode: CanvasMode.None });
         }
+      } else if (canvasState.mode === CanvasMode.Translating) {
+        const startPoint = dragPreviewStartRef.current ?? canvasState.current ?? point;
+        const offset = {
+          x: point.x - startPoint.x,
+          y: point.y - startPoint.y,
+        };
+        if (canvasState.current && (offset.x !== 0 || offset.y !== 0)) {
+          translateSelectedLayers(point);
+        }
+        setDragPreviewOffset(null);
+        dragPreviewStartRef.current = null;
+        setCanvasState({ mode: CanvasMode.None });
+        setActiveSnapLines([]);
+        setCurrentMovingLayer(null);
       } else if (canvasState.mode === CanvasMode.Resizing || canvasState.mode === CanvasMode.GroupResizing) {
         // Reset per resize singolo e gruppo
         setCanvasState({
@@ -3556,6 +3614,7 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
       autoResizeFrame,
       mySelection,
       isShiftPressed,
+      translateSelectedLayers,
     ],
   );
 
@@ -3567,7 +3626,6 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
     ({ self, setMyPresence }, e: React.PointerEvent, layerId: string) => {
       // 🛡️ SECURITY: Block layer interactions for viewers
       if (isViewer) {
-        console.log("🔒 Viewer mode: Layer interactions disabled");
         return;
       }
       
@@ -3590,7 +3648,6 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
 
       // Se Alt è premuto, duplica i layer selezionati
       if (isAltPressed && !isShiftPressed) {
-        console.log("🔄 ALT+DRAG - Alt key detected, duplicating layers");
         
         // Se il layer cliccato non è nella selezione, selezionalo prima
         let layersToSelect = self.presence.selection;
@@ -3606,14 +3663,13 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
         // Inizia il trascinamento dei layer duplicati
         if (duplicatedIds.length > 0) {
           setCanvasState({ mode: CanvasMode.Translating, current: point });
-          console.log("🔄 ALT+DRAG - Started translating duplicated layers");
+          beginDragPreview(point);
         }
         return;
       }
 
       // Se Shift è premuto, gestisci la selezione multipla
       if (isShiftPressed) {
-        console.log("🔘 SHIFT+CLICK - Multi-selection mode");
         
         const currentSelection = self.presence.selection;
         let newSelection: string[];
@@ -3621,11 +3677,9 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
         if (currentSelection.includes(layerId)) {
           // Se il layer è già selezionato, rimuovilo dalla selezione
           newSelection = currentSelection.filter(id => id !== layerId);
-          console.log("🔘 SHIFT+CLICK - Removed layer from selection:", layerId);
         } else {
           // Se il layer non è selezionato, aggiungilo alla selezione
           newSelection = [...currentSelection, layerId];
-          console.log("🔘 SHIFT+CLICK - Added layer to selection:", layerId);
         }
         
         setMyPresence({ selection: newSelection }, { addToHistory: true });
@@ -3642,8 +3696,9 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
       
       // Inizia sempre il trascinamento quando un layer viene cliccato (senza Shift)
       setCanvasState({ mode: CanvasMode.Translating, current: point });
+      beginDragPreview(point);
     },
-    [setCanvasState, camera, history, canvasState.mode, isViewer, isAltPressed, isShiftPressed, duplicateSelectedLayers, onPointerDown],
+    [setCanvasState, camera, history, canvasState.mode, isViewer, isAltPressed, isShiftPressed, duplicateSelectedLayers, onPointerDown, beginDragPreview],
   );
 
   const onLayerContextMenu = useCallback(
@@ -3739,7 +3794,6 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
     },
     onLongPress: (point) => {
       // Handle long press - could show context menu
-      console.log('Long press at', point);
     }
   });
 
@@ -3747,13 +3801,9 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
     e.preventDefault();
   }, []);
 
-  // Mobile device detection
-  const [isTouchDevice, setIsTouchDevice] = useState(false);
-
   // Funzione per creare un widget todo
   const handleCreateTodoWidget = () => {
     if (isViewer) {
-      console.log("🔒 Viewer mode: Todo widget creation disabled");
       return;
     }
     
@@ -3777,25 +3827,11 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
       // Crea il widget todo
       const layerId = nanoid();
       
-      // Debug coordinate calculation
-      console.log("🎯 TODO WIDGET CREATION DEBUG:", {
-        centerX,
-        centerY,
-        cameraX: camera.x,
-        cameraY: camera.y,
-        cameraScale: camera.scale,
-        canvasX,
-        canvasY,
-        finalX: canvasX - 160,
-        finalY: canvasY - 200
-      });
-      
-      // Verifica che le coordinate siano valide
-      const finalX = canvasX - 160;
-      const finalY = canvasY - 200;
-      
-      if (isNaN(finalX) || isNaN(finalY)) {
-        console.error("❌ TODO WIDGET - Invalid coordinates calculated:", { finalX, finalY, canvasX, canvasY, camera });
+      const defaultWidth = 320;
+      const defaultHeight = 400;
+      const finalX = canvasX - defaultWidth / 2;
+      const finalY = canvasY - defaultHeight / 2;
+      if (Number.isNaN(finalX) || Number.isNaN(finalY)) {
         toast.error("Errore nella creazione del widget: coordinate non valide");
         return;
       }
@@ -3804,8 +3840,8 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
         type: LayerType.TodoWidget,
         x: finalX, // Centra il widget (320px / 2)
         y: finalY, // Centra il widget (400px / 2)
-        width: 320,
-        height: 400,
+        width: defaultWidth,
+        height: defaultHeight,
         fill: { r: 255, g: 255, b: 255 }, // Bianco
         todoListId: listId,
         title: listName,
@@ -3823,7 +3859,6 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
       // Seleziona il nuovo widget
       setMyPresence({ selection: [layerId] }, { addToHistory: true });
       
-      console.log("✅ Todo widget created:", layerId);
     },
     [camera]
   );
@@ -3844,12 +3879,9 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
       window.removeEventListener('resize', checkTouch);
     };
   }, []);
-
-  // Funzione per aprire il dialog di configurazione della tabella
   const handleCreateTable = useMutation(
     ({ storage, setMyPresence }) => {
       if (isViewer) {
-        console.log("🔒 Viewer mode: Table creation disabled");
         return;
       }
       
@@ -3943,7 +3975,6 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
       // Seleziona la nuova tabella
       setMyPresence({ selection: [layerId] }, { addToHistory: true });
       
-      console.log("✅ Table created:", layerId);
       toast.success("Tabella creata con successo!");
     },
     [camera, isViewer]
@@ -4040,64 +4071,99 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
           />
           
           {/* Prima renderizza le frecce (z-index più basso) */}
-          {layerIds
+          {visibleLayerIds
             .filter(layerId => {
               const layer = allLayers?.get(layerId);
               return layer?.type === "arrow";
             })
-            .map((layerId) => (
-                          <LayerPreview
-                key={layerId}
-                id={layerId}
-                onLayerPointerDown={onLayerPointerDown}
-                onLayerContextMenu={onLayerContextMenu}
-                selectionColor={layerIdsToColorSelection[layerId]}
-                lastUsedColor={lastUsedColor}
-                camera={camera}
-                canvasState={canvasState}
-                boardId={boardId}
-                backgroundColor={gridConfig.backgroundColor}
-                onDrawingStart={startDrawing}
-                onDrawingContinue={continueDrawing}
-                onDrawingEnd={insertPath}
-                onDrawingModeStart={handleDrawingModeStart}
-                onDrawingModeMove={handleDrawingModeMove}
-                onDrawingModeEnd={handleDrawingModeEnd}
-              />
-            ))
+            .map((layerId) => {
+              const shouldPreview = !!activePreviewOffset && previewLayerIds.has(layerId);
+              const layerNode = (
+                <LayerPreview
+                  key={layerId}
+                  id={layerId}
+                  onLayerPointerDown={onLayerPointerDown}
+                  onLayerContextMenu={onLayerContextMenu}
+                  selectionColor={layerIdsToColorSelection[layerId]}
+                  lastUsedColor={lastUsedColor}
+                  cameraRef={cameraRef}
+                  lodBucket={lodBucket}
+                  canvasState={canvasState}
+                  boardId={boardId}
+                  backgroundColor={gridConfig.backgroundColor}
+                  onDrawingStart={startDrawing}
+                  onDrawingContinue={continueDrawing}
+                  onDrawingEnd={insertPath}
+                  onDrawingModeStart={handleDrawingModeStart}
+                  onDrawingModeMove={handleDrawingModeMove}
+                  onDrawingModeEnd={handleDrawingModeEnd}
+                />
+              );
+
+              if (shouldPreview && activePreviewOffset) {
+                return (
+                  <g
+                    key={`preview-${layerId}`}
+                    transform={`translate(${activePreviewOffset.x} ${activePreviewOffset.y})`}
+                  >
+                    {layerNode}
+                  </g>
+                );
+              }
+
+              return layerNode;
+            })
           }
           {/* Poi renderizza tutti gli altri layer (z-index più alto) */}
-          {layerIds
+          {visibleLayerIds
             .filter(layerId => {
               const layer = allLayers?.get(layerId);
               return layer?.type !== "arrow";
             })
-            .map((layerId) => (
-              <LayerPreview
-                key={layerId}
-                id={layerId}
-                onLayerPointerDown={onLayerPointerDown}
-                onLayerContextMenu={onLayerContextMenu}
-                selectionColor={layerIdsToColorSelection[layerId]}
-                lastUsedColor={lastUsedColor}
-                camera={camera}
-                canvasState={canvasState}
-                boardId={boardId}
-                backgroundColor={gridConfig.backgroundColor}
-                onDrawingStart={startDrawing}
-                onDrawingContinue={continueDrawing}
-                onDrawingEnd={insertPath}
-                onDrawingModeStart={handleDrawingModeStart}
-                onDrawingModeMove={handleDrawingModeMove}
-                onDrawingModeEnd={handleDrawingModeEnd}
-              />
-            ))
+            .map((layerId) => {
+              const shouldPreview = !!activePreviewOffset && previewLayerIds.has(layerId);
+              const layerNode = (
+                <LayerPreview
+                  key={layerId}
+                  id={layerId}
+                  onLayerPointerDown={onLayerPointerDown}
+                  onLayerContextMenu={onLayerContextMenu}
+                  selectionColor={layerIdsToColorSelection[layerId]}
+                  lastUsedColor={lastUsedColor}
+                  cameraRef={cameraRef}
+                  lodBucket={lodBucket}
+                  canvasState={canvasState}
+                  boardId={boardId}
+                  backgroundColor={gridConfig.backgroundColor}
+                  onDrawingStart={startDrawing}
+                  onDrawingContinue={continueDrawing}
+                  onDrawingEnd={insertPath}
+                  onDrawingModeStart={handleDrawingModeStart}
+                  onDrawingModeMove={handleDrawingModeMove}
+                  onDrawingModeEnd={handleDrawingModeEnd}
+                />
+              );
+
+              if (shouldPreview && activePreviewOffset) {
+                return (
+                  <g
+                    key={`preview-${layerId}`}
+                    transform={`translate(${activePreviewOffset.x} ${activePreviewOffset.y})`}
+                  >
+                    {layerNode}
+                  </g>
+                );
+              }
+
+              return layerNode;
+            })
           }
           <SelectionBox 
             onResizeHandlePointerDown={onResizeHandlePointerDown} 
             onArrowLinePointPointerDown={onArrowLinePointPointerDown}
             canvasState={canvasState.mode}
             camera={camera}
+            previewOffset={canvasState.mode === CanvasMode.Translating ? dragPreviewOffset : null}
           />
           
           {canvasState.mode === CanvasMode.SelectionNet &&

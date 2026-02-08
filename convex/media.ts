@@ -158,3 +158,57 @@ export const deleteByBoard = mutation({
     return { deleted: mediaFiles.length };
   },
 });
+
+export const deleteByUrl = mutation({
+  args: {
+    url: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const user = await getCurrentUserOrThrow(ctx);
+
+    const mediaRecords = await ctx.db
+      .query("media")
+      .withIndex("byUrl", (q) => q.eq("url", args.url))
+      .collect();
+
+    if (mediaRecords.length === 0) {
+      return null;
+    }
+
+    const deletable: typeof mediaRecords = [];
+    for (const record of mediaRecords) {
+      if (record.boardId) {
+        const role = await getBoardRole(ctx, record.boardId, user);
+        if (role && role !== "viewer") {
+          deletable.push(record);
+        }
+      } else if (record.userId === user._id) {
+        deletable.push(record);
+      }
+    }
+
+    if (deletable.length === 0) {
+      throw new ConvexError("FORBIDDEN");
+    }
+
+    const deletableIds = new Set(deletable.map((record) => record._id));
+    for (const record of deletable) {
+      await ctx.db.delete(record._id);
+    }
+
+    const remaining = mediaRecords.some((record) => !deletableIds.has(record._id));
+    if (remaining) {
+      return null;
+    }
+
+    const referencedByAsset = await ctx.db
+      .query("assets")
+      .withIndex("byFileUrl", (q) => q.eq("fileUrl", args.url))
+      .first();
+    if (referencedByAsset) {
+      return null;
+    }
+
+    return args.url;
+  },
+});

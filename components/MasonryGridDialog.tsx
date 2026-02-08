@@ -1,16 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import { useSelection } from "@/hooks/useSelection";
-import { LayoutGrid } from "lucide-react";
+import { LayoutGrid, Minus, Plus } from "lucide-react";
 import { toast } from "sonner";
-import { Slider } from "@/components/ui/slider";
+import * as SliderPrimitive from "@radix-ui/react-slider";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { cn } from "@/lib/utils";
 
 type Alignment = "left" | "center" | "right";
 
@@ -20,6 +20,97 @@ type MasonrySettings = {
   gapY: number;
   normalizeWidth: boolean;
   alignment: Alignment;
+};
+
+const clampValue = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+
+const StepperInput = ({
+  value,
+  onChange,
+  min = 0,
+  max = 100,
+  step = 1,
+  id,
+}: {
+  value: number;
+  onChange: (value: number) => void;
+  min?: number;
+  max?: number;
+  step?: number;
+  id?: string;
+}) => {
+  const [inputValue, setInputValue] = useState(value.toString());
+
+  useEffect(() => {
+    setInputValue(value.toString());
+  }, [value]);
+
+  const commit = (next: number) => {
+    onChange(clampValue(next, min, max));
+  };
+
+  const handleBlur = () => {
+    const parsed = Number.parseInt(inputValue, 10);
+    if (Number.isNaN(parsed)) {
+      setInputValue(value.toString());
+      return;
+    }
+    commit(parsed);
+  };
+
+  return (
+    <div className="flex items-center h-9 rounded-xl border border-slate-200/80 bg-white shadow-sm overflow-hidden">
+      <button
+        type="button"
+        onClick={() => commit(value - step)}
+        disabled={value <= min}
+        className="h-full px-2.5 text-slate-500 hover:bg-slate-100 border-r border-slate-200/70 disabled:cursor-not-allowed disabled:opacity-40"
+        aria-label="Decrease"
+      >
+        <Minus className="h-3.5 w-3.5" />
+      </button>
+      <input
+        id={id}
+        type="text"
+        value={inputValue}
+        onChange={(event) => setInputValue(event.target.value)}
+        onBlur={handleBlur}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.currentTarget.blur();
+          }
+        }}
+        className="w-12 text-center text-sm font-semibold text-slate-700 bg-white outline-none border-0"
+        inputMode="numeric"
+      />
+      <button
+        type="button"
+        onClick={() => commit(value + step)}
+        disabled={value >= max}
+        className="h-full px-2.5 text-slate-500 hover:bg-slate-100 border-l border-slate-200/70 disabled:cursor-not-allowed disabled:opacity-40"
+        aria-label="Increase"
+      >
+        <Plus className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  );
+};
+
+const MasonrySlider = ({
+  className,
+  ...props
+}: React.ComponentPropsWithoutRef<typeof SliderPrimitive.Root>) => {
+  return (
+    <SliderPrimitive.Root
+      className={cn("relative flex w-full touch-none select-none items-center", className)}
+      {...props}
+    >
+      <SliderPrimitive.Track className="relative h-2 w-full grow overflow-hidden rounded-full bg-slate-200">
+        <SliderPrimitive.Range className="absolute h-full bg-black" />
+      </SliderPrimitive.Track>
+      <SliderPrimitive.Thumb className="block h-4 w-4 rounded-full border border-black bg-white shadow-sm ring-offset-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2" />
+    </SliderPrimitive.Root>
+  );
 };
 
 export const MasonryGridDialog = () => {
@@ -137,7 +228,7 @@ export const MasonryGridDialog = () => {
       </Button>
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="sm:max-w-[450px]">
+        <DialogContent className="sm:max-w-[470px] bg-white text-slate-900 border border-slate-200/80 shadow-2xl">
           <DialogHeader>
             <DialogTitle>Layout Masonry Grid</DialogTitle>
             <DialogDescription>
@@ -153,24 +244,21 @@ export const MasonryGridDialog = () => {
                 </Label>
                 <span className="text-sm text-muted-foreground">{settings.columns}</span>
               </div>
-              <div className="grid grid-cols-[1fr,3fr] gap-4 items-center">
-                <Input
+              <div className="flex items-center gap-3">
+                <StepperInput
                   id="columns"
-                  type="number"
+                  value={settings.columns}
                   min={1}
                   max={100}
-                  value={settings.columns}
-                  onChange={(e) => setSettings({
-                    ...settings,
-                    columns: Math.max(1, Math.min(100, parseInt(e.target.value) || 1))
-                  })}
-                  className="w-20"
+                  step={1}
+                  onChange={(value) => setSettings({ ...settings, columns: value })}
                 />
-                <Slider 
+                <MasonrySlider
                   value={[settings.columns]} 
                   min={1} 
                   max={100} 
                   step={1}
+                  className="flex-1"
                   onValueChange={(value: number[]) => setSettings({
                     ...settings,
                     columns: value[0]
@@ -185,25 +273,22 @@ export const MasonryGridDialog = () => {
               </div>
               
               <div className="grid gap-4">
-                <div className="grid grid-cols-[2fr,1fr,3fr] gap-4 items-center">
-                  <Label htmlFor="gapX" className="text-sm">Orizzontale</Label>
-                  <Input
+                <div className="flex items-center gap-3">
+                  <Label htmlFor="gapX" className="text-sm min-w-[92px]">Orizzontale</Label>
+                  <StepperInput
                     id="gapX"
-                    type="number"
+                    value={settings.gapX}
                     min={0}
                     max={100}
-                    value={settings.gapX}
-                    onChange={(e) => setSettings({
-                      ...settings,
-                      gapX: Math.max(0, parseInt(e.target.value) || 0)
-                    })}
-                    className="w-20"
+                    step={1}
+                    onChange={(value) => setSettings({ ...settings, gapX: value })}
                   />
-                  <Slider
+                  <MasonrySlider
                     value={[settings.gapX]}
                     min={0}
                     max={50}
                     step={1}
+                    className="flex-1"
                     onValueChange={(value: number[]) => setSettings({
                       ...settings,
                       gapX: value[0]
@@ -211,25 +296,22 @@ export const MasonryGridDialog = () => {
                   />
                 </div>
                 
-                <div className="grid grid-cols-[2fr,1fr,3fr] gap-4 items-center">
-                  <Label htmlFor="gapY" className="text-sm">Verticale</Label>
-                  <Input
+                <div className="flex items-center gap-3">
+                  <Label htmlFor="gapY" className="text-sm min-w-[92px]">Verticale</Label>
+                  <StepperInput
                     id="gapY"
-                    type="number"
+                    value={settings.gapY}
                     min={0}
                     max={100}
-                    value={settings.gapY}
-                    onChange={(e) => setSettings({
-                      ...settings,
-                      gapY: Math.max(0, parseInt(e.target.value) || 0)
-                    })}
-                    className="w-20"
+                    step={1}
+                    onChange={(value) => setSettings({ ...settings, gapY: value })}
                   />
-                  <Slider
+                  <MasonrySlider
                     value={[settings.gapY]}
                     min={0}
                     max={50}
                     step={1}
+                    className="flex-1"
                     onValueChange={(value: number[]) => setSettings({
                       ...settings,
                       gapY: value[0]
@@ -247,6 +329,7 @@ export const MasonryGridDialog = () => {
                   normalizeWidth: checked
                 })}
                 id="normalize-width"
+                className="data-[state=checked]:bg-black data-[state=unchecked]:bg-slate-200 [&>span]:bg-white"
               />
               <div>
                 <Label htmlFor="normalize-width" className="text-sm font-medium">

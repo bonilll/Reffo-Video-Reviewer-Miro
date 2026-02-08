@@ -58,13 +58,9 @@ export default function BoardIdPage({ params }: BoardIdPageProps) {
   const { validateResourceId } = useSecureParams();
   
   // DEBUG: Log the actual board ID to understand the format
-  console.log("🔍 Board ID received:", params.boardId);
-  console.log("🔍 Board ID type:", typeof params.boardId);
-  console.log("🔍 Board ID length:", params.boardId?.length);
   
   const boardId = validateResourceId(params.boardId);
   
-  console.log("🔍 Validation result:", boardId);
   
   // If board ID format is invalid, show error page
   if (!params.boardId || params.boardId.trim().length === 0) {
@@ -88,10 +84,8 @@ export default function BoardIdPage({ params }: BoardIdPageProps) {
         showLoading={true}
         showError={true}
         onResourceNotFound={() => {
-          console.log("Board not found, redirecting to 404");
         }}
         onAccessDenied={(reason) => {
-          console.log("Access denied to board:", reason);
         }}
         loadingComponent={<Loading />}
       >

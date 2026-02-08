@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -8,24 +9,19 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
-import {
   UploadCloud,
   ImageIcon,
   VideoIcon,
   FileIcon,
-  ChevronDown,
-  ChevronUp,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 
 type UploadItem = {
   id: string;
   file: File;
+  displayTitle: string;
   progress: number;
   status: "queued" | "uploading" | "processing" | "done" | "error";
   error?: string;
@@ -349,7 +345,7 @@ const LibraryPage: React.FC = () => {
   const [uploadItems, setUploadItems] = useState<UploadItem[]>([]);
   const [autoQueueAnalysis] = useState(true);
   const [isDragging, setIsDragging] = useState(false);
-  const [isUploadOpen, setIsUploadOpen] = useState(false);
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [stagedItems, setStagedItems] = useState<StagedItem[]>([]);
   const [selectedStageId, setSelectedStageId] = useState<string | null>(null);
   const [syncShared, setSyncShared] = useState(true);
@@ -363,14 +359,21 @@ const LibraryPage: React.FC = () => {
   const stagedItemsRef = useRef<StagedItem[]>([]);
   const [sharedTagDraft, setSharedTagDraft] = useState("");
   const [itemTagDrafts, setItemTagDrafts] = useState<Record<string, string>>({});
+  const [uploadBatchTotal, setUploadBatchTotal] = useState(0);
   const [hoverPreview, setHoverPreview] = useState<{
+    stageId?: string;
     url: string;
     type: "image" | "video" | "file";
     title: string;
-    x: number;
-    y: number;
     aspectRatio: number;
   } | null>(null);
+  const dragDepthRef = useRef(0);
+  const hoverClearTimeoutRef = useRef<number | null>(null);
+  const hoverRafRef = useRef<number | null>(null);
+  const hoveredStageIdRef = useRef<string | null>(null);
+  const hoverPreviewElRef = useRef<HTMLDivElement | null>(null);
+  const hoverClientPosRef = useRef({ x: -9999, y: -9999 });
+  const isDraggingRef = useRef(false);
 
   const createAsset = useMutation(api.assets.create);
   const patchDerived = useMutation(api.assets.patchDerived);
@@ -436,14 +439,22 @@ const LibraryPage: React.FC = () => {
     if (stagedItems.length === 0) return;
     if (isUploading) return;
     setIsUploading(true);
+    setUploadItems([]);
+    setUploadBatchTotal(stagedItems.length);
+    let hadErrors = false;
     for (const item of stagedItems) {
       const id = crypto.randomUUID();
       setUploadItems((prev) => [
-        { id, file: item.file, progress: 0, status: "queued" },
+        {
+          id,
+          file: item.file,
+          displayTitle: item.title?.trim() || item.file.name,
+          progress: 0,
+          status: "uploading",
+        },
         ...prev,
       ]);
       try {
-        setUploadStatus(id, "uploading");
         const result = await uploadFileMultipart(item.file, {
           context: "library",
           autoSaveToLibrary: true,
@@ -526,6 +537,7 @@ const LibraryPage: React.FC = () => {
         toast.success(`${item.file.name} uploaded`);
       } catch (error) {
         console.error(error);
+        hadErrors = true;
         setUploadStatus(id, "error", (error as Error).message);
         toast.error(`Upload failed: ${item.file.name}`);
       }
@@ -536,6 +548,16 @@ const LibraryPage: React.FC = () => {
       return [];
     });
     setSelectedStageId(null);
+
+    // Return to the library immediately on success; keep the modal open if there were errors.
+    window.setTimeout(
+      () => {
+        setIsUploadModalOpen(false);
+        setUploadBatchTotal(0);
+        setUploadItems([]);
+      },
+      hadErrors ? 2500 : 350
+    );
   }, [
     autoQueueAnalysis,
     createAsset,
@@ -553,6 +575,9 @@ const LibraryPage: React.FC = () => {
   const handleDrop = useCallback(
     (event: React.DragEvent<HTMLDivElement>) => {
       event.preventDefault();
+      event.stopPropagation();
+      dragDepthRef.current = 0;
+      isDraggingRef.current = false;
       setIsDragging(false);
       if (event.dataTransfer.files && event.dataTransfer.files.length > 0) {
         stageFiles(event.dataTransfer.files);
@@ -591,6 +616,12 @@ const LibraryPage: React.FC = () => {
   useEffect(() => {
     return () => {
       stagedItemsRef.current.forEach((item) => releaseObjectUrl(item.previewUrl));
+      if (hoverClearTimeoutRef.current) {
+        window.clearTimeout(hoverClearTimeoutRef.current);
+      }
+      if (hoverRafRef.current) {
+        cancelAnimationFrame(hoverRafRef.current);
+      }
     };
   }, []);
 
@@ -699,6 +730,746 @@ const LibraryPage: React.FC = () => {
     .filter((tag) => !existingTags.has(tag))
     .slice(0, 8);
 
+  const activeUploadItem = useMemo(() => {
+    return (
+      uploadItems.find((item) => item.status === "uploading" || item.status === "processing") ??
+      null
+    );
+  }, [uploadItems]);
+
+  const uploadErrorItems = useMemo(() => {
+    return uploadItems.filter((item) => item.status === "error");
+  }, [uploadItems]);
+
+  const uploadCompletedCount = useMemo(() => {
+    return uploadItems.filter((item) => item.status === "done" || item.status === "error").length;
+  }, [uploadItems]);
+
+  const overallProgress = useMemo(() => {
+    const total = uploadBatchTotal > 0 ? uploadBatchTotal : uploadItems.length;
+    if (total <= 0) return 0;
+
+    const currentFraction =
+      activeUploadItem?.status === "processing"
+        ? 1
+        : activeUploadItem?.status === "uploading"
+          ? Math.max(0, Math.min(1, activeUploadItem.progress / 100))
+          : 0;
+
+    const doneLike = Math.min(uploadCompletedCount, total);
+    const progress = ((doneLike + currentFraction) / total) * 100;
+    return Math.max(0, Math.min(100, progress));
+  }, [activeUploadItem, uploadBatchTotal, uploadCompletedCount, uploadItems.length]);
+
+  const uploadStatusLine = useMemo(() => {
+    if (activeUploadItem) return activeUploadItem.displayTitle || activeUploadItem.file.name;
+    if (isUploading) return "Preparing next upload…";
+    if (uploadItems.length > 0 && uploadCompletedCount === uploadItems.length) return "Upload complete.";
+    return "Ready when you are.";
+  }, [activeUploadItem, isUploading, uploadCompletedCount, uploadItems.length]);
+
+  const positionHoverPreview = useCallback((clientX: number, clientY: number) => {
+    const el = hoverPreviewElRef.current;
+    const vw = typeof window !== "undefined" ? window.innerWidth : 0;
+    const vh = typeof window !== "undefined" ? window.innerHeight : 0;
+    const offset = 16;
+
+    hoverClientPosRef.current = { x: clientX, y: clientY };
+
+    // Best-effort clamp to viewport. If element isn't mounted yet, use a safe guess.
+    const w = el?.offsetWidth ?? 360;
+    const h = el?.offsetHeight ?? 260;
+
+    const maxX = Math.max(8, vw - w - 8);
+    const maxY = Math.max(8, vh - h - 8);
+
+    const nextX = Math.min(maxX, Math.max(8, clientX + offset));
+    const nextY = Math.min(maxY, Math.max(8, clientY + offset));
+
+    if (!el) return;
+    el.style.transform = `translate3d(${nextX}px, ${nextY}px, 0)`;
+  }, []);
+
+  const scheduleHoverMove = useCallback(
+    (clientX: number, clientY: number) => {
+      if (hoverRafRef.current) cancelAnimationFrame(hoverRafRef.current);
+      hoverRafRef.current = requestAnimationFrame(() => {
+        positionHoverPreview(clientX, clientY);
+      });
+    },
+    [positionHoverPreview]
+  );
+  const shouldReduceMotion = useReducedMotion();
+
+  useEffect(() => {
+    if (!isUploadModalOpen) return;
+    // Prevent the browser from navigating to a dragged file dropped outside our drop zone.
+    const prevent = (event: DragEvent) => {
+      event.preventDefault();
+    };
+    window.addEventListener("dragover", prevent);
+    window.addEventListener("drop", prevent);
+    return () => {
+      window.removeEventListener("dragover", prevent);
+      window.removeEventListener("drop", prevent);
+    };
+  }, [isUploadModalOpen]);
+
+  useEffect(() => {
+    if (!isUploadModalOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsUploadModalOpen(false);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isUploadModalOpen]);
+
+  useEffect(() => {
+    if (!isUploadModalOpen) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [isUploadModalOpen]);
+
+  useEffect(() => {
+    if (isUploadModalOpen) return;
+    setHoverPreview(null);
+    setIsDragging(false);
+    dragDepthRef.current = 0;
+    isDraggingRef.current = false;
+    hoveredStageIdRef.current = null;
+    if (hoverClearTimeoutRef.current) {
+      window.clearTimeout(hoverClearTimeoutRef.current);
+      hoverClearTimeoutRef.current = null;
+    }
+    if (hoverRafRef.current) {
+      cancelAnimationFrame(hoverRafRef.current);
+      hoverRafRef.current = null;
+    }
+    hoverClientPosRef.current = { x: -9999, y: -9999 };
+  }, [isUploadModalOpen]);
+
+  useEffect(() => {
+    // When the preview content mounts/unmounts, immediately snap it to the last cursor pos.
+    if (!isUploadModalOpen) return;
+    if (!hoverPreview) return;
+    positionHoverPreview(hoverClientPosRef.current.x, hoverClientPosRef.current.y);
+  }, [hoverPreview, isUploadModalOpen, positionHoverPreview]);
+
+  const overlayInitial = shouldReduceMotion ? undefined : ({ opacity: 0 } as const);
+  const overlayAnimate = shouldReduceMotion ? undefined : ({ opacity: 1 } as const);
+  const overlayExit = shouldReduceMotion ? undefined : ({ opacity: 0 } as const);
+
+  const panelInitial = shouldReduceMotion
+    ? undefined
+    : ({ opacity: 0, y: 18, scale: 0.985 } as const);
+  const panelAnimate = shouldReduceMotion
+    ? undefined
+    : ({
+        opacity: 1,
+        y: 0,
+        scale: 1,
+        transition: { type: "spring" as const, stiffness: 320, damping: 28 },
+      } as const);
+  const panelExit = shouldReduceMotion
+    ? undefined
+    : ({ opacity: 0, y: 12, scale: 0.985, transition: { duration: 0.16 } } as const);
+
+  const contentVariants = shouldReduceMotion
+    ? undefined
+    : ({
+        hidden: {},
+        show: {
+          transition: { staggerChildren: 0.04, delayChildren: 0.04 },
+        },
+      } as const);
+
+  const itemVariants = shouldReduceMotion
+    ? undefined
+    : ({
+        hidden: { opacity: 0, y: 8 },
+        show: {
+          opacity: 1,
+          y: 0,
+          transition: { duration: 0.22, ease: [0.16, 1, 0.3, 1] as const },
+        },
+      } as const);
+
+  const animatedItemProps = shouldReduceMotion
+    ? {}
+    : { variants: itemVariants, initial: "hidden" as const, animate: "show" as const };
+  const animatedContentProps = shouldReduceMotion
+    ? {}
+    : { variants: contentVariants, initial: "hidden" as const, animate: "show" as const };
+
+  const uploadModalPortal =
+    typeof document === "undefined"
+      ? null
+      : createPortal(
+          <AnimatePresence>
+            {isUploadModalOpen && (
+              <motion.div
+                className="fixed inset-0 z-[2147483646] flex items-center justify-center px-4 py-6"
+                initial={overlayInitial}
+                animate={overlayAnimate}
+                exit={overlayExit}
+                // Prevent dropping files outside the drop zone from navigating away.
+                onDragOver={(event) => {
+                  event.preventDefault();
+                }}
+                onDrop={(event) => {
+                  event.preventDefault();
+                }}
+              >
+                <div
+                  className="absolute inset-0 bg-black/45 backdrop-blur-[2px]"
+                  onMouseDown={() => setIsUploadModalOpen(false)}
+                  onDragOver={(event) => event.preventDefault()}
+                  onDrop={(event) => event.preventDefault()}
+                />
+
+                <motion.div
+                  className="relative w-[min(96vw,1120px)] max-h-[90vh] overflow-hidden rounded-[28px] border border-gray-200 bg-white shadow-2xl"
+                  initial={panelInitial}
+                  animate={panelAnimate}
+                  exit={panelExit}
+                  onMouseDown={(event) => event.stopPropagation()}
+                  onClick={(event) => event.stopPropagation()}
+                  role="dialog"
+                  aria-modal="true"
+                  aria-label="Upload references"
+                >
+                  <motion.div
+                    className="flex items-start justify-between gap-4 border-b border-gray-200 bg-white/80 px-6 py-5 backdrop-blur"
+                    {...animatedItemProps}
+                  >
+                    <div className="space-y-1">
+                      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-gray-500">
+                        Upload references
+                      </p>
+                      <h2 className="text-xl font-semibold text-gray-900">
+                        Stage, tag, and confirm.
+                      </h2>
+                      <p className="text-sm text-gray-600">
+                        Drag files in, edit metadata, then upload to your library.
+                      </p>
+                    </div>
+                    <button
+                      className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-700 shadow-sm transition hover:bg-gray-50 hover:text-gray-900"
+                      onClick={() => setIsUploadModalOpen(false)}
+                      aria-label="Close"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </motion.div>
+
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    className="hidden"
+                    onChange={handleFileInput}
+                  />
+
+                  <motion.div
+                    className="relative max-h-[calc(90vh-84px)] overflow-y-auto px-6 py-6"
+                    {...animatedContentProps}
+                  >
+                    <motion.div
+                      variants={itemVariants}
+                      className="grid gap-6 lg:grid-cols-[1.45fr,0.95fr]"
+                    >
+                      <div className="space-y-6">
+                        <div
+                          className={`relative rounded-3xl border border-dashed p-6 transition ${
+                            isDragging
+                              ? "border-gray-900 bg-gray-50"
+                              : "border-gray-300 bg-white"
+                          }`}
+                          onDragEnter={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            dragDepthRef.current += 1;
+                            if (!isDraggingRef.current) {
+                              isDraggingRef.current = true;
+                              setIsDragging(true);
+                            }
+                          }}
+                          onDragOver={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            // Do not set state here; dragover fires continuously and causes jank.
+                          }}
+                          onDragLeave={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+                            if (dragDepthRef.current === 0) {
+                              isDraggingRef.current = false;
+                              setIsDragging(false);
+                            }
+                          }}
+                          onDrop={(event) => {
+                            handleDrop(event);
+                          }}
+                        >
+                          <div className="flex flex-col items-start gap-4">
+                            <div className="flex items-center gap-3">
+                              <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-gray-200 bg-white text-gray-900">
+                                <UploadCloud className="h-5 w-5" />
+                              </div>
+                              <div>
+                                <h3 className="text-lg font-semibold text-gray-900">
+                                  Stage references
+                                </h3>
+                                <p className="text-sm text-gray-600">
+                                  Drag and drop files here. Preview everything before uploading.
+                                </p>
+                              </div>
+                            </div>
+                            <div className="flex flex-wrap gap-3 text-xs text-gray-500">
+                              <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-3 py-1">
+                                <ImageIcon className="h-3 w-3" />
+                                Images
+                              </span>
+                              <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-3 py-1">
+                                <VideoIcon className="h-3 w-3" />
+                                Videos
+                              </span>
+                              <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-3 py-1">
+                                <FileIcon className="h-3 w-3" />
+                                Files
+                              </span>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-3">
+                              <Button
+                                onClick={() => fileInputRef.current?.click()}
+                                className="gap-2"
+                              >
+                                <UploadCloud className="h-4 w-4" />
+                                Choose files
+                              </Button>
+                              {stagedItems.length > 0 && (
+                                <Button
+                                  variant="outline"
+                                  className="gap-2"
+                                  onClick={() => {
+                                    stagedItems.forEach((item) =>
+                                      releaseObjectUrl(item.previewUrl)
+                                    );
+                                    setStagedItems([]);
+                                    setSelectedStageId(null);
+                                  }}
+                                >
+                                  Clear
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="rounded-3xl border border-gray-200 bg-white p-6">
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div>
+                              <h3 className="text-lg font-semibold text-gray-900">
+                                Staged preview
+                              </h3>
+                              <p className="text-sm text-gray-600">
+                                {stagedItems.length > 0
+                                  ? `${stagedItems.length} files ready`
+                                  : "Stage files to preview before upload."}
+                              </p>
+                            </div>
+                          </div>
+
+                          {stagedItems.length > 0 ? (
+                            <div className="mt-4 flex flex-wrap gap-3">
+                              {stagedItems.map((item) => {
+                                const ratio =
+                                  item.aspectRatio && Number.isFinite(item.aspectRatio)
+                                    ? item.aspectRatio
+                                    : 1;
+                                const type = getAssetType(item.file);
+                                return (
+                                  <motion.button
+                                    key={item.id}
+                                    className={`group relative overflow-hidden rounded-2xl border ${
+                                      item.id === selectedStageId
+                                        ? "border-gray-900"
+                                        : "border-gray-200"
+                                    }`}
+                                    style={{ width: 120, aspectRatio: `${ratio}` }}
+                                    onClick={() => setSelectedStageId(item.id)}
+                                    onPointerEnter={(event) => {
+                                      if (hoverClearTimeoutRef.current) {
+                                        window.clearTimeout(hoverClearTimeoutRef.current);
+                                        hoverClearTimeoutRef.current = null;
+                                      }
+                                      hoveredStageIdRef.current = item.id;
+                                      positionHoverPreview(event.clientX, event.clientY);
+                                      setHoverPreview({
+                                        stageId: item.id,
+                                        url: item.previewUrl,
+                                        type,
+                                        title: item.title,
+                                        aspectRatio: ratio,
+                                      });
+                                    }}
+                                    onPointerMove={(event) => {
+                                      if (hoveredStageIdRef.current !== item.id) return;
+                                      scheduleHoverMove(event.clientX, event.clientY);
+                                    }}
+                                    onPointerLeave={() => {
+                                      // Delay helps avoid flicker when crossing between items quickly.
+                                      if (hoverClearTimeoutRef.current) {
+                                        window.clearTimeout(hoverClearTimeoutRef.current);
+                                      }
+                                      hoverClearTimeoutRef.current = window.setTimeout(() => {
+                                        if (hoveredStageIdRef.current === item.id) {
+                                          hoveredStageIdRef.current = null;
+                                          setHoverPreview(null);
+                                        }
+                                      }, 70);
+                                    }}
+                                    onPointerCancel={() => {
+                                      hoveredStageIdRef.current = null;
+                                      setHoverPreview(null);
+                                    }}
+                                    whileHover={
+                                      shouldReduceMotion
+                                        ? undefined
+                                        : { scale: 1.03, transition: { duration: 0.12 } }
+                                    }
+                                  >
+                                    {type === "image" ? (
+                                      <img
+                                        src={item.previewUrl}
+                                        alt={item.title}
+                                        className="h-full w-full object-cover"
+                                      />
+                                    ) : type === "video" ? (
+                                      <video
+                                        className="h-full w-full object-cover"
+                                        src={item.previewUrl}
+                                        muted
+                                        preload="metadata"
+                                      />
+                                    ) : (
+                                      <div className="flex h-full w-full items-center justify-center bg-gray-100">
+                                        <FileIcon className="h-5 w-5 text-gray-400" />
+                                      </div>
+                                    )}
+                                    <span
+                                      className="absolute right-2 top-2 hidden rounded-full bg-white/90 p-1 text-gray-600 group-hover:block"
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        removeStagedItem(item.id);
+                                      }}
+                                    >
+                                      <X className="h-3 w-3" />
+                                    </span>
+                                  </motion.button>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <div className="mt-6 rounded-2xl border border-dashed border-gray-200 bg-gray-50 p-6 text-sm text-gray-500">
+                              No staged files yet. Add some files to preview and edit metadata.
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="rounded-3xl border border-gray-200 bg-white p-6">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <h3 className="text-sm font-semibold uppercase tracking-[0.2em] text-gray-500">
+                            Metadata
+                          </h3>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className={
+                              syncShared ? "gap-2 border-gray-900 text-gray-900" : "gap-2"
+                            }
+                            onClick={() =>
+                              setSyncShared((value) => {
+                                const next = !value;
+                                if (!value && next && selectedItem) {
+                                  setSharedMeta({
+                                    tags: selectedItem.tags,
+                                    description: selectedItem.description,
+                                    externalLink: selectedItem.externalLink,
+                                    author: selectedItem.author,
+                                  });
+                                }
+                                return next;
+                              })
+                            }
+                          >
+                            {syncShared ? "Sync on" : "Sync off"}
+                          </Button>
+                        </div>
+                        <p className="mt-2 text-xs text-gray-500">
+                          {syncShared
+                            ? "Writing in these fields updates every staged item."
+                            : "Writing updates only the selected item."}
+                        </p>
+
+                        <div className="mt-4 space-y-4">
+                          <div className="space-y-2">
+                            <label className="text-xs font-semibold uppercase text-gray-500">
+                              Title
+                            </label>
+                            <Input
+                              value={selectedItem?.title ?? ""}
+                              onChange={(event) => {
+                                if (!selectedItem) return;
+                                updateStagedItem(selectedItem.id, {
+                                  title: event.target.value,
+                                });
+                              }}
+                              placeholder={selectedItem ? "" : "Select a file"}
+                              disabled={!selectedItem}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <label className="text-xs font-semibold uppercase text-gray-500">
+                              Tags
+                              {syncShared && (
+                                <span className="ml-2 rounded-full bg-gray-900/10 px-2 py-0.5 text-[10px] font-semibold text-gray-700">
+                                  Sync
+                                </span>
+                              )}
+                            </label>
+                            <TagInput
+                              tags={currentTags}
+                              draft={currentDraft}
+                              onDraftChange={updateTagDraft}
+                              onTagsChange={updateTags}
+                              placeholder="campaign, editorial, mood"
+                              disabled={!syncShared && !selectedItem}
+                              syncActive={syncShared}
+                            />
+                          </div>
+                          {filteredSuggestions.length > 0 && (
+                            <div className="space-y-2">
+                              <p className="text-xs font-semibold uppercase text-gray-500">
+                                Recent used
+                              </p>
+                              <div className="flex flex-wrap gap-2">
+                                {filteredSuggestions.map((tag) => (
+                                  <button
+                                    key={tag}
+                                    className="rounded-full border border-gray-200 bg-white px-3 py-1 text-xs text-gray-600 hover:text-gray-900"
+                                    onClick={() => handleAddSuggestedTag(tag)}
+                                  >
+                                    {tag}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          <div className="space-y-2">
+                            <label className="text-xs font-semibold uppercase text-gray-500">
+                              Description
+                              {syncShared && (
+                                <span className="ml-2 rounded-full bg-gray-900/10 px-2 py-0.5 text-[10px] font-semibold text-gray-700">
+                                  Sync
+                                </span>
+                              )}
+                            </label>
+                            <Input
+                              value={
+                                syncShared
+                                  ? sharedMeta.description
+                                  : selectedItem?.description ?? ""
+                              }
+                              onChange={(event) =>
+                                updateSyncField("description", event.target.value)
+                              }
+                              placeholder="Optional shared note"
+                              className={syncShared ? "border-gray-900/40 bg-gray-50" : ""}
+                              disabled={!syncShared && !selectedItem}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <label className="text-xs font-semibold uppercase text-gray-500">
+                              External link
+                              {syncShared && (
+                                <span className="ml-2 rounded-full bg-gray-900/10 px-2 py-0.5 text-[10px] font-semibold text-gray-700">
+                                  Sync
+                                </span>
+                              )}
+                            </label>
+                            <Input
+                              value={
+                                syncShared
+                                  ? sharedMeta.externalLink
+                                  : selectedItem?.externalLink ?? ""
+                              }
+                              onChange={(event) =>
+                                updateSyncField("externalLink", event.target.value)
+                              }
+                              placeholder="https://"
+                              className={syncShared ? "border-gray-900/40 bg-gray-50" : ""}
+                              disabled={!syncShared && !selectedItem}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <label className="text-xs font-semibold uppercase text-gray-500">
+                              Author
+                              {syncShared && (
+                                <span className="ml-2 rounded-full bg-gray-900/10 px-2 py-0.5 text-[10px] font-semibold text-gray-700">
+                                  Sync
+                                </span>
+                              )}
+                            </label>
+                            <Input
+                              value={syncShared ? sharedMeta.author : selectedItem?.author ?? ""}
+                              onChange={(event) => updateSyncField("author", event.target.value)}
+                              placeholder="Photographer, artist, studio"
+                              className={syncShared ? "border-gray-900/40 bg-gray-50" : ""}
+                              disabled={!syncShared && !selectedItem}
+                            />
+                          </div>
+                          {syncShared && (
+                            <p className="text-xs text-gray-500">
+                              Disable sync to add per-file metadata.
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </motion.div>
+
+                    {hoverPreview && (
+                      <div
+                        ref={hoverPreviewElRef}
+                        className="pointer-events-none fixed left-0 top-0 z-[2147483647] will-change-transform"
+                        style={{ transform: "translate3d(-9999px, -9999px, 0)" }}
+                      >
+                        <div
+                          className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl"
+                          style={{
+                            width: 360,
+                            aspectRatio: hoverPreview.aspectRatio || 1,
+                            maxHeight: 340,
+                          }}
+                        >
+                          {hoverPreview.type === "image" ? (
+                            <img
+                              src={hoverPreview.url}
+                              alt={hoverPreview.title}
+                              className="h-full w-full object-cover"
+                            />
+                          ) : hoverPreview.type === "video" ? (
+                            <video
+                              src={hoverPreview.url}
+                              className="h-full w-full object-cover"
+                              muted
+                              playsInline
+                              autoPlay
+                              loop
+                            />
+                          ) : (
+                            <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-gray-500">
+                              <FileIcon className="h-8 w-8" />
+                              <span className="text-xs">{hoverPreview.title}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    <motion.div variants={itemVariants} className="pt-4 pb-6">
+                      <div className="flex flex-col gap-3 rounded-3xl border border-gray-200 bg-gray-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white text-gray-900 shadow-sm">
+                            <UploadCloud className="h-5 w-5" />
+                          </div>
+                          <div>
+                            <p className="text-sm font-semibold text-gray-900">
+                              {stagedItems.length > 0
+                                ? `${stagedItems.length} ready to upload`
+                                : "No staged files"}
+                            </p>
+                            <p className="text-xs text-gray-600">
+                              {isUploading
+                                ? "Uploading in progress. You can keep the modal open to monitor it."
+                                : "Confirm to upload and queue analysis."}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            className="gap-2 bg-gray-900 text-gray-50 hover:bg-black"
+                            onClick={handleUploadAll}
+                            disabled={isUploading || stagedItems.length === 0}
+                          >
+                            {isUploading ? "Uploading..." : "Upload references"}
+                          </Button>
+                        </div>
+                      </div>
+
+                      <div className="mt-3 rounded-3xl border border-gray-200 bg-white p-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-gray-500">
+                            Upload progress
+                          </p>
+                          {uploadItems.length > 0 && !isUploading && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => {
+                                setUploadItems([]);
+                                setUploadBatchTotal(0);
+                              }}
+                              className="h-8"
+                            >
+                              Clear
+                            </Button>
+                          )}
+                        </div>
+
+                        <div className="mt-3">
+                          <div className="h-2 w-full overflow-hidden rounded-full bg-gray-200">
+                            <div
+                              className="h-full rounded-full bg-gray-900 transition-[width] duration-200"
+                              style={{ width: `${overallProgress}%` }}
+                            />
+                          </div>
+                          <div className="mt-2 flex items-center justify-between gap-3">
+                            <p className="min-w-0 truncate text-sm font-semibold text-gray-900">
+                              {uploadStatusLine}
+                            </p>
+                            <span className="shrink-0 text-xs font-semibold text-gray-600">
+                              {Math.round(overallProgress)}%
+                            </span>
+                          </div>
+
+                          {uploadErrorItems.length > 0 && (
+                            <div className="mt-3 space-y-1">
+                              {uploadErrorItems.map((item) => (
+                                <p key={item.id} className="text-xs text-rose-600">
+                                  {item.file.name} · errore di caricamento
+                                </p>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </motion.div>
+                  </motion.div>
+                </motion.div>
+              </motion.div>
+            )}
+          </AnimatePresence>,
+          document.body
+        );
+
   return (
     <div className="w-full space-y-10">
       <section className="rounded-3xl border border-gray-200 bg-white/95 p-8 shadow-sm">
@@ -720,428 +1491,24 @@ const LibraryPage: React.FC = () => {
               <Badge className="border border-gray-200 bg-gray-100 text-gray-700">
                 {assets?.length ?? 0} items
               </Badge>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                onClick={() => setIsUploadModalOpen(true)}
+              >
+                <UploadCloud className="h-4 w-4" />
+                Upload
+              </Button>
             </div>
           </div>
-          <Collapsible open={isUploadOpen} onOpenChange={setIsUploadOpen}>
-          {!isUploadOpen && (
-            <div className="flex flex-col items-start justify-between gap-3 rounded-2xl border border-dashed border-gray-300 bg-gray-50 p-4 text-sm text-gray-600 sm:flex-row sm:items-center">
-              <div className="flex items-center gap-3">
-                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-gray-700 shadow-sm">
-                  <UploadCloud className="h-4 w-4" />
-                </div>
-                <span>Open this section to upload new references.</span>
-              </div>
-            </div>
-          )}
-
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              className="hidden"
-              onChange={handleFileInput}
-            />
-
-            <CollapsibleContent className="grid gap-6 lg:grid-cols-[1.45fr,0.95fr]">
-              <div className="space-y-6">
-                <div
-                  className={`relative rounded-3xl border border-dashed p-6 transition ${
-                    isDragging
-                      ? "border-gray-700 bg-gray-50"
-                      : "border-gray-300 bg-white"
-                  }`}
-                  onDragOver={(event) => {
-                    event.preventDefault();
-                    setIsDragging(true);
-                  }}
-                  onDragLeave={(event) => {
-                    event.preventDefault();
-                    setIsDragging(false);
-                  }}
-                  onDrop={handleDrop}
-                >
-                  <div className="flex flex-col items-start gap-4">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white text-gray-900 border border-gray-200">
-                        <UploadCloud className="h-5 w-5" />
-                      </div>
-                      <div>
-                        <h2 className="text-lg font-semibold text-gray-900">Stage references</h2>
-                        <p className="text-sm text-gray-600">
-                          Drag and drop files here. Preview everything before uploading.
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex flex-wrap gap-3 text-xs text-gray-500">
-                      <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-3 py-1">
-                        <ImageIcon className="h-3 w-3" />
-                        Images
-                      </span>
-                      <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-3 py-1">
-                        <VideoIcon className="h-3 w-3" />
-                        Videos
-                      </span>
-                      <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-3 py-1">
-                        <FileIcon className="h-3 w-3" />
-                        Files
-                      </span>
-                    </div>
-                  <div className="flex flex-wrap items-center gap-3">
-                    <Button onClick={() => fileInputRef.current?.click()} className="gap-2">
-                      <UploadCloud className="h-4 w-4" />
-                      Choose files
-                    </Button>
-                  </div>
-                </div>
-              </div>
-
-                <div className="rounded-3xl border border-gray-200 bg-white p-6">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <h3 className="text-lg font-semibold text-gray-900">Staged preview</h3>
-                      <p className="text-sm text-gray-600">
-                        {stagedItems.length > 0
-                          ? `${stagedItems.length} files ready`
-                          : "Stage files to preview before upload."}
-                      </p>
-                    </div>
-                    {stagedItems.length > 0 && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                          stagedItems.forEach((item) => releaseObjectUrl(item.previewUrl));
-                          setStagedItems([]);
-                          setSelectedStageId(null);
-                        }}
-                      >
-                        Clear
-                      </Button>
-                    )}
-                  </div>
-
-                  {stagedItems.length > 0 ? (
-                    <div className="mt-4 flex flex-wrap gap-3">
-                      {stagedItems.map((item) => {
-                        const ratio = item.aspectRatio && Number.isFinite(item.aspectRatio) ? item.aspectRatio : 1;
-                        const type = getAssetType(item.file);
-                        return (
-                          <button
-                            key={item.id}
-                            className={`group relative overflow-hidden rounded-2xl border ${
-                              item.id === selectedStageId
-                                ? "border-gray-900"
-                                : "border-gray-200"
-                            }`}
-                            style={{ width: 120, aspectRatio: `${ratio}` }}
-                            onClick={() => setSelectedStageId(item.id)}
-                            onMouseEnter={(event) => {
-                              setHoverPreview({
-                                url: item.previewUrl,
-                                type,
-                                title: item.title,
-                                x: event.clientX,
-                                y: event.clientY,
-                                aspectRatio: ratio,
-                              });
-                            }}
-                            onMouseMove={(event) => {
-                              setHoverPreview((prev) =>
-                                prev ? { ...prev, x: event.clientX, y: event.clientY } : prev
-                              );
-                            }}
-                            onMouseLeave={() => setHoverPreview(null)}
-                          >
-                            {type === "image" ? (
-                              <img
-                                src={item.previewUrl}
-                                alt={item.title}
-                                className="h-full w-full object-cover"
-                              />
-                            ) : type === "video" ? (
-                              <video
-                                className="h-full w-full object-cover"
-                                src={item.previewUrl}
-                                muted
-                                preload="metadata"
-                              />
-                            ) : (
-                              <div className="flex h-full w-full items-center justify-center bg-gray-100">
-                                <FileIcon className="h-5 w-5 text-gray-400" />
-                              </div>
-                            )}
-                            <span
-                              className="absolute right-2 top-2 hidden rounded-full bg-white/90 p-1 text-gray-600 group-hover:block"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                removeStagedItem(item.id);
-                              }}
-                            >
-                              <X className="h-3 w-3" />
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <div className="mt-6 rounded-2xl border border-dashed border-gray-200 bg-gray-50 p-6 text-sm text-gray-500">
-                      No staged files yet. Add some files to preview and edit metadata.
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div className="rounded-3xl border border-gray-200 bg-white p-6">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <h3 className="text-sm font-semibold uppercase tracking-[0.2em] text-gray-500">
-                    Metadata
-                  </h3>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className={syncShared ? "gap-2 border-gray-900 text-gray-900" : "gap-2"}
-                    onClick={() =>
-                      setSyncShared((value) => {
-                        const next = !value;
-                        if (!value && next && selectedItem) {
-                          setSharedMeta({
-                            tags: selectedItem.tags,
-                            description: selectedItem.description,
-                            externalLink: selectedItem.externalLink,
-                            author: selectedItem.author,
-                          });
-                        }
-                        return next;
-                      })
-                    }
-                  >
-                    {syncShared ? "Sync on" : "Sync off"}
-                  </Button>
-                </div>
-                <p className="mt-2 text-xs text-gray-500">
-                  {syncShared
-                    ? "Writing in these fields updates every staged item."
-                    : "Writing updates only the selected item."}
-                </p>
-
-                <div className="mt-4 space-y-4">
-                  <div className="space-y-2">
-                    <label className="text-xs font-semibold uppercase text-gray-500">
-                      Title
-                    </label>
-                    <Input
-                      value={selectedItem?.title ?? ""}
-                      onChange={(event) => {
-                        if (!selectedItem) return;
-                        updateStagedItem(selectedItem.id, { title: event.target.value });
-                      }}
-                      placeholder={selectedItem ? "" : "Select a file"}
-                      disabled={!selectedItem}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-xs font-semibold uppercase text-gray-500">
-                      Tags
-                      {syncShared && (
-                        <span className="ml-2 rounded-full bg-gray-900/10 px-2 py-0.5 text-[10px] font-semibold text-gray-700">
-                          Sync
-                        </span>
-                      )}
-                    </label>
-                    <TagInput
-                      tags={currentTags}
-                      draft={currentDraft}
-                      onDraftChange={updateTagDraft}
-                      onTagsChange={updateTags}
-                      placeholder="campaign, editorial, mood"
-                      disabled={!syncShared && !selectedItem}
-                      syncActive={syncShared}
-                    />
-                  </div>
-                  {filteredSuggestions.length > 0 && (
-                    <div className="space-y-2">
-                      <p className="text-xs font-semibold uppercase text-gray-500">
-                        Recent used
-                      </p>
-                      <div className="flex flex-wrap gap-2">
-                        {filteredSuggestions.map((tag) => (
-                          <button
-                            key={tag}
-                            className="rounded-full border border-gray-200 bg-white px-3 py-1 text-xs text-gray-600 hover:text-gray-900"
-                            onClick={() => handleAddSuggestedTag(tag)}
-                          >
-                            {tag}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  <div className="space-y-2">
-                    <label className="text-xs font-semibold uppercase text-gray-500">
-                      Description
-                      {syncShared && (
-                        <span className="ml-2 rounded-full bg-gray-900/10 px-2 py-0.5 text-[10px] font-semibold text-gray-700">
-                          Sync
-                        </span>
-                      )}
-                    </label>
-                    <Input
-                      value={syncShared ? sharedMeta.description : selectedItem?.description ?? ""}
-                      onChange={(event) => updateSyncField("description", event.target.value)}
-                      placeholder="Optional shared note"
-                      className={syncShared ? "border-gray-900/40 bg-gray-50" : ""}
-                      disabled={!syncShared && !selectedItem}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-xs font-semibold uppercase text-gray-500">
-                      External link
-                      {syncShared && (
-                        <span className="ml-2 rounded-full bg-gray-900/10 px-2 py-0.5 text-[10px] font-semibold text-gray-700">
-                          Sync
-                        </span>
-                      )}
-                    </label>
-                    <Input
-                      value={syncShared ? sharedMeta.externalLink : selectedItem?.externalLink ?? ""}
-                      onChange={(event) => updateSyncField("externalLink", event.target.value)}
-                      placeholder="https://"
-                      className={syncShared ? "border-gray-900/40 bg-gray-50" : ""}
-                      disabled={!syncShared && !selectedItem}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-xs font-semibold uppercase text-gray-500">
-                      Author
-                      {syncShared && (
-                        <span className="ml-2 rounded-full bg-gray-900/10 px-2 py-0.5 text-[10px] font-semibold text-gray-700">
-                          Sync
-                        </span>
-                      )}
-                    </label>
-                    <Input
-                      value={syncShared ? sharedMeta.author : selectedItem?.author ?? ""}
-                      onChange={(event) => updateSyncField("author", event.target.value)}
-                      placeholder="Photographer, artist, studio"
-                      className={syncShared ? "border-gray-900/40 bg-gray-50" : ""}
-                      disabled={!syncShared && !selectedItem}
-                    />
-                  </div>
-                  {syncShared && (
-                    <p className="text-xs text-gray-500">
-                      Disable sync to add per-file metadata.
-                    </p>
-                  )}
-                </div>
-              </div>
-            </CollapsibleContent>
-
-            {hoverPreview && (
-              <div
-                className="pointer-events-none fixed z-50"
-                style={{ left: hoverPreview.x + 16, top: hoverPreview.y + 16 }}
-              >
-                <div
-                  className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl"
-                  style={{
-                    width: 360,
-                    aspectRatio: hoverPreview.aspectRatio || 1,
-                    maxHeight: 340,
-                  }}
-                >
-                  {hoverPreview.type === "image" ? (
-                    <img
-                      src={hoverPreview.url}
-                      alt={hoverPreview.title}
-                      className="h-full w-full object-cover"
-                    />
-                  ) : hoverPreview.type === "video" ? (
-                    <video
-                      src={hoverPreview.url}
-                      className="h-full w-full object-cover"
-                      muted
-                      playsInline
-                      autoPlay
-                      loop
-                    />
-                  ) : (
-                    <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-gray-500">
-                      <FileIcon className="h-8 w-8" />
-                      <span className="text-xs">{hoverPreview.title}</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {stagedItems.length > 0 && (
-              <div className="flex justify-center pt-2">
-                <Button
-                  className="px-10 py-6 text-base font-semibold bg-gray-900 text-gray-50 hover:bg-black"
-                  onClick={handleUploadAll}
-                  disabled={isUploading}
-                >
-                  {isUploading ? "Uploading..." : `Upload ${stagedItems.length} references`}
-                </Button>
-              </div>
-            )}
-
-            <div className="mt-3 flex justify-center">
-              <CollapsibleTrigger className="flex items-center gap-2 text-sm font-semibold text-gray-700 hover:text-gray-900">
-                {isUploadOpen ? "Hide upload settings" : "Show upload settings"}
-                {isUploadOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-              </CollapsibleTrigger>
-            </div>
-          </Collapsible>
-
-          {uploadItems.length > 0 && (
-            <div className="rounded-3xl border border-gray-200 bg-white p-6">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-semibold uppercase tracking-[0.2em] text-gray-500">
-                  Upload queue
-                </h3>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setUploadItems([])}
-                >
-                  Clear
-                </Button>
-              </div>
-              <div className="mt-4 space-y-3">
-                {uploadItems.map((item) => (
-                  <div
-                    key={item.id}
-                    className="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3"
-                  >
-                    <div className="flex items-center justify-between gap-4">
-                      <div>
-                        <p className="text-sm font-semibold text-gray-900">{item.file.name}</p>
-                        <p className="text-xs text-gray-500">
-                          {item.status === "error" ? item.error : `${item.progress}%`}
-                        </p>
-                      </div>
-                      <Badge className="border border-gray-200 bg-white text-gray-600">
-                        {item.status}
-                      </Badge>
-                    </div>
-                    <div className="mt-2 h-1 w-full rounded-full bg-gray-200">
-                      <div
-                        className="h-full rounded-full bg-gray-900 transition-all"
-                        style={{ width: `${item.progress}%` }}
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
 
           <div className="border-t border-gray-200 pt-6">
             <Library />
           </div>
         </div>
       </section>
+      {uploadModalPortal}
     </div>
   );
 };

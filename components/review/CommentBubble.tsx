@@ -286,12 +286,6 @@ export function CommentBubble({
   const isSelectionToolActive = canvasState && canvasState.tool === "select";
 
   // Debug log for popup state
-  console.log('🔍 CommentBubble render state:', {
-    commentId: comment._id,
-    showPopup,
-    isDragging,
-    isHovered
-  });
   
   return (
     <div 
@@ -401,17 +395,14 @@ export function CommentBubble({
             : isSelected || isHovered ? `scale(1.1)` : undefined,
         }}
         onClick={(e) => {
-          console.log('🔵 CommentBubble onClick triggered!', comment._id);
           e.stopPropagation();
           e.preventDefault();
           
           // Prevent click if currently dragging or just finished dragging
           if (isDragging) {
-            console.log('❌ Click blocked by isDragging');
             return;
           }
           
-          console.log('✅ CommentBubble calling onClick prop');
           
           // SEMPRE apri il popup quando si clicca su un comment bubble
           // indipendentemente dal tool attivo
@@ -428,7 +419,6 @@ export function CommentBubble({
           onClick(customEvent);
         }}
         onPointerDown={(e) => {
-          console.log('🟣 CommentBubble onPointerDown triggered!', comment._id);
           // Previeni anche i pointer events per maggiore sicurezza
           e.stopPropagation();
           e.preventDefault();

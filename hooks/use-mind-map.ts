@@ -150,7 +150,6 @@ export const useMindMap = (lastUsedColor: Color, lastUsedFontSize: number = 16, 
   // Crea una nota collegata con freccia
   const createConnectedNote = useMutation(
     ({ storage }, sourceNoteId: string, side: ConnectionSide) => {
-      console.log("🔗 createConnectedNote mutation started:", { sourceNoteId, side });
       
       const liveLayers = storage.get("layers");
       const liveLayerIds = storage.get("layerIds");
@@ -162,11 +161,9 @@ export const useMindMap = (lastUsedColor: Color, lastUsedFontSize: number = 16, 
       }
 
       const sourceNoteData = sourceNote.toObject() as any;
-      console.log("📝 Source note data:", sourceNoteData);
       
       // Calcola posizione per la nuova nota
       const newNotePosition = calculateNewNotePosition(sourceNoteData, side);
-      console.log("📍 New note position:", newNotePosition);
       
       // Calcola la dimensione quadrata una sola volta
       const noteSize = Math.max(sourceNoteData.width, sourceNoteData.height);
@@ -194,7 +191,6 @@ export const useMindMap = (lastUsedColor: Color, lastUsedFontSize: number = 16, 
       
       liveLayers.set(newNoteId, newNote);
       liveLayerIds.push(newNoteId);
-      console.log("✅ New note created:", newNoteId);
 
       // Calcola i punti di connessione precisi sui bordi delle note
       const sourceConnectionPoint = getConnectionPoint(
@@ -275,9 +271,7 @@ export const useMindMap = (lastUsedColor: Color, lastUsedFontSize: number = 16, 
 
       liveLayers.set(arrowId, arrow);
       liveLayerIds.push(arrowId);
-      console.log("✅ Arrow created:", arrowId);
 
-      console.log("🎯 Mind map creation completed:", { newNoteId, arrowId });
       return newNoteId;
     },
     [lastUsedColor, lastUsedFontSize, lastUsedFontWeight, currentUser, calculateNewNotePosition, getConnectionPoint, calculateAutoCurveControlPoints]
