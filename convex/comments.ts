@@ -3,6 +3,7 @@ import { ConvexError, v } from "convex/values";
 import { getCurrentUserDoc, getCurrentUserOrThrow } from "./utils/auth";
 import type { Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
+import { effectiveAvatar } from "./utils/avatar";
 
 const pointValidator = v.object({
   x: v.number(),
@@ -166,7 +167,7 @@ async function collectMentionCandidates(ctx: any, userId: Id<'users'>, videoId: 
         label,
         email,
         userId: userDoc?._id ?? null,
-        avatar: userDoc?.avatar ?? null,
+        avatar: effectiveAvatar(userDoc),
       } satisfies MentionCandidate;
     }),
   );
@@ -200,7 +201,7 @@ export const listByVideo = query({
             author = {
               name: userDoc?.name ?? null,
               email: userDoc?.email ?? "",
-              avatar: userDoc?.avatar ?? null,
+              avatar: effectiveAvatar(userDoc),
             };
             authorCache.set(comment.authorId, author);
           }
@@ -315,7 +316,7 @@ export const create = mutation({
       updatedAt: now,
       authorId: user._id,
       authorName: author?.name ?? author?.email ?? "Anonymous",
-      authorAvatar: author?.avatar ?? null,
+      authorAvatar: effectiveAvatar(author),
     };
   },
 });

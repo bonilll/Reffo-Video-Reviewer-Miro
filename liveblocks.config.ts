@@ -78,6 +78,7 @@ type Presence = {
   selection: string[];
   pencilDraft: [x: number, y: number, pressure: number][] | null;
   penColor: Color | null;
+  profile?: { name?: string; picture?: string } | null;
 };
 
 // Storage persistente nella stanza

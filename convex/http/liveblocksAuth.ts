@@ -133,12 +133,14 @@ export const liveblocksAuth = httpAction(async (ctx, request) => {
     "User";
 
   try {
+    // Prefer the app-level profile avatar (supports custom avatarSource), then fall back to Clerk.
+    const currentUser = await ctx.runQuery(api.users.current, {});
     const { status, body } = await ctx.runAction(api.liveblocks.authorize, {
       room,
       user: {
         id: identity.subject,
-        name: userName,
-        picture: identity.pictureUrl ?? undefined,
+        name: currentUser?.name ?? userName,
+        picture: currentUser?.avatar ?? identity.pictureUrl ?? undefined,
       },
     });
 

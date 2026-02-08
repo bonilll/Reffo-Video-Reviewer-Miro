@@ -54,13 +54,13 @@ export const Participants = ({ boardId, onOpenShare }: ParticipantsProps) => {
     <div className="absolute top-4 right-4 z-40 flex items-center gap-3 rounded-2xl border border-slate-200/70 bg-white/90 px-3 py-2 shadow-xl shadow-slate-200/40 backdrop-blur-md">
       <div className="flex items-center gap-2">
         <div className="flex -space-x-2">
-          {users.slice(0, MAX_SHOWN_OTHER_USERS).map(({ connectionId, info }) => (
+          {users.slice(0, MAX_SHOWN_OTHER_USERS).map(({ connectionId, info, presence }) => (
             <UserAvatar
               borderColor={connectionIdToColor(connectionId)}
               key={connectionId}
-              src={info?.picture}
-              name={info?.name}
-              fallback={info?.name?.[0] || "T"}
+              src={presence?.profile?.picture ?? info?.picture}
+              name={presence?.profile?.name ?? info?.name}
+              fallback={(presence?.profile?.name ?? info?.name)?.[0] || "T"}
               size="sm"
               className="ring-2 ring-white"
             />
@@ -69,9 +69,9 @@ export const Participants = ({ boardId, onOpenShare }: ParticipantsProps) => {
           {currentUser && (
             <UserAvatar
               borderColor={connectionIdToColor(currentUser.connectionId)}
-              src={currentUser.info?.picture}
-              name={`${currentUser.info?.name} (You)`}
-              fallback={currentUser.info?.name?.[0]}
+              src={currentUser.presence?.profile?.picture ?? currentUser.info?.picture}
+              name={`${currentUser.presence?.profile?.name ?? currentUser.info?.name} (You)`}
+              fallback={(currentUser.presence?.profile?.name ?? currentUser.info?.name)?.[0]}
               size="sm"
               className="ring-2 ring-white"
             />

@@ -221,3 +221,16 @@ export interface VideoFrameData {
   presentedFrames: number;
   mediaTime: number;
 }
+
+export type AvatarSource = 'auth' | 'custom';
+
+// Frontend view of `api.users.current` (kept explicit here since Convex codegen may be unavailable in some envs).
+export interface CurrentUserProfile {
+  _id: string;
+  name: string | null;
+  email: string;
+  avatar: string | null;
+  authAvatar?: string | null;
+  customAvatar?: string | null;
+  avatarSource?: AvatarSource | null;
+}

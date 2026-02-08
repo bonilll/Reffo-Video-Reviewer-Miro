@@ -2,6 +2,7 @@ import { ConvexError, v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { Doc, Id } from "./_generated/dataModel";
 import { getCurrentUserDoc, getCurrentUserOrThrow } from "./utils/auth";
+import { effectiveAvatar } from "./utils/avatar";
 
 type BoardRole = "owner" | "editor" | "viewer";
 
@@ -590,7 +591,7 @@ export const getBoardSharing = query({
             record.userEmail?.split("@")[0] ??
             "User",
           email: record.userEmail ?? memberUser?.email ?? "",
-          imageUrl: memberUser?.avatar ?? null,
+          imageUrl: effectiveAvatar(memberUser),
           role: (record.role as BoardRole) ?? "viewer",
         };
       })
@@ -601,7 +602,7 @@ export const getBoardSharing = query({
         userId: board.ownerId,
         name: ownerDoc?.name ?? ownerDoc?.email ?? "Owner",
         email: ownerDoc?.email ?? "",
-        imageUrl: ownerDoc?.avatar ?? null,
+        imageUrl: effectiveAvatar(ownerDoc),
         role: "owner" as const,
       },
       members,

@@ -1,5 +1,14 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
-import { Video, Annotation, Comment, AnnotationTool, Point, RectangleAnnotation, EllipseAnnotation } from '../types';
+import {
+  Video,
+  Annotation,
+  Comment,
+  AnnotationTool,
+  Point,
+  RectangleAnnotation,
+  EllipseAnnotation,
+  CurrentUserProfile,
+} from '../types';
 import VideoPlayer from './VideoPlayer';
 import AnnotationCanvas from './AnnotationCanvas';
 import CommentsPane from './CommentsPane';
@@ -103,7 +112,11 @@ const uploadBlobWithProgress = (url: string, blob: Blob, onProgress?: (percent: 
 
 const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBack, theme = 'system', initialFocus = null, onConsumeInitialFocus, onOpenEditor }) => {
   const isDark = useThemePreference(theme);
-  const { user: clerkUser } = useUser();
+  const { user: clerkUser, isSignedIn } = useUser();
+  const currentUser = useQuery(api.users.current, isSignedIn ? {} : "skip") as
+    | CurrentUserProfile
+    | null
+    | undefined;
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const [comments, setComments] = useState<Comment[]>([]);
   
@@ -1787,10 +1800,15 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
             )}
           </button>
           {/* Settings moved into Toolbar → More menu */}
-          {clerkUser?.imageUrl ? (
+          {currentUser?.avatar || clerkUser?.imageUrl ? (
             <img
-              src={clerkUser.imageUrl}
-              alt={clerkUser.fullName ?? clerkUser.emailAddresses[0]?.emailAddress ?? 'User'}
+              src={currentUser?.avatar || clerkUser?.imageUrl}
+              alt={
+                currentUser?.name ??
+                clerkUser?.fullName ??
+                clerkUser?.emailAddresses[0]?.emailAddress ??
+                'User'
+              }
               className={`w-8 h-8 rounded-full object-cover ${isDark ? 'border border-white/20' : 'border border-gray-200'}`}
             />
           ) : (
@@ -1799,7 +1817,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
                 isDark ? 'bg-white/10 border border-white/20 text-white' : 'bg-gray-100 border border-gray-300 text-gray-800'
               }`}
             >
-              {(clerkUser?.firstName?.[0] ?? 'U').toUpperCase()}
+              {(currentUser?.name?.[0] ?? clerkUser?.firstName?.[0] ?? 'U').toUpperCase()}
             </div>
           )}
         </div>

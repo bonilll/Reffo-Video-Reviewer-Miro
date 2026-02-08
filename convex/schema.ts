@@ -32,6 +32,10 @@ export default defineSchema({
     email: v.string(),
     name: v.optional(v.string()),
     avatar: v.optional(v.string()),
+    // User-chosen avatar (uploaded). If absent, UI should fall back to `avatar` (auth provider image).
+    customAvatar: v.optional(v.string()),
+    // Which avatar to display: "auth" (Clerk) or "custom".
+    avatarSource: v.optional(v.union(v.literal("auth"), v.literal("custom"))),
     createdAt: v.number(),
     updatedAt: v.number(),
   })

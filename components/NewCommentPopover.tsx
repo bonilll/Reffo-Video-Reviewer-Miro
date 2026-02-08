@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useUser } from '@clerk/clerk-react';
-import { Point, MentionOption } from '../types';
+import { useQuery } from 'convex/react';
+import { api } from '../convex/_generated/api';
+import { Point, CurrentUserProfile, MentionOption } from '../types';
 import { RenderedRect, normalizedToCanvas } from '../utils/geometry';
 
 interface NewCommentPopoverProps {
@@ -18,9 +20,17 @@ const NewCommentPopover: React.FC<NewCommentPopoverProps> = ({ position, rendere
   const [text, setText] = useState('');
   const [mentionOpen, setMentionOpen] = useState(false);
   const [mentionQuery, setMentionQuery] = useState('');
-  const { user } = useUser();
-  const avatar = user?.imageUrl || '';
-  const displayName = user?.fullName || user?.primaryEmailAddress?.emailAddress || 'You';
+  const { user: clerkUser, isSignedIn } = useUser();
+  const currentUser = useQuery(api.users.current, isSignedIn ? {} : "skip") as
+    | CurrentUserProfile
+    | null
+    | undefined;
+  const avatar = currentUser?.avatar || clerkUser?.imageUrl || '';
+  const displayName =
+    currentUser?.name ||
+    clerkUser?.fullName ||
+    clerkUser?.primaryEmailAddress?.emailAddress ||
+    'You';
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -178,7 +188,21 @@ const NewCommentPopover: React.FC<NewCommentPopoverProps> = ({ position, rendere
       </div>
       <form onSubmit={handleSubmit} className="p-4 pt-3 flex flex-col gap-3 relative">
         <div className="flex items-start gap-3">
-          <img src={avatar} alt={displayName} className={`w-8 h-8 rounded-full ${isDark ? 'border border-white/10' : 'border border-gray-200'}`} />
+          {avatar ? (
+            <img
+              src={avatar}
+              alt={displayName}
+              className={`w-8 h-8 rounded-full object-cover ${isDark ? 'border border-white/10' : 'border border-gray-200'}`}
+            />
+          ) : (
+            <div
+              className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold ${
+                isDark ? 'bg-white/10 border border-white/10 text-white' : 'bg-gray-100 border border-gray-200 text-gray-700'
+              }`}
+            >
+              {(displayName?.[0] ?? 'U').toUpperCase()}
+            </div>
+          )}
           <div className="flex-1">
             <div className={`font-semibold text-sm ${isDark ? 'text-white' : 'text-gray-900'}`}>{displayName}</div>
             <div className="relative mt-2">

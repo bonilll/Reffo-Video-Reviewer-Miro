@@ -43,6 +43,7 @@ import type * as todoItems from "../todoItems.js";
 import type * as todoLists from "../todoLists.js";
 import type * as users from "../users.js";
 import type * as utils_auth from "../utils/auth.js";
+import type * as utils_avatar from "../utils/avatar.js";
 import type * as utils_imageCompression from "../utils/imageCompression.js";
 import type * as utils_storage from "../utils/storage.js";
 import type * as videos from "../videos.js";
@@ -97,6 +98,7 @@ declare const fullApi: ApiFromModules<{
   todoLists: typeof todoLists;
   users: typeof users;
   "utils/auth": typeof utils_auth;
+  "utils/avatar": typeof utils_avatar;
   "utils/imageCompression": typeof utils_imageCompression;
   "utils/storage": typeof utils_storage;
   videos: typeof videos;

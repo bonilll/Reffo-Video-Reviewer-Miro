@@ -13,8 +13,9 @@ type CursorProps = {
 export const Cursor = memo(({ connectionId }: CursorProps) => {
   const info = useOther(connectionId, (user) => user?.info);
   const cursor = useOther(connectionId, (user) => user.presence.cursor);
+  const profile = useOther(connectionId, (user) => user.presence.profile);
 
-  const name = info?.name || "Teammate";
+  const name = profile?.name || info?.name || "Teammate";
 
   if (!cursor) return null;
 

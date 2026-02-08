@@ -8,7 +8,7 @@ import ProfileSettings from './components/ProfileSettings';
 import EditorPage from './components/editor/EditorPage';
 import ProjectWorkspace from './components/ProjectWorkspace';
 import LibraryPage from './components/LibraryPage';
-import { Project, Video } from './types';
+import { CurrentUserProfile, Project, Video } from './types';
 import type { Id } from './convex/_generated/dataModel';
 import logo from './assets/logo.svg';
 import googleLogo from './assets/google.svg';
@@ -1209,6 +1209,9 @@ const App: React.FC = () => {
                     name: currentUser.name ?? null,
                     email: currentUser.email,
                     avatar: currentUser.avatar ?? null,
+                    authAvatar: (currentUser as CurrentUserProfile).authAvatar ?? null,
+                    customAvatar: (currentUser as CurrentUserProfile).customAvatar ?? null,
+                    avatarSource: (currentUser as CurrentUserProfile).avatarSource ?? null,
                   }}
                   projects={projects}
                   onBack={() => navigate('/dashboard')}
@@ -1329,6 +1332,7 @@ const AppHeader: React.FC<AppHeaderProps & { isDark: boolean }> = ({
   onMarkAllNotificationsRead,
 }) => {
   const { signOut, setActive } = useClerk();
+  const { user: clerkUser } = useUser();
   const settingsDoc = useQuery(api.settings.getOrNull, {});
   const updateSettings = useMutation(api.settings.update);
   const [notifOpen, setNotifOpen] = React.useState(false);
@@ -1339,6 +1343,7 @@ const AppHeader: React.FC<AppHeaderProps & { isDark: boolean }> = ({
     .map((part) => part[0]?.toUpperCase())
     .join('')
     .slice(0, 2);
+  const avatarUrl = user.avatar ?? clerkUser?.imageUrl ?? null;
 
   return (
     <header className={`sticky top-0 z-30 backdrop-blur border-b ${isDark ? 'border-white/10 bg-black/20 text-white' : 'border-gray-200 bg-white/80 text-gray-900'}`}>
@@ -1462,8 +1467,8 @@ const AppHeader: React.FC<AppHeaderProps & { isDark: boolean }> = ({
             className={isDark ? 'flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-black/30 text-sm font-semibold text-white hover:border-white/40' : 'flex h-10 w-10 items-center justify-center rounded-full border border-gray-200 bg-white text-sm font-semibold text-gray-900 hover:border-gray-300'}
             aria-label="Open profile"
           >
-            {user.avatar ? (
-              <img src={user.avatar} alt={user.email} className="h-10 w-10 rounded-full object-cover" />
+            {avatarUrl ? (
+              <img src={avatarUrl} alt={user.email} className="h-10 w-10 rounded-full object-cover" />
             ) : (
               <span>{initials}</span>
             )}

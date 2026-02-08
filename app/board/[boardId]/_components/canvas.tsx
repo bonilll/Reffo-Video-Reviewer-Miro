@@ -4,6 +4,7 @@ import { useCallback, useMemo, useState, useEffect, useRef } from "react";
 import { nanoid } from "nanoid";
 import { LiveObject } from "@liveblocks/client";
 import { toast } from "sonner";
+import { useQuery } from "convex/react";
 
 import {
   useHistory,
@@ -13,6 +14,7 @@ import {
   useStorage,
   useOthersMapped,
   useSelf,
+  useUpdateMyPresence,
 } from "@/liveblocks.config";
 import {
   Camera,
@@ -40,6 +42,7 @@ import { useCameraPersistence } from "@/hooks/use-camera-persistence";
 import { useMobileGestures } from "@/hooks/use-mobile-gestures";
 import { useResourcePermissions } from "@/hooks/use-resource-permissions";
 import { Id } from "@/convex/_generated/dataModel";
+import { api } from "@/convex/_generated/api";
 
 import { Info } from "./info";
 import { Participants } from "./participants";
@@ -124,6 +127,15 @@ const SelectionNet = ({ origin, current }: { origin: Point; current: Point }) =>
 export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
   const layerIds = useStorage((root) => root.layerIds);
   const pencilDraft = useSelf((me) => me.presence.pencilDraft);
+  const updateMyPresence = useUpdateMyPresence();
+  const me = useQuery(api.users.current, {});
+  const meName = useMemo(() => me?.name ?? me?.email ?? "User", [me?.name, me?.email]);
+  const mePicture = me?.avatar ?? undefined;
+
+  useEffect(() => {
+    if (!me) return;
+    updateMyPresence({ profile: { name: meName, picture: mePicture } });
+  }, [me?._id, meName, mePicture, updateMyPresence]);
 
   // 🛡️ SECURITY: Viewer restrictions - disable editing for viewers
   const isViewer = userRole === "viewer";

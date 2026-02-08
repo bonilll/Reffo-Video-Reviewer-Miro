@@ -1,6 +1,8 @@
 import React, { useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import { useUser } from '@clerk/clerk-react';
-import { Comment, MentionOption } from '../types';
+import { useQuery } from 'convex/react';
+import { api } from '../convex/_generated/api';
+import { Comment, CurrentUserProfile, MentionOption } from '../types';
 import { RenderedRect, normalizedToCanvas } from '../utils/geometry';
 import { X, CornerDownRight } from 'lucide-react';
 import { splitMentionSegments } from '../utils/mentions';
@@ -164,8 +166,12 @@ const CommentPopover: React.FC<CommentPopoverProps> = ({
   const [suggestOpen, setSuggestOpen] = useState(false);
   const [suggestQuery, setSuggestQuery] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
-  const { user } = useUser();
-  const avatar = user?.imageUrl || '';
+  const { user: clerkUser, isSignedIn } = useUser();
+  const currentUser = useQuery(api.users.current, isSignedIn ? {} : "skip") as
+    | CurrentUserProfile
+    | null
+    | undefined;
+  const avatar = currentUser?.avatar || clerkUser?.imageUrl || '';
 
   const thread = useMemo(() => {
     const replies = comments.filter(c => c.parentId === comment.id)
@@ -391,7 +397,21 @@ const CommentPopover: React.FC<CommentPopoverProps> = ({
 
         <div className={`px-3 py-2 border-t ${isDark ? 'border-white/10 bg-black/70' : 'border-gray-200 bg-white'}`}>
             <form onSubmit={handleReplySubmit} className="flex gap-2 items-center relative">
-                 <img src={avatar} alt="You" className={`w-7 h-7 rounded-full ${isDark ? 'border border-white/10' : 'border border-gray-200'}`} />
+                 {avatar ? (
+                   <img
+                     src={avatar}
+                     alt="You"
+                     className={`w-7 h-7 rounded-full object-cover ${isDark ? 'border border-white/10' : 'border border-gray-200'}`}
+                   />
+                 ) : (
+                   <div
+                     className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold ${
+                       isDark ? 'bg-white/10 border border-white/10 text-white' : 'bg-gray-100 border border-gray-200 text-gray-700'
+                     }`}
+                   >
+                     {(currentUser?.name?.[0] ?? clerkUser?.firstName?.[0] ?? 'U').toUpperCase()}
+                   </div>
+                 )}
                  <input 
                     type="text"
                     value={replyText}

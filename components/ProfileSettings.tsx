@@ -1,35 +1,42 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useUser } from '@clerk/clerk-react';
 import { useAction, useMutation, useQuery } from 'convex/react';
 import { api } from '../convex/_generated/api';
 import { Project, ShareGroup, UserSettings } from '../types';
 import {
   ArrowLeft,
   Bell,
+  Camera,
   Lock,
-  Palette,
   Layers,
   ExternalLink,
   ShieldCheck,
   Users,
-  Save,
-  RefreshCcw,
   Loader2,
 } from 'lucide-react';
 import { useThemePreference } from '../useTheme';
 import lottieLoaderRaw from '../assets/animations/Loader.json?raw';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
 const lottieLoader = `data:application/json;charset=utf-8,${encodeURIComponent(lottieLoaderRaw as unknown as string)}`;
 
 interface ProfileSettingsProps {
   user: {
     name?: string | null;
     email: string;
+    // Effective avatar URL (custom vs auth) from `api.users.current`.
     avatar?: string | null;
+    // Auth-provider image (Clerk).
+    authAvatar?: string | null;
+    // Uploaded custom avatar (may exist even when avatarSource is "auth").
+    customAvatar?: string | null;
+    avatarSource?: 'auth' | 'custom' | null;
   };
   projects: Project[];
   onBack: () => void;
 }
 
 const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBack }) => {
+  const { user: clerkUser } = useUser();
   const settingsDoc = useQuery(api.settings.getOrNull, {});
   const shareGroups = useQuery(api.shareGroups.list, {});
   const getSlackStatus = useAction(api.slack.status);
@@ -48,11 +55,27 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
 
   const [displayName, setDisplayName] = useState(user.name ?? '');
   const [avatarUrl, setAvatarUrl] = useState(user.avatar ?? '');
-  const [useAuthAvatar, setUseAuthAvatar] = useState<boolean>(Boolean(user.avatar));
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const avatarInputRef = useRef<HTMLInputElement | null>(null);
+  const [avatarModalOpen, setAvatarModalOpen] = useState(false);
+  const savedProfileRef = useRef<{ name: string }>({
+    name: user.name ?? '',
+  });
   const [localSettings, setLocalSettings] = useState<UserSettings | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [profileSaving, setProfileSaving] = useState(false);
+
+  useEffect(() => {
+    if (uploadingAvatar) return;
+    setAvatarUrl(user.avatar ?? '');
+  }, [user.avatar, uploadingAvatar]);
+
+  useEffect(() => {
+    const next = user.name ?? '';
+    const prevSaved = savedProfileRef.current.name;
+    setDisplayName((current) => (current === prevSaved ? next : current));
+    savedProfileRef.current.name = next;
+  }, [user.name]);
 
   useThemePreference(localSettings?.workspace.theme ?? 'system');
 
@@ -151,10 +174,39 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
   };
 
   const handleSaveProfile = async () => {
+    if (profileSaving) return;
+    const nextName = displayName.trim();
+    if (savedProfileRef.current.name === nextName) return;
     setProfileSaving(true);
-    await updateProfile({ name: displayName || undefined, avatar: avatarUrl || undefined });
-    setProfileSaving(false);
+    try {
+      await updateProfile({
+        name: nextName || undefined,
+      });
+      savedProfileRef.current = { name: nextName };
+    } finally {
+      setProfileSaving(false);
+    }
   };
+
+  const uploadAvatarFile = useCallback(
+    async (file: File) => {
+      setUploadingAvatar(true);
+      try {
+        // Resize client-side to max 512px
+        const blob = await resizeImage(file, 512, 0.85);
+        const meta = await generateAvatarUpload({ contentType: 'image/jpeg', fileName: file.name });
+        await uploadBlob(meta.uploadUrl, blob, 'image/jpeg');
+        const nextAvatar = meta.publicUrl;
+        setAvatarUrl(nextAvatar);
+        await updateProfile({ avatar: nextAvatar, avatarSource: 'custom' } as any);
+      } catch (err) {
+        console.error('Avatar upload failed', err);
+      } finally {
+        setUploadingAvatar(false);
+      }
+    },
+    [generateAvatarUpload, updateProfile],
+  );
 
   const handleSaveSettings = async () => {
     if (!localSettings) return;
@@ -181,30 +233,54 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
     setIsSaving(false);
   };
 
-  const resetSettings = () => {
-    if (!settingsDoc) return;
-    setLocalSettings({
-      id: settingsDoc._id,
-      notifications: settingsDoc.notifications,
-      security: settingsDoc.security,
-      workspace: settingsDoc.workspace,
-      integrations: settingsDoc.integrations,
-      billing: settingsDoc.billing,
-      createdAt: new Date(settingsDoc.createdAt).toISOString(),
-      updatedAt: new Date(settingsDoc.updatedAt).toISOString(),
-    });
-  };
+  const clerkAvatarUrl = clerkUser?.imageUrl ?? null;
+  const authAvatarUrl = user.authAvatar ?? clerkAvatarUrl ?? null;
+  const customAvatarUrl = user.customAvatar ?? null;
+  const currentAvatarSource =
+    user.avatarSource ?? (customAvatarUrl ? ('custom' as const) : ('auth' as const));
+
+  const resolvedAvatarUrl = useMemo(() => {
+    if (avatarUrl) return avatarUrl;
+    if (currentAvatarSource === 'custom') return customAvatarUrl ?? '';
+    return authAvatarUrl ?? '';
+  }, [authAvatarUrl, avatarUrl, currentAvatarSource, customAvatarUrl]);
 
   const renderAvatar = () => {
-    if (!useAuthAvatar && avatarUrl) {
-      return <img src={avatarUrl} alt={displayName || user.email} className="h-14 w-14 rounded-full object-cover" />;
-    }
-    if (useAuthAvatar && user.avatar) {
-      return <img src={user.avatar} alt={displayName || user.email} className="h-14 w-14 rounded-full object-cover" />;
+    if (resolvedAvatarUrl) {
+      return (
+        <img
+          src={resolvedAvatarUrl}
+          alt={displayName || user.email}
+          className="h-14 w-14 rounded-full object-cover"
+          onError={() => setAvatarUrl('')}
+        />
+      );
     }
     const letters = (displayName || user.email).slice(0, 2).toUpperCase();
     return (
       <div className="flex h-14 w-14 items-center justify-center rounded-full bg-gray-100 text-lg font-semibold text-gray-700">
+        {letters}
+      </div>
+    );
+  };
+
+  const renderAvatarFor = (url: string | null | undefined, size: 'sm' | 'md' = 'md') => {
+    const sizeClass = size === 'sm' ? 'h-10 w-10' : 'h-14 w-14';
+    if (url) {
+      return (
+        <img
+          src={url}
+          alt={displayName || user.email}
+          className={`${sizeClass} rounded-full object-cover`}
+          onError={(e) => {
+            (e.currentTarget as HTMLImageElement).style.display = 'none';
+          }}
+        />
+      );
+    }
+    const letters = (displayName || user.email).slice(0, 2).toUpperCase();
+    return (
+      <div className={`flex ${sizeClass} items-center justify-center rounded-full bg-gray-100 text-sm font-semibold text-gray-700`}>
         {letters}
       </div>
     );
@@ -237,7 +313,32 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
             <ArrowLeft size={18} />
           </button>
           <div className="flex items-center gap-4">
-            {renderAvatar()}
+            <input
+              ref={avatarInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={async (e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                await uploadAvatarFile(file);
+                setAvatarModalOpen(false);
+                e.currentTarget.value = '';
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => setAvatarModalOpen(true)}
+              // `library-skin` applies aggressive button/child backgrounds; opt out so the avatar isn't covered.
+              className="library-unstyled group relative rounded-full overflow-hidden"
+              aria-label="Change profile image"
+            >
+              {renderAvatar()}
+              <span className="pointer-events-none absolute inset-0 rounded-full bg-black/0 transition group-hover:bg-black/10" />
+              <span className="pointer-events-none absolute bottom-0 right-0 inline-flex h-6 w-6 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-700 shadow-sm">
+                {uploadingAvatar ? <Loader2 className="animate-spin" size={14} /> : <Camera size={14} />}
+              </span>
+            </button>
             <div>
               <h1 className="text-xl font-semibold text-gray-900">{displayName || 'Your workspace'}</h1>
               <p className="text-sm text-gray-600">{user.email}</p>
@@ -245,19 +346,151 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={resetSettings}
-            className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-4 py-2 text-sm text-gray-600 hover:text-gray-900"
-          >
-            <RefreshCcw size={16} /> Reset view
-          </button>
           {isSaving && (
             <span className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-gray-100 px-3 py-1.5 text-xs text-gray-600">
               <Loader2 className="animate-spin" size={14} /> Saving…
             </span>
           )}
+          {profileSaving && (
+            <span className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-gray-100 px-3 py-1.5 text-xs text-gray-600">
+              <Loader2 className="animate-spin" size={14} /> Saving profile…
+            </span>
+          )}
         </div>
       </header>
+
+      <Dialog
+        open={avatarModalOpen}
+        onOpenChange={(open) => {
+          if (uploadingAvatar) return;
+          setAvatarModalOpen(open);
+        }}
+      >
+        <DialogContent className="bg-white text-gray-900 sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Profile image</DialogTitle>
+            <DialogDescription>Choose your default (sign-in) image or use a custom upload.</DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <button
+              type="button"
+              disabled={profileSaving || uploadingAvatar}
+              onClick={async () => {
+                setProfileSaving(true);
+                try {
+                  await updateProfile({ avatarSource: 'auth' } as any);
+                  setAvatarUrl(authAvatarUrl ?? '');
+                  setAvatarModalOpen(false);
+                } finally {
+                  setProfileSaving(false);
+                }
+              }}
+              className={`rounded-2xl border p-4 text-left transition ${
+                currentAvatarSource === 'auth' ? 'border-gray-900 bg-gray-50' : 'border-gray-200 bg-white hover:bg-gray-50'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                {renderAvatarFor(authAvatarUrl, 'sm')}
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold text-gray-900">Default</div>
+                  <div className="text-xs text-gray-600 truncate">From your sign-in profile (Clerk)</div>
+                </div>
+              </div>
+              {currentAvatarSource === 'auth' && (
+                <div className="mt-3 inline-flex rounded-full bg-gray-900 px-2.5 py-1 text-[11px] font-semibold text-slate-50">
+                  Active
+                </div>
+              )}
+            </button>
+
+            <button
+              type="button"
+              disabled={profileSaving || uploadingAvatar}
+              onClick={async () => {
+                if (!customAvatarUrl) {
+                  avatarInputRef.current?.click();
+                  return;
+                }
+                setProfileSaving(true);
+                try {
+                  await updateProfile({ avatarSource: 'custom' } as any);
+                  setAvatarUrl(customAvatarUrl ?? '');
+                  setAvatarModalOpen(false);
+                } finally {
+                  setProfileSaving(false);
+                }
+              }}
+              className={`rounded-2xl border p-4 text-left transition ${
+                currentAvatarSource === 'custom' ? 'border-gray-900 bg-gray-50' : 'border-gray-200 bg-white hover:bg-gray-50'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                {customAvatarUrl ? (
+                  renderAvatarFor(customAvatarUrl, 'sm')
+                ) : (
+                  <div className="flex h-10 w-10 items-center justify-center rounded-full border border-dashed border-gray-300 bg-gray-50 text-xs font-semibold text-gray-600">
+                    +
+                  </div>
+                )}
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold text-gray-900">Custom</div>
+                  <div className="text-xs text-gray-600 truncate">
+                    {customAvatarUrl ? 'Use your uploaded image' : 'Upload an image to use'}
+                  </div>
+                </div>
+              </div>
+              {currentAvatarSource === 'custom' && (
+                <div className="mt-3 inline-flex rounded-full bg-gray-900 px-2.5 py-1 text-[11px] font-semibold text-slate-50">
+                  Active
+                </div>
+              )}
+            </button>
+          </div>
+
+          <DialogFooter className="flex flex-row items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              {customAvatarUrl ? (
+                <button
+                  type="button"
+                  disabled={profileSaving || uploadingAvatar}
+                  className="rounded-full border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-gray-700 hover:text-gray-900 disabled:opacity-40"
+                  onClick={async () => {
+                    setProfileSaving(true);
+                    try {
+                      await updateProfile({ avatar: '', avatarSource: 'auth' } as any);
+                      setAvatarUrl(authAvatarUrl ?? '');
+                      setAvatarModalOpen(false);
+                    } finally {
+                      setProfileSaving(false);
+                    }
+                  }}
+                >
+                  Remove custom
+                </button>
+              ) : null}
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={profileSaving || uploadingAvatar}
+                className="rounded-full border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-gray-700 hover:text-gray-900 disabled:opacity-40"
+                onClick={() => setAvatarModalOpen(false)}
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                disabled={profileSaving || uploadingAvatar}
+                className="rounded-full bg-gray-900 px-4 py-2 text-sm font-semibold text-slate-50 hover:bg-black/90 disabled:opacity-40"
+                onClick={() => avatarInputRef.current?.click()}
+              >
+                {uploadingAvatar ? 'Uploading…' : 'Upload custom'}
+              </button>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <section className="grid gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,1.2fr)]">
         <div className="space-y-6">
@@ -274,76 +507,34 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
               <input
                 value={displayName}
                 onChange={(event) => setDisplayName(event.target.value)}
+                onBlur={() => void handleSaveProfile()}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    (event.currentTarget as HTMLInputElement).blur();
+                  }
+                }}
                 placeholder="Add your name"
                 className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-300"
               />
-              <div className="grid gap-3 sm:grid-cols-2">
-                <label className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 p-3">
-                  <input
-                    type="radio"
-                    name="avatar-source"
-                    checked={useAuthAvatar}
-                    onChange={() => setUseAuthAvatar(true)}
-                  />
-                  <span className="text-sm">Use sign-in profile image</span>
-                </label>
-                <label className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 p-3">
-                  <input
-                    type="radio"
-                    name="avatar-source"
-                    checked={!useAuthAvatar}
-                    onChange={() => setUseAuthAvatar(false)}
-                  />
-                  <span className="text-sm">Upload a custom image</span>
-                </label>
-              </div>
-              {!useAuthAvatar && (
-                <div className="flex flex-wrap items-center gap-3">
-                  <input
-                    id="avatar-file"
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={async (e) => {
-                      const file = e.target.files?.[0];
-                      if (!file) return;
-                      setUploadingAvatar(true);
-                      try {
-                        // Resize client-side to max 512px
-                        const blob = await resizeImage(file, 512, 0.85);
-                        const meta = await generateAvatarUpload({ contentType: 'image/jpeg', fileName: file.name });
-                        await uploadBlob(meta.uploadUrl, blob, 'image/jpeg');
-                        setAvatarUrl(meta.publicUrl);
-                        await updateProfile({ name: displayName || undefined, avatar: meta.publicUrl });
-                      } catch (err) {
-                        console.error('Avatar upload failed', err);
-                      } finally {
-                        setUploadingAvatar(false);
-                        e.currentTarget.value = '';
-                      }
+
+              <div className="pt-2">
+                <div className="flex items-center gap-3 text-gray-900">
+                  <Users size={18} />
+                  <h3 className="text-base font-semibold">Friends</h3>
+                </div>
+                <p className="mt-1 text-sm text-gray-600">People you collaborate with across your teams. Mentions use this list.</p>
+                <div className="mt-3 space-y-3 text-sm text-gray-700">
+                  <FriendsManager
+                    friends={friends ?? []}
+                    onAdd={async (email, name) => {
+                      await addFriend({ email, name: name || undefined });
+                    }}
+                    onRemove={async (id) => {
+                      await removeFriend({ friendId: id as any });
                     }}
                   />
-                  <label
-                    htmlFor="avatar-file"
-                    className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-gray-200 bg-white px-4 py-2 text-sm text-gray-700 hover:text-gray-900"
-                  >
-                    {uploadingAvatar ? <Loader2 size={16} className="animate-spin" /> : null}
-                    {uploadingAvatar ? 'Uploading…' : 'Choose image'}
-                  </label>
-                  {avatarUrl && (
-                    <span className="text-xs text-gray-500 truncate max-w-[60ch]">{avatarUrl}</span>
-                  )}
                 </div>
-              )}
-              <div className="flex justify-end">
-                <button
-                  onClick={handleSaveProfile}
-                  disabled={profileSaving}
-                  className="inline-flex items-center gap-2 rounded-full bg-gray-900 px-4 py-2 text-sm text-slate-50 hover:bg-black/90 disabled:opacity-40"
-                >
-                  {profileSaving ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
-                  Update profile
-                </button>
               </div>
             </div>
       </article>
@@ -430,25 +621,6 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
               </div>
             </div>
           </div>
-        </div>
-      </article>
-
-      <article className="library-panel p-6">
-        <div className="flex items-center gap-3 text-gray-900">
-          <Users size={18} />
-          <h2 className="text-lg font-semibold">Friends</h2>
-        </div>
-        <p className="mt-2 text-sm text-gray-600">People you collaborate with across your teams. Mentions use this list.</p>
-        <div className="mt-4 space-y-3 text-sm text-gray-700">
-          <FriendsManager
-            friends={friends ?? []}
-            onAdd={async (email, name) => {
-              await addFriend({ email, name: name || undefined });
-            }}
-            onRemove={async (id) => {
-              await removeFriend({ friendId: id as any });
-            }}
-          />
         </div>
       </article>
 

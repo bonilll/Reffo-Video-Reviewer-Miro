@@ -111,7 +111,7 @@ export const Note = ({
   
   // Utente corrente
   const currentUser = useSelf();
-  const author = currentUser?.info?.name || "User";
+  const author = currentUser?.presence?.profile?.name || currentUser?.info?.name || "User";
   
   // Mutation unificata per aggiornare la nota
   const updateNote = useMutation(({ storage }, newValue: string, newSize?: number) => {
@@ -120,7 +120,7 @@ export const Note = ({
     if (layer) {
       const updateData: any = { 
         value: newValue,
-        lastModifiedBy: currentUser?.info?.name || "User",
+        lastModifiedBy: currentUser?.presence?.profile?.name || currentUser?.info?.name || "User",
         lastModifiedAt: new Date().toISOString()
       };
       
