@@ -968,22 +968,22 @@ const ProjectWorkspace: React.FC<{
           ) : (
             <>
               <div className="flex items-center justify-end gap-2">
-                <button
-                  onClick={() => setViewMode('grid')}
-                  className={`rounded-full px-3 py-1.5 text-xs ${
-                    viewMode === 'grid' ? 'bg-gray-900 text-white' : 'text-gray-500 hover:text-gray-900'
-                  }`}
-                >
-                  Grid
-                </button>
-                <button
-                  onClick={() => setViewMode('list')}
-                  className={`rounded-full px-3 py-1.5 text-xs ${
-                    viewMode === 'list' ? 'bg-gray-900 text-white' : 'text-gray-500 hover:text-gray-900'
-                  }`}
-                >
-                  List
-                </button>
+	                <button
+	                  onClick={() => setViewMode('grid')}
+	                  className={`rounded-full px-3 py-1.5 text-xs ${
+	                    viewMode === 'grid' ? 'bg-gray-900 text-slate-50' : 'text-gray-500 hover:text-gray-900'
+	                  }`}
+	                >
+	                  Grid
+	                </button>
+	                <button
+	                  onClick={() => setViewMode('list')}
+	                  className={`rounded-full px-3 py-1.5 text-xs ${
+	                    viewMode === 'list' ? 'bg-gray-900 text-slate-50' : 'text-gray-500 hover:text-gray-900'
+	                  }`}
+	                >
+	                  List
+	                </button>
               </div>
               {viewMode === 'grid' ? (
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -1146,31 +1146,31 @@ const ProjectWorkspace: React.FC<{
                 placeholder="Board title"
                 className="w-44 rounded-full border border-gray-200 bg-white px-4 py-2 text-xs text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-300"
               />
-              <button
-                onClick={handleCreateBoard}
-                disabled={!newBoardTitle.trim() || isCreatingBoard}
-                className="inline-flex items-center gap-2 rounded-full bg-gray-900 px-4 py-2 text-xs font-semibold text-white transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-60"
-              >
+	              <button
+	                onClick={handleCreateBoard}
+	                disabled={!newBoardTitle.trim() || isCreatingBoard}
+	                className="inline-flex items-center gap-2 rounded-full bg-gray-900 px-4 py-2 text-xs font-semibold text-slate-50 transition hover:bg-black/90 disabled:cursor-not-allowed disabled:opacity-60"
+	              >
                 <Plus size={14} />
                 {isCreatingBoard ? 'Creating…' : 'Create board'}
               </button>
               <div className="ml-auto flex items-center gap-2">
-                <button
-                  onClick={() => setBoardViewMode('grid')}
-                  className={`rounded-full px-3 py-1.5 text-xs ${
-                    boardViewMode === 'grid' ? 'bg-gray-900 text-white' : 'text-gray-500 hover:text-gray-900'
-                  }`}
-                >
-                  Grid
-                </button>
-                <button
-                  onClick={() => setBoardViewMode('list')}
-                  className={`rounded-full px-3 py-1.5 text-xs ${
-                    boardViewMode === 'list' ? 'bg-gray-900 text-white' : 'text-gray-500 hover:text-gray-900'
-                  }`}
-                >
-                  List
-                </button>
+	                <button
+	                  onClick={() => setBoardViewMode('grid')}
+	                  className={`rounded-full px-3 py-1.5 text-xs ${
+	                    boardViewMode === 'grid' ? 'bg-gray-900 text-slate-50' : 'text-gray-500 hover:text-gray-900'
+	                  }`}
+	                >
+	                  Grid
+	                </button>
+	                <button
+	                  onClick={() => setBoardViewMode('list')}
+	                  className={`rounded-full px-3 py-1.5 text-xs ${
+	                    boardViewMode === 'list' ? 'bg-gray-900 text-slate-50' : 'text-gray-500 hover:text-gray-900'
+	                  }`}
+	                >
+	                  List
+	                </button>
               </div>
             </div>
           </div>
@@ -1431,7 +1431,7 @@ const ProjectWorkspace: React.FC<{
               <button
                 onClick={proceedUpload}
                 disabled={isUploading}
-                className="rounded-full bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition enabled:hover:bg-gray-800 disabled:opacity-40"
+                className="rounded-full bg-gray-900 px-4 py-2 text-sm font-semibold text-slate-50 transition enabled:hover:bg-black/90 disabled:opacity-40"
               >
                 {isUploading ? 'Uploading…' : 'Upload'}
               </button>
@@ -1518,7 +1518,7 @@ const ProjectWorkspace: React.FC<{
               <button
                 onClick={handleRenameBoard}
                 disabled={!boardRenameValue.trim() || isUpdatingBoard}
-                className="rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-slate-50 transition hover:bg-black/90 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {isUpdatingBoard ? 'Saving…' : 'Save'}
               </button>

@@ -2538,20 +2538,25 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
           </div>
         </div>
       )}
-      {showInsertButton && insertEditOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-          <div className="w-full max-w-2xl rounded-3xl border border-white/10 bg-gray-900/95 p-6 text-white shadow-2xl">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-xl font-semibold">Insert edited clip</h2>
-                <p className="text-sm text-white/70">Select a rendered edit and the frame where it should appear inside this review.</p>
-              </div>
-              <button onClick={() => setInsertEditOpen(false)} className="text-white/60 hover:text-white">✕</button>
-            </div>
-            <div className="mt-4 max-h-[320px] space-y-2 overflow-y-auto pr-2 text-sm">
-              {(exportsForVideo ?? []).length === 0 && (
-                <p className="text-xs text-white/60">No edits available yet. Render an edit in the editor first.</p>
-              )}
+	      {showInsertButton && insertEditOpen && (
+	        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+	          <div className="w-full max-w-2xl rounded-3xl border border-white/10 bg-gray-900/95 p-6 text-slate-50 shadow-2xl">
+	            <div className="flex items-center justify-between">
+	              <div>
+	                <h2 className="text-xl font-semibold">Insert edited clip</h2>
+	                <p className="text-sm text-slate-200">Select a rendered edit and the frame where it should appear inside this review.</p>
+	              </div>
+	              <button
+	                onClick={() => setInsertEditOpen(false)}
+	                className="text-slate-200 hover:text-slate-50"
+	              >
+	                ✕
+	              </button>
+	            </div>
+	            <div className="mt-4 max-h-[320px] space-y-2 overflow-y-auto pr-2 text-sm">
+	              {(exportsForVideo ?? []).length === 0 && (
+	                <p className="text-xs text-slate-300">No edits available yet. Render an edit in the editor first.</p>
+	              )}
               {(exportsForVideo ?? []).map((item) => {
                 const isCompleted = item.export.status === 'completed' && item.export.outputPublicUrl;
                 return (
@@ -2570,39 +2575,43 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
                       onChange={() => setSelectedExportId(item.export._id as string)}
                     />
                     <div className="flex-1">
-                      <div className="flex items-center justify-between text-xs uppercase tracking-wide text-white/60">
+	                      <div className="flex items-center justify-between text-xs uppercase tracking-wide text-slate-300">
                         <span>{item.composition.title}</span>
                         <span>
                           {item.export.status}
                           {item.export.status === 'running' && ` • ${Math.round(item.export.progress)}%`}
                         </span>
                       </div>
-                      <div className="text-sm font-semibold text-white">{new Date(item.export.createdAt).toLocaleString()}</div>
-                      {!isCompleted && <div className="text-[11px] text-white/50">Only completed exports can be inserted.</div>}
+	                      <div className="text-sm font-semibold text-slate-50">
+	                        {new Date(item.export.createdAt).toLocaleString()}
+	                      </div>
+	                      {!isCompleted && (
+	                        <div className="text-[11px] text-slate-300">Only completed exports can be inserted.</div>
+	                      )}
                     </div>
                   </label>
                 );
               })}
             </div>
             <div className="mt-4 flex flex-col gap-3 border-t border-white/10 pt-4 text-sm">
-              <label className="flex items-center gap-3">
-                <span className="text-white/70">Frame</span>
-                <input
+	              <label className="flex items-center gap-3">
+	                <span className="text-slate-200">Frame</span>
+	                <input
                   type="number"
                   min={0}
                   value={Math.round(insertFrame)}
                   onChange={(e) => setInsertFrame(Math.max(0, Number(e.target.value) || 0))}
-                  className="w-32 rounded border border-white/20 bg-black/40 px-3 py-1 text-white"
-                />
-                <span className="text-white/50">(Current: {currentFrame})</span>
-              </label>
+	                  className="w-32 rounded border border-white/20 bg-black/40 px-3 py-1 text-slate-50"
+	                />
+	                <span className="text-slate-300">(Current: {currentFrame})</span>
+	              </label>
               {attachError && <p className="text-sm text-red-400">{attachError}</p>}
             </div>
             <div className="mt-4 flex justify-end gap-3 text-sm">
-              <button
-                onClick={() => setInsertEditOpen(false)}
-                className="rounded-full border border-white/20 px-4 py-2 text-white/80 hover:bg-white/10"
-              >
+	              <button
+	                onClick={() => setInsertEditOpen(false)}
+	                className="rounded-full border border-white/20 px-4 py-2 text-slate-50 hover:bg-white/10"
+	              >
                 Cancel
               </button>
               <button

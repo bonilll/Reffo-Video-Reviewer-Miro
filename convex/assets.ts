@@ -305,6 +305,15 @@ export const deleteAsset = mutation({
     if (!asset || asset.userId !== user._id) {
       throw new ConvexError("FORBIDDEN");
     }
+
+    // Cleanup: remove from any collections to avoid dangling references.
+    const collectionItems = await ctx.db
+      .query("assetCollectionItems")
+      .withIndex("byAsset", (q) => q.eq("assetId", args.id))
+      .collect();
+    for (const item of collectionItems) {
+      await ctx.db.delete(item._id);
+    }
     await ctx.db.delete(args.id);
     return args.id;
   },

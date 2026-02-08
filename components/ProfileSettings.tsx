@@ -339,7 +339,7 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
                 <button
                   onClick={handleSaveProfile}
                   disabled={profileSaving}
-                  className="inline-flex items-center gap-2 rounded-full bg-gray-900 px-4 py-2 text-sm text-white hover:bg-gray-800 disabled:opacity-40"
+                  className="inline-flex items-center gap-2 rounded-full bg-gray-900 px-4 py-2 text-sm text-slate-50 hover:bg-black/90 disabled:opacity-40"
                 >
                   {profileSaving ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
                   Update profile
@@ -382,7 +382,7 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
                         console.error('Failed to start Slack OAuth', err);
                       }
                     }}
-                    className="rounded-full bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800"
+                    className="rounded-full bg-gray-900 px-4 py-2 text-sm font-semibold text-slate-50 hover:bg-black/90"
                   >
                     Connect Slack
                   </button>
@@ -755,7 +755,7 @@ const FriendsManager: React.FC<FriendsManagerProps> = ({ friends, onAdd, onRemov
             setEmail('');
             setName('');
           }}
-          className="rounded-full bg-gray-900 px-4 py-2 text-sm font-semibold text-white enabled:hover:bg-gray-800 disabled:opacity-40"
+          className="rounded-full bg-gray-900 px-4 py-2 text-sm font-semibold text-slate-50 enabled:hover:bg-black/90 disabled:opacity-40"
         >
           {saving ? 'Adding…' : 'Add'}
         </button>

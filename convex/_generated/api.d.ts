@@ -15,6 +15,7 @@ import type * as assets from "../assets.js";
 import type * as assetsSimilarity from "../assetsSimilarity.js";
 import type * as board from "../board.js";
 import type * as boards from "../boards.js";
+import type * as collections from "../collections.js";
 import type * as comments from "../comments.js";
 import type * as compliance from "../compliance.js";
 import type * as edits from "../edits.js";
@@ -68,6 +69,7 @@ declare const fullApi: ApiFromModules<{
   assetsSimilarity: typeof assetsSimilarity;
   board: typeof board;
   boards: typeof boards;
+  collections: typeof collections;
   comments: typeof comments;
   compliance: typeof compliance;
   edits: typeof edits;

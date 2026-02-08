@@ -310,9 +310,9 @@ export function SubscriptionStatus({
                 </div>
               </div>
             </div>
-          )}
         </CardContent>
       </Card>
+      )}
 
       {planType !== 'free' && (
         <Card>

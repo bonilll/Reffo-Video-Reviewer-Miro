@@ -917,7 +917,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                   setProjectToEdit(null);
                   setProjectModalOpen(true);
                 }}
-                className="inline-flex items-center gap-2 rounded-full bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800"
+	                className="inline-flex items-center gap-2 rounded-full bg-gray-900 px-4 py-2 text-sm font-semibold text-slate-50 hover:bg-black/90"
               >
                 <Plus size={16} /> New project
               </button>
@@ -933,13 +933,13 @@ const Dashboard: React.FC<DashboardProps> = ({
           <div className="flex items-center justify-end gap-2">
             <button
               onClick={() => setViewMode('list')}
-              className={`rounded-full px-3 py-1.5 text-xs ${viewMode === 'list' ? 'bg-gray-900 text-white' : 'text-gray-500 hover:text-gray-900'}`}
+              className={`rounded-full px-3 py-1.5 text-xs ${viewMode === 'list' ? 'bg-gray-900 text-slate-50' : 'text-gray-500 hover:text-gray-900'}`}
             >
               List
             </button>
             <button
               onClick={() => setViewMode('grid')}
-              className={`rounded-full px-3 py-1.5 text-xs ${viewMode === 'grid' ? 'bg-gray-900 text-white' : 'text-gray-500 hover:text-gray-900'}`}
+              className={`rounded-full px-3 py-1.5 text-xs ${viewMode === 'grid' ? 'bg-gray-900 text-slate-50' : 'text-gray-500 hover:text-gray-900'}`}
             >
               Grid
             </button>
@@ -1116,7 +1116,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                 </div>
               </div>
               <button
-                className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800"
+                className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-slate-50 hover:bg-black/90"
                 onClick={() => openProjectWorkspace(project.id)}
               >
                 Open workspace
@@ -1156,7 +1156,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                       pushToast('error', 'Unable to create group.');
                     }
                   }}
-                  className="inline-flex items-center gap-2 rounded-full bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800"
+                  className="inline-flex items-center gap-2 rounded-full bg-gray-900 px-4 py-2 text-sm font-semibold text-slate-50 hover:bg-black/90"
                 >
                   <Users size={16} /> New group
                 </button>
@@ -1218,7 +1218,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                   </ul>
                   <button
                     onClick={() => setInviteTarget(group)}
-                    className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800"
+                    className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-slate-50 hover:bg-black/90"
                   >
                     Invite collaborator
                   </button>
@@ -1410,7 +1410,7 @@ const Dashboard: React.FC<DashboardProps> = ({
               <button
                 onClick={proceedUpload}
                 disabled={!selectedProjectId || isUploading}
-                className="rounded-full bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition enabled:hover:bg-gray-800 disabled:opacity-40"
+                className="rounded-full bg-gray-900 px-4 py-2 text-sm font-semibold text-slate-50 transition enabled:hover:bg-black/90 disabled:opacity-40"
               >
                 {isUploading ? 'Uploading…' : 'Upload' }
               </button>
@@ -1667,7 +1667,7 @@ export const RenameVideoModal: React.FC<RenameVideoModalProps> = ({ video, onClo
           <button
             type="submit"
             disabled={!title.trim() || saving}
-            className="rounded-full bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition enabled:hover:bg-gray-800 disabled:opacity-40"
+            className="rounded-full bg-gray-900 px-4 py-2 text-sm font-semibold text-slate-50 transition enabled:hover:bg-black/90 disabled:opacity-40"
           >
             {saving ? 'Saving…' : 'Save'}
           </button>
@@ -1753,7 +1753,7 @@ export const MoveVideoModal: React.FC<MoveVideoModalProps> = ({ video, projects,
           <button
             type="submit"
             disabled={!target || saving}
-            className="rounded-full bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition enabled:hover:bg-gray-800 disabled:opacity-40"
+            className="rounded-full bg-gray-900 px-4 py-2 text-sm font-semibold text-slate-50 transition enabled:hover:bg-black/90 disabled:opacity-40"
           >
             {saving ? 'Moving…' : 'Move'}
           </button>
@@ -2092,7 +2092,7 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ initialName, onCancel, onSu
           <button
             type="submit"
             disabled={!name.trim() || saving}
-            className="rounded-full bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition enabled:hover:bg-gray-800 disabled:opacity-40"
+            className="rounded-full bg-gray-900 px-4 py-2 text-sm font-semibold text-slate-50 transition enabled:hover:bg-black/90 disabled:opacity-40"
           >
             {saving ? 'Saving…' : 'Save'}
           </button>
@@ -2178,7 +2178,7 @@ const InviteForm: React.FC<{
         <button type="button" onClick={onCancel} className="rounded-full bg-white/10 px-4 py-2 text-sm text-white/70 hover:text-white">
           Cancel
         </button>
-        <button type="submit" disabled={saving || !email.trim()} className="rounded-full bg-gray-900 px-4 py-2 text-sm font-semibold text-white enabled:hover:bg-gray-800 disabled:opacity-40">
+        <button type="submit" disabled={saving || !email.trim()} className="rounded-full bg-gray-900 px-4 py-2 text-sm font-semibold text-slate-50 enabled:hover:bg-black/90 disabled:opacity-40">
           {saving ? 'Sending…' : 'Send invite'}
         </button>
       </div>
@@ -2216,7 +2216,7 @@ const RenameTeamForm: React.FC<{
         <button type="button" onClick={onCancel} className="rounded-full bg-white/10 px-4 py-2 text-sm text-white/70 hover:text-white">
           Cancel
         </button>
-        <button type="submit" disabled={saving || !name.trim()} className="rounded-full bg-gray-900 px-4 py-2 text-sm font-semibold text-white enabled:hover:bg-gray-800 disabled:opacity-40">
+        <button type="submit" disabled={saving || !name.trim()} className="rounded-full bg-gray-900 px-4 py-2 text-sm font-semibold text-slate-50 enabled:hover:bg-black/90 disabled:opacity-40">
           {saving ? 'Saving…' : 'Save'}
         </button>
       </div>
@@ -2250,7 +2250,7 @@ const InlineCreateProject: React.FC<{
       <button
         type="submit"
         disabled={!name.trim() || saving}
-        className="inline-flex items-center gap-2 rounded-full bg-gray-900 px-3 py-2 text-xs font-semibold text-white enabled:hover:bg-gray-800 disabled:opacity-40"
+        className="inline-flex items-center gap-2 rounded-full bg-gray-900 px-3 py-2 text-xs font-semibold text-slate-50 enabled:hover:bg-black/90 disabled:opacity-40"
       >
         <Plus size={14} /> Create
       </button>

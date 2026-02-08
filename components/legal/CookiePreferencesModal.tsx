@@ -93,8 +93,8 @@ export const CookiePreferencesModal: React.FC = () => {
               // acceptAll also keeps marketing disabled
               acceptAll();
             }}
-            className="rounded-full bg-gray-900 px-4 py-2 text-center text-white transition-colors hover:bg-black"
-          >
+	            className="rounded-full bg-gray-900 px-4 py-2 text-center text-slate-50 transition-colors hover:bg-black"
+	          >
             {text.cookieModal.acceptAll}
           </button>
           <button

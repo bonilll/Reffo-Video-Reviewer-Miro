@@ -5,15 +5,36 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { uploadFileMultipart } from "@/lib/upload/multipart";
 import { Library } from "@/components/library/library";
+import { CollectionsView } from "@/components/library/collections";
+import { ReferenceDeleteConfirmation } from "@/components/library/ReferenceDeleteConfirmation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Slider } from "@/components/ui/slider";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   UploadCloud,
   ImageIcon,
   VideoIcon,
   FileIcon,
   X,
+  Check,
+  ChevronDown,
+  Plus,
+  Search,
+  Folder,
+  MousePointer2,
+  Trash2,
+  FolderPlus,
+  LayoutGrid,
 } from "lucide-react";
 import { toast } from "sonner";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
@@ -88,6 +109,15 @@ const mergeTags = (existing: string[], next: string[]) => {
   });
   return merged;
 };
+
+const normalizeCollectionTitleDisplay = (title: string) => {
+  const cleaned = title.replace(/\s+/g, " ").trim();
+  if (!cleaned) return "";
+  return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+};
+
+const normalizeCollectionTitleKey = (title: string) =>
+  title.replace(/\s+/g, " ").trim().toLowerCase();
 
 const rgbToHex = (r: number, g: number, b: number) =>
   `#${[r, g, b].map((v) => v.toString(16).padStart(2, "0")).join("")}`;
@@ -346,6 +376,20 @@ const LibraryPage: React.FC = () => {
   const [autoQueueAnalysis] = useState(true);
   const [isDragging, setIsDragging] = useState(false);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+  const [uploadCollectionPickerOpen, setUploadCollectionPickerOpen] = useState(false);
+  const [uploadCollectionSearch, setUploadCollectionSearch] = useState("");
+  const [uploadCollectionIds, setUploadCollectionIds] = useState<Id<"assetCollections">[]>([]);
+  const [isCreatingUploadCollection, setIsCreatingUploadCollection] = useState(false);
+  const [uploadCollectionTitleOverrides, setUploadCollectionTitleOverrides] = useState<Record<string, string>>({});
+  const [activeTab, setActiveTab] = useState<"references" | "collections">("references");
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedAssetIds, setSelectedAssetIds] = useState<Id<"assets">[]>([]);
+  const [isAddToCollectionOpen, setIsAddToCollectionOpen] = useState(false);
+  const [collectionPickerQuery, setCollectionPickerQuery] = useState("");
+  const [newCollectionTitle, setNewCollectionTitle] = useState("");
+  const [pickedCollectionId, setPickedCollectionId] = useState<string | null>(null);
+  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
+  const [masonryColumns, setMasonryColumns] = useState<number>(4);
   const [stagedItems, setStagedItems] = useState<StagedItem[]>([]);
   const [selectedStageId, setSelectedStageId] = useState<string | null>(null);
   const [syncShared, setSyncShared] = useState(true);
@@ -379,8 +423,87 @@ const LibraryPage: React.FC = () => {
   const patchDerived = useMutation(api.assets.patchDerived);
   const updateMetadata = useMutation(api.assets.updateMetadata);
   const enqueueJob = useMutation(api.assetJobs.enqueue);
+  const deleteAsset = useMutation(api.assets.deleteAsset);
+  const collections = useQuery(api.collections.list, {});
+  const createCollection = useMutation(api.collections.create);
+  const addAssetsToCollection = useMutation(api.collections.addAssets);
 
   const assets = useQuery(api.assets.getUserLibrary, {});
+
+  const uploadCollections = useMemo(() => {
+    return (collections ?? []) as any[];
+  }, [collections]);
+
+  const filteredUploadCollections = useMemo(() => {
+    const q = uploadCollectionSearch.trim().toLowerCase();
+    if (!q) return uploadCollections;
+    return uploadCollections.filter((c: any) => String(c?.title ?? "").toLowerCase().includes(q));
+  }, [uploadCollections, uploadCollectionSearch]);
+
+  const uploadCreateCollectionTitle = useMemo(() => {
+    return normalizeCollectionTitleDisplay(uploadCollectionSearch);
+  }, [uploadCollectionSearch]);
+
+  const uploadCreateCollectionKey = useMemo(() => {
+    return normalizeCollectionTitleKey(uploadCreateCollectionTitle);
+  }, [uploadCreateCollectionTitle]);
+
+  const uploadCreateCollectionExists = useMemo(() => {
+    if (!uploadCreateCollectionKey) return false;
+    return (uploadCollections ?? []).some(
+      (c: any) => normalizeCollectionTitleKey(String(c?.title ?? "")) === uploadCreateCollectionKey,
+    );
+  }, [uploadCollections, uploadCreateCollectionKey]);
+
+  const canCreateUploadCollectionFromSearch = Boolean(
+    uploadCreateCollectionTitle &&
+      normalizeCollectionTitleKey(uploadCreateCollectionTitle).length >= 2 &&
+      !uploadCreateCollectionExists,
+  );
+
+  useEffect(() => {
+    // Initialize from localStorage (if present), otherwise match current responsive defaults.
+    try {
+      const raw = window.localStorage.getItem("library_masonry_columns");
+      const n = raw ? Number(raw) : NaN;
+      if (Number.isFinite(n) && n >= 1 && n <= 8) {
+        setMasonryColumns(Math.round(n));
+        return;
+      }
+    } catch {
+      // ignore
+    }
+    const w = typeof window !== "undefined" ? window.innerWidth : 1280;
+    if (w < 640) setMasonryColumns(1);
+    else if (w < 1024) setMasonryColumns(2);
+    else if (w < 1280) setMasonryColumns(3);
+    else setMasonryColumns(4);
+  }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("library_masonry_columns", String(masonryColumns));
+    } catch {
+      // ignore
+    }
+  }, [masonryColumns]);
+
+  useEffect(() => {
+    if (activeTab !== "references") {
+      setSelectionMode(false);
+      setSelectedAssetIds([]);
+      setIsAddToCollectionOpen(false);
+      setIsDeleteConfirmOpen(false);
+    }
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (!selectionMode) {
+      setSelectedAssetIds([]);
+      setIsAddToCollectionOpen(false);
+      setIsDeleteConfirmOpen(false);
+    }
+  }, [selectionMode]);
 
   const setUploadProgress = useCallback((id: string, progress: number) => {
     setUploadItems((prev) =>
@@ -442,6 +565,9 @@ const LibraryPage: React.FC = () => {
     setUploadItems([]);
     setUploadBatchTotal(stagedItems.length);
     let hadErrors = false;
+    const uploadedAssetIds: Id<"assets">[] = [];
+    const targetCollectionIds = uploadCollectionIds.slice();
+    const succeededStageIds: string[] = [];
     for (const item of stagedItems) {
       const id = crypto.randomUUID();
       setUploadItems((prev) => [
@@ -533,6 +659,8 @@ const LibraryPage: React.FC = () => {
           });
         }
 
+        uploadedAssetIds.push(assetId);
+        succeededStageIds.push(item.id);
         setUploadStatus(id, "done");
         toast.success(`${item.file.name} uploaded`);
       } catch (error) {
@@ -542,22 +670,51 @@ const LibraryPage: React.FC = () => {
         toast.error(`Upload failed: ${item.file.name}`);
       }
     }
+
+    if (targetCollectionIds.length > 0 && uploadedAssetIds.length > 0) {
+      try {
+        await Promise.all(
+          targetCollectionIds.map((collectionId) =>
+            addAssetsToCollection({ collectionId, assetIds: uploadedAssetIds })
+          )
+        );
+        toast.success("Added to collections");
+      } catch (error) {
+        console.error("Failed to add uploaded assets to collections", error);
+        hadErrors = true;
+        toast.error("Failed to add references to collections");
+      }
+    }
+
     setIsUploading(false);
-    setStagedItems((prev) => {
-      prev.forEach((item) => releaseObjectUrl(item.previewUrl));
-      return [];
-    });
-    setSelectedStageId(null);
+    if (hadErrors) {
+      // Keep failed items staged so the user can retry; clean up successful previews to reduce memory usage.
+      const succeededSet = new Set(succeededStageIds);
+      stagedItems
+        .filter((si) => succeededSet.has(si.id))
+        .forEach((si) => releaseObjectUrl(si.previewUrl));
+      setStagedItems((prev) => prev.filter((si) => !succeededSet.has(si.id)));
+      setSelectedStageId((current) => {
+        if (current && !succeededSet.has(current)) return current;
+        const next = stagedItems.find((si) => !succeededSet.has(si.id));
+        return next?.id ?? null;
+      });
+    } else {
+      setStagedItems((prev) => {
+        prev.forEach((item) => releaseObjectUrl(item.previewUrl));
+        return [];
+      });
+      setSelectedStageId(null);
+    }
 
     // Return to the library immediately on success; keep the modal open if there were errors.
-    window.setTimeout(
-      () => {
+    if (!hadErrors) {
+      window.setTimeout(() => {
         setIsUploadModalOpen(false);
         setUploadBatchTotal(0);
         setUploadItems([]);
-      },
-      hadErrors ? 2500 : 350
-    );
+      }, 350);
+    }
   }, [
     autoQueueAnalysis,
     createAsset,
@@ -567,6 +724,8 @@ const LibraryPage: React.FC = () => {
     setUploadProgress,
     setUploadStatus,
     stagedItems,
+    uploadCollectionIds,
+    addAssetsToCollection,
     syncShared,
     updateMetadata,
     sharedMeta,
@@ -839,8 +998,13 @@ const LibraryPage: React.FC = () => {
     if (isUploadModalOpen) return;
     setHoverPreview(null);
     setIsDragging(false);
-    dragDepthRef.current = 0;
-    isDraggingRef.current = false;
+	    setUploadCollectionPickerOpen(false);
+	    setUploadCollectionSearch("");
+	    setUploadCollectionIds([]);
+	    setIsCreatingUploadCollection(false);
+	    setUploadCollectionTitleOverrides({});
+	    dragDepthRef.current = 0;
+	    isDraggingRef.current = false;
     hoveredStageIdRef.current = null;
     if (hoverClearTimeoutRef.current) {
       window.clearTimeout(hoverClearTimeoutRef.current);
@@ -1184,47 +1348,265 @@ const LibraryPage: React.FC = () => {
                         </div>
                       </div>
 
-                      <div className="rounded-3xl border border-gray-200 bg-white p-6">
-                        <div className="flex flex-wrap items-center justify-between gap-3">
-                          <h3 className="text-sm font-semibold uppercase tracking-[0.2em] text-gray-500">
-                            Metadata
-                          </h3>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className={
-                              syncShared ? "gap-2 border-gray-900 text-gray-900" : "gap-2"
-                            }
-                            onClick={() =>
-                              setSyncShared((value) => {
-                                const next = !value;
-                                if (!value && next && selectedItem) {
-                                  setSharedMeta({
-                                    tags: selectedItem.tags,
-                                    description: selectedItem.description,
-                                    externalLink: selectedItem.externalLink,
-                                    author: selectedItem.author,
-                                  });
-                                }
-                                return next;
-                              })
-                            }
-                          >
-                            {syncShared ? "Sync on" : "Sync off"}
-                          </Button>
-                        </div>
-                        <p className="mt-2 text-xs text-gray-500">
-                          {syncShared
-                            ? "Writing in these fields updates every staged item."
-                            : "Writing updates only the selected item."}
-                        </p>
+	                      <div className="space-y-4">
+	                        <div className="rounded-3xl border border-gray-200 bg-gray-50 p-5">
+	                          <div className="flex items-start justify-between gap-3">
+	                            <div>
+	                              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-gray-500">
+	                                Destination
+	                              </p>
+	                              <h3 className="mt-1 text-base font-semibold text-gray-900">
+	                                Add to collections
+	                              </h3>
+	                              <p className="mt-1 text-xs text-gray-600">
+	                                Applies to every staged reference you upload.
+	                              </p>
+	                            </div>
+		                          </div>
 
-                        <div className="mt-4 space-y-4">
-                          <div className="space-y-2">
-                            <label className="text-xs font-semibold uppercase text-gray-500">
-                              Title
-                            </label>
-                            <Input
+		                          <div className="mt-4 space-y-3">
+		                            <div className="space-y-2">
+		                              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-500">
+		                                Collections
+		                              </p>
+		                              <Popover
+		                                open={uploadCollectionPickerOpen}
+		                                onOpenChange={setUploadCollectionPickerOpen}
+		                              >
+		                                <PopoverTrigger asChild>
+		                                  <button
+		                                    type="button"
+		                                    className="flex h-12 w-full items-center justify-between rounded-2xl border border-gray-200 bg-white px-4 text-sm text-gray-900 shadow-sm transition hover:bg-gray-50"
+		                                  >
+		                                    <span className="flex min-w-0 items-center gap-2">
+		                                      <span className="flex h-8 w-8 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-900">
+		                                        <Folder className="h-4 w-4" />
+		                                      </span>
+		                                      <span className="min-w-0 truncate font-semibold">
+		                                        {uploadCollectionIds.length > 0
+		                                          ? `${uploadCollectionIds.length} selected`
+		                                          : "Choose collections"}
+		                                      </span>
+		                                    </span>
+		                                    <ChevronDown className="h-4 w-4 shrink-0 text-gray-400" />
+		                                  </button>
+		                                </PopoverTrigger>
+		                                <PopoverContent
+		                                  align="start"
+		                                  sideOffset={10}
+		                                  className="z-[2147483647] w-[min(92vw,var(--radix-popper-anchor-width,420px))] rounded-2xl border border-gray-200 bg-white p-0 text-gray-900 shadow-2xl"
+		                                >
+		                                  <div className="border-b border-gray-200 px-4 py-3">
+		                                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-gray-500">
+		                                      Collections
+		                                    </p>
+		                                    <div className="relative mt-2">
+		                                      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+		                                      <Input
+		                                        value={uploadCollectionSearch}
+		                                        onChange={(e) => setUploadCollectionSearch(e.target.value)}
+		                                        placeholder="Search collections..."
+		                                        className="h-10 pl-9"
+		                                      />
+		                                    </div>
+
+		                                    {canCreateUploadCollectionFromSearch && (
+		                                      <Button
+		                                        type="button"
+		                                        className="mt-2 w-full gap-2 bg-black text-slate-50 hover:bg-black/90"
+		                                        disabled={isCreatingUploadCollection}
+		                                        onClick={async () => {
+		                                          const title = uploadCreateCollectionTitle;
+		                                          if (!title) return;
+		                                          if (isCreatingUploadCollection) return;
+		                                          setIsCreatingUploadCollection(true);
+		                                          try {
+		                                            const existing = (uploadCollections ?? []).find(
+		                                              (c: any) =>
+		                                                !c?.isShared &&
+		                                                normalizeCollectionTitleKey(String(c?.title ?? "")) ===
+		                                                  normalizeCollectionTitleKey(title),
+		                                            );
+		                                            if (existing?.id) {
+		                                              const existingId = existing.id as Id<"assetCollections">;
+		                                              setUploadCollectionIds((prev) =>
+		                                                prev.includes(existingId) ? prev : [...prev, existingId],
+		                                              );
+		                                              setUploadCollectionSearch("");
+		                                              toast.success("Collection already exists");
+		                                              return;
+		                                            }
+		                                            const id = (await createCollection({ title })) as Id<"assetCollections">;
+		                                            setUploadCollectionTitleOverrides((prev) => ({
+		                                              ...prev,
+		                                              [String(id)]: title,
+		                                            }));
+		                                            setUploadCollectionIds((prev) =>
+		                                              prev.includes(id) ? prev : [...prev, id],
+		                                            );
+		                                            setUploadCollectionSearch("");
+		                                            toast.success("Collection created");
+		                                          } catch (err) {
+		                                            console.error(err);
+		                                            toast.error("Failed to create collection");
+		                                          } finally {
+		                                            setIsCreatingUploadCollection(false);
+		                                          }
+		                                        }}
+		                                      >
+		                                        <Plus className="h-4 w-4 text-current" />
+		                                        Create "{uploadCreateCollectionTitle}"
+		                                      </Button>
+		                                    )}
+		                                  </div>
+		                                  <div className="max-h-72 overflow-auto p-2">
+		                                    {!collections ? (
+		                                      <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 p-4 text-xs text-gray-500">
+		                                        Loading collections…
+		                                      </div>
+		                                    ) : filteredUploadCollections.length === 0 ? (
+		                                      <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 p-4 text-xs text-gray-500">
+		                                        No collections found.
+		                                      </div>
+		                                    ) : (
+		                                      <div className="space-y-1">
+		                                        {filteredUploadCollections.map((col: any) => {
+		                                          const id = col.id as Id<"assetCollections">;
+		                                          const canWrite = !col.isShared || col.sharedRole === "editor";
+		                                          const selected = uploadCollectionIds.includes(id);
+		                                          return (
+		                                            <button
+		                                              key={String(id)}
+		                                              type="button"
+		                                              disabled={!canWrite}
+		                                              className={[
+		                                                "group flex w-full items-center gap-3 rounded-xl border px-3 py-2 text-left transition",
+		                                                selected
+		                                                  ? "border-gray-900 bg-gray-900 text-slate-50"
+		                                                  : "border-transparent hover:border-gray-200 hover:bg-gray-50 text-gray-900",
+		                                                !canWrite ? "opacity-50 cursor-not-allowed hover:bg-white" : "",
+		                                              ].join(" ")}
+		                                              onClick={() => {
+		                                                if (!canWrite) return;
+		                                                setUploadCollectionIds((prev) => {
+		                                                  if (prev.includes(id)) return prev.filter((x) => x !== id);
+		                                                  return [...prev, id];
+		                                                });
+		                                              }}
+		                                            >
+		                                              <span
+		                                                className={[
+		                                                  "flex h-6 w-6 items-center justify-center rounded-lg border",
+		                                                  selected
+		                                                    ? "border-slate-50/60 bg-slate-50/10"
+		                                                    : "border-gray-300 bg-white",
+		                                                ].join(" ")}
+		                                              >
+		                                                {selected && <Check className="h-4 w-4 text-current" />}
+		                                              </span>
+		                                              <span className="min-w-0 flex-1">
+		                                                <span className="block truncate text-sm font-semibold">
+		                                                  {col.title}
+		                                                </span>
+		                                                <span
+		                                                  className={[
+		                                                    "mt-0.5 inline-flex items-center gap-2 text-[11px]",
+		                                                    selected ? "text-slate-200" : "text-gray-500",
+		                                                  ].join(" ")}
+		                                                >
+		                                                  <span>
+		                                                    {col.itemCount ?? 0} item
+		                                                    {(col.itemCount ?? 0) === 1 ? "" : "s"}
+		                                                  </span>
+		                                                  <span>·</span>
+		                                                  <span>
+		                                                    {col.isShared
+		                                                      ? canWrite
+		                                                        ? "Shared (editor)"
+		                                                        : "Shared (viewer)"
+		                                                      : "Owned"}
+		                                                  </span>
+		                                                </span>
+		                                              </span>
+		                                            </button>
+		                                          );
+		                                        })}
+		                                      </div>
+		                                    )}
+		                                  </div>
+		                                  <div className="border-t border-gray-200 px-4 py-3 text-[11px] text-gray-500">
+		                                    Tip: shared collections can be used only if you have editor access.
+		                                  </div>
+		                                </PopoverContent>
+		                              </Popover>
+
+		                              {uploadCollectionIds.length > 0 && (
+		                                <div className="flex flex-wrap gap-2 pt-1">
+		                                  {uploadCollectionIds.map((id) => {
+		                                    const fromQuery = uploadCollections.find((c: any) => c.id === id);
+		                                    const title =
+		                                      fromQuery?.title ??
+		                                      uploadCollectionTitleOverrides[String(id)] ??
+		                                      "Collection";
+		                                    return (
+		                                      <button
+		                                        key={String(id)}
+		                                        type="button"
+		                                        className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-2.5 py-1 text-xs font-semibold text-gray-700 hover:border-gray-300"
+		                                        onClick={() =>
+		                                          setUploadCollectionIds((prev) => prev.filter((x) => x !== id))
+		                                        }
+		                                      >
+		                                        {title}
+		                                        <X className="h-3 w-3 text-gray-400" />
+		                                      </button>
+		                                    );
+		                                  })}
+		                                </div>
+		                              )}
+		                            </div>
+		                          </div>
+		                        </div>
+
+	                        <div className="rounded-3xl border border-gray-200 bg-white p-6">
+	                          <div className="flex flex-wrap items-center justify-between gap-3">
+	                            <h3 className="text-sm font-semibold uppercase tracking-[0.2em] text-gray-500">
+	                              Metadata
+	                            </h3>
+	                            <Button
+	                              variant="outline"
+	                              size="sm"
+	                              className={syncShared ? "gap-2 border-gray-900 text-gray-900" : "gap-2"}
+	                              onClick={() =>
+	                                setSyncShared((value) => {
+	                                  const next = !value;
+	                                  if (!value && next && selectedItem) {
+	                                    setSharedMeta({
+	                                      tags: selectedItem.tags,
+	                                      description: selectedItem.description,
+	                                      externalLink: selectedItem.externalLink,
+	                                      author: selectedItem.author,
+	                                    });
+	                                  }
+	                                  return next;
+	                                })
+	                              }
+	                            >
+	                              {syncShared ? "Sync on" : "Sync off"}
+	                            </Button>
+	                          </div>
+	                          <p className="mt-2 text-xs text-gray-500">
+	                            {syncShared
+	                              ? "Writing in these fields updates every staged item."
+	                              : "Writing updates only the selected item."}
+	                          </p>
+
+	                          <div className="mt-4 space-y-4">
+	                            <div className="space-y-2">
+	                            <label className="text-xs font-semibold uppercase text-gray-500">
+	                              Title
+	                            </label>
+	                            <Input
                               value={selectedItem?.title ?? ""}
                               onChange={(event) => {
                                 if (!selectedItem) return;
@@ -1336,14 +1718,15 @@ const LibraryPage: React.FC = () => {
                               disabled={!syncShared && !selectedItem}
                             />
                           </div>
-                          {syncShared && (
-                            <p className="text-xs text-gray-500">
-                              Disable sync to add per-file metadata.
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    </motion.div>
+	                          {syncShared && (
+	                            <p className="text-xs text-gray-500">
+	                              Disable sync to add per-file metadata.
+	                            </p>
+	                          )}
+	                        </div>
+	                      </div>
+	                    </div>
+	                    </motion.div>
 
                     {hoverPreview && (
                       <div
@@ -1474,40 +1857,321 @@ const LibraryPage: React.FC = () => {
     <div className="w-full space-y-10">
       <section className="rounded-3xl border border-gray-200 bg-white/95 p-8 shadow-sm">
         <div className="flex flex-col gap-6">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div className="space-y-2">
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-gray-500">
-                Reference Library
-                </p>
-                <h1 className="text-3xl font-semibold text-gray-900">
-                  Organize references, faster.
-                </h1>
-                <p className="text-sm text-gray-600">
-                  Upload images, videos, and files. Extract colors and metadata now, queue AI
-                  analysis later.
-                </p>
-            </div>
-            <div className="flex flex-wrap items-center gap-3">
-              <Badge className="border border-gray-200 bg-gray-100 text-gray-700">
-                {assets?.length ?? 0} items
+	          <div className="flex items-center justify-center">
+	            <div className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-gray-50 p-1 shadow-sm">
+	              <button
+	                onClick={() => setActiveTab("references")}
+	                className={[
+	                  "inline-flex items-center gap-2 rounded-full px-6 py-2 text-sm font-semibold transition",
+	                  activeTab === "references"
+	                    ? "bg-white text-gray-900 shadow-sm"
+	                    : "text-gray-600 hover:text-gray-900 hover:bg-white/70",
+	                ].join(" ")}
+	              >
+	                <ImageIcon className="h-4 w-4" />
+	                References
+	              </button>
+	              <button
+	                onClick={() => setActiveTab("collections")}
+	                className={[
+	                  "inline-flex items-center gap-2 rounded-full px-6 py-2 text-sm font-semibold transition",
+	                  activeTab === "collections"
+	                    ? "bg-white text-gray-900 shadow-sm"
+	                    : "text-gray-600 hover:text-gray-900 hover:bg-white/70",
+	                ].join(" ")}
+	              >
+	                <LayoutGrid className="h-4 w-4" />
+	                Collections
+	              </button>
+	            </div>
+	          </div>
+
+          <div className="border-t border-gray-200 pt-6">
+            {activeTab === "references" ? (
+              <Library
+                isImportMode={selectionMode}
+                areaSelectionEnabled={selectionMode}
+                masonryColumns={masonryColumns}
+                headerActions={
+                  <div className="flex items-center gap-2">
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          className="library-unstyled h-10 w-10 border border-gray-200 bg-white text-gray-900 hover:bg-gray-50"
+                          aria-label="Grid"
+                        >
+                          <LayoutGrid className="h-4 w-4" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent align="end" className="w-72 bg-white text-gray-900">
+                        <div className="space-y-3">
+                          <div className="flex items-center justify-between">
+                            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">
+                              Grid
+                            </p>
+                            <span className="text-xs font-semibold text-gray-700">
+                              {masonryColumns} cols
+                            </span>
+                          </div>
+                          <Slider
+                            value={[masonryColumns]}
+                            min={1}
+                            max={8}
+                            step={1}
+                            onValueChange={(v) => setMasonryColumns(v[0] ?? 4)}
+                          />
+                          <p className="text-[11px] text-gray-500">
+                            Controls how many references fit per row (masonry columns).
+                          </p>
+                        </div>
+                      </PopoverContent>
+                    </Popover>
+
+	                    <Button
+	                      type="button"
+	                      size="default"
+	                      className="library-unstyled h-10 gap-2 border border-black bg-black text-slate-50 hover:bg-black/90 hover:text-slate-50"
+	                      onClick={() => setIsUploadModalOpen(true)}
+	                    >
+	                      <UploadCloud className="h-4 w-4 text-current" />
+	                      Upload
+	                    </Button>
+
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className={[
+                        "library-unstyled h-10 w-10 border border-gray-200 bg-white text-gray-900 hover:bg-gray-50",
+                        selectionMode
+                          ? "!border-gray-900 !bg-gray-900 !text-slate-50 hover:!bg-black hover:!text-slate-50"
+                          : "",
+                      ].join(" ")}
+                      onClick={() => setSelectionMode((v) => !v)}
+                      aria-label="Select tool"
+                      title="Select"
+                    >
+                      <MousePointer2 className="h-4 w-4 text-current" />
+                    </Button>
+                  </div>
+                }
+                selectedItems={selectedAssetIds}
+                onSelectionChange={setSelectedAssetIds}
+              />
+            ) : (
+              <CollectionsView />
+            )}
+          </div>
+        </div>
+      </section>
+      {activeTab === "references" && selectionMode && selectedAssetIds.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: 14 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: 14 }}
+          className="fixed bottom-6 left-1/2 z-30 w-[92vw] max-w-[860px] -translate-x-1/2"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-gray-200 bg-white/95 p-3 shadow-lg backdrop-blur">
+            <div className="flex items-center gap-2 text-sm font-semibold text-gray-900">
+              <Badge className="border border-gray-200 bg-gray-100 text-gray-800">
+                {selectedAssetIds.length} selected
               </Badge>
+              <span className="text-xs text-gray-500">Drag to box-select, click to toggle.</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
               <Button
                 variant="outline"
                 size="sm"
                 className="gap-2"
-                onClick={() => setIsUploadModalOpen(true)}
+                onClick={() => setIsAddToCollectionOpen(true)}
               >
-                <UploadCloud className="h-4 w-4" />
-                Upload
+                <FolderPlus className="h-4 w-4" />
+                Add to collection
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2 text-red-600 hover:text-red-700"
+                onClick={() => setIsDeleteConfirmOpen(true)}
+              >
+                <Trash2 className="h-4 w-4" />
+                Delete
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="gap-2"
+                onClick={() => setSelectedAssetIds([])}
+              >
+                <X className="h-4 w-4" />
+                Clear
               </Button>
             </div>
           </div>
+        </motion.div>
+      )}
 
-          <div className="border-t border-gray-200 pt-6">
-            <Library />
+      <ReferenceDeleteConfirmation
+        open={isDeleteConfirmOpen}
+        onOpenChange={setIsDeleteConfirmOpen}
+        count={selectedAssetIds.length}
+        onConfirm={async () => {
+          try {
+            const ids = [...selectedAssetIds];
+            await Promise.all(ids.map((id) => deleteAsset({ id })));
+            toast.success(ids.length === 1 ? "Reference deleted" : "References deleted");
+            setSelectedAssetIds([]);
+          } catch (error) {
+            console.error(error);
+            toast.error("Unable to delete references");
+          }
+        }}
+      />
+
+      <Dialog open={isAddToCollectionOpen} onOpenChange={setIsAddToCollectionOpen}>
+        <DialogContent className="sm:max-w-[560px] bg-white text-gray-900">
+          <DialogHeader>
+            <DialogTitle>Add to collection</DialogTitle>
+            <DialogDescription className="text-sm text-gray-500">
+              Add {selectedAssetIds.length} selected reference{selectedAssetIds.length === 1 ? "" : "s"} to a collection.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4">
+            <div className="space-y-2">
+              <label className="text-xs font-semibold uppercase text-gray-500">Find</label>
+              <Input
+                value={collectionPickerQuery}
+                onChange={(e) => setCollectionPickerQuery(e.target.value)}
+                placeholder="Search collections..."
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-xs font-semibold uppercase text-gray-500">Create new</label>
+              <div className="flex items-center gap-2">
+                <Input
+                  value={newCollectionTitle}
+                  onChange={(e) => setNewCollectionTitle(e.target.value)}
+                  placeholder="New collection name"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+	                  onClick={async () => {
+	                    const title = normalizeCollectionTitleDisplay(newCollectionTitle);
+	                    if (!title) return;
+	                    try {
+	                      const existing = (collections ?? []).find(
+	                        (c: any) =>
+	                          !c?.isShared &&
+	                          normalizeCollectionTitleKey(String(c?.title ?? "")) ===
+	                            normalizeCollectionTitleKey(title),
+	                      );
+	                      if (existing?.id) {
+	                        setPickedCollectionId(String(existing.id));
+	                        setNewCollectionTitle("");
+	                        toast.success("Collection already exists");
+	                        return;
+	                      }
+	                      const id = (await createCollection({ title })) as any;
+	                      setPickedCollectionId(String(id));
+	                      setNewCollectionTitle("");
+	                      toast.success("Collection created");
+	                    } catch (error) {
+                      console.error(error);
+                      toast.error("Unable to create collection");
+                    }
+                  }}
+                >
+                  Create
+                </Button>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <label className="text-xs font-semibold uppercase text-gray-500">Pick one</label>
+              <div className="max-h-[260px] overflow-y-auto rounded-2xl border border-gray-200 bg-white">
+                {(collections ?? [])
+                  .filter((c: any) => !c?.isShared)
+                  .filter((c: any) =>
+                    collectionPickerQuery.trim()
+                      ? String(c.title ?? "")
+                          .toLowerCase()
+                          .includes(collectionPickerQuery.trim().toLowerCase())
+                      : true
+                  )
+                  .map((c: any) => {
+                    const selected = pickedCollectionId === String(c.id);
+                    return (
+                      <button
+                        key={String(c.id)}
+                        type="button"
+                        onClick={() => setPickedCollectionId(String(c.id))}
+                        className={`flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm transition ${
+                          selected ? "bg-gray-900 text-slate-50" : "hover:bg-gray-50 text-gray-900"
+                        }`}
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate font-semibold">{c.title}</p>
+                          <p className={`text-xs ${selected ? "text-slate-200" : "text-gray-500"}`}>
+                            {(c.itemCount ?? 0)} refs
+                          </p>
+                        </div>
+                        <span
+                          className={`text-xs font-semibold ${
+                            selected ? "text-slate-100" : "text-gray-600"
+                          }`}
+                        >
+                          {selected ? "Selected" : "Select"}
+                        </span>
+                      </button>
+                    );
+                  })}
+                {(collections ?? []).filter((c: any) => !c?.isShared).length === 0 && (
+                  <div className="px-4 py-6 text-sm text-gray-500">No collections yet.</div>
+                )}
+              </div>
+            </div>
           </div>
-        </div>
-      </section>
+          <DialogFooter className="justify-between">
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setIsAddToCollectionOpen(false);
+                setPickedCollectionId(null);
+                setCollectionPickerQuery("");
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={async () => {
+                if (!pickedCollectionId) {
+                  toast.error("Pick a collection");
+                  return;
+                }
+                try {
+                  await addAssetsToCollection({
+                    collectionId: pickedCollectionId as any,
+                    assetIds: selectedAssetIds,
+                  });
+                  toast.success("Added to collection");
+                  setIsAddToCollectionOpen(false);
+                  setPickedCollectionId(null);
+                  setCollectionPickerQuery("");
+                  setSelectedAssetIds([]);
+                } catch (error) {
+                  console.error(error);
+                  toast.error("Unable to add to collection");
+                }
+              }}
+              disabled={!pickedCollectionId || selectedAssetIds.length === 0}
+            >
+              Add
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       {uploadModalPortal}
     </div>
   );

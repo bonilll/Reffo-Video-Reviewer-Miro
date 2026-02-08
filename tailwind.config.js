@@ -10,7 +10,8 @@ export default {
       colors: {
         gray: {
           850: '#18202F',
-          950: '#0C111A',
+          900: '#000000',
+          950: '#000000',
         },
         cyan: {
           400: '#22d3ee',
@@ -21,4 +22,3 @@ export default {
   },
   plugins: [],
 };
-

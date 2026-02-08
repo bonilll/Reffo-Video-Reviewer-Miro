@@ -20,8 +20,7 @@ import {
   Trash2,
   Pencil,
   FileIcon,
-  CheckSquare,
-  Square,
+  Check,
   ExternalLink,
   X,
   ChevronLeft,
@@ -43,6 +42,9 @@ type LibraryProps = {
   selectedTags?: string[];
   onTagsChange?: (tags: string[]) => void;
   isImportMode?: boolean;
+  areaSelectionEnabled?: boolean;
+  headerActions?: React.ReactNode;
+  masonryColumns?: number | null;
   selectedItems?: Id<"assets">[];
   onSelectionChange?: (items: Id<"assets">[]) => void;
   onFilteredDataChange?: (data: {
@@ -319,6 +321,9 @@ export const Library: React.FC<LibraryProps> = ({
   selectedTags,
   onTagsChange,
   isImportMode,
+  areaSelectionEnabled,
+  headerActions,
+  masonryColumns,
   selectedItems,
   onSelectionChange,
   onFilteredDataChange,
@@ -363,6 +368,151 @@ export const Library: React.FC<LibraryProps> = ({
   const deleteAsset = useMutation(api.assets.deleteAsset);
 
   const selection = selectedItems ?? [];
+  const selectionRef = useRef<Id<"assets">[]>(selection);
+  useEffect(() => {
+    selectionRef.current = selection;
+  }, [selection]);
+
+  const masonryRef = useRef<HTMLDivElement | null>(null);
+  const marqueeElRef = useRef<HTMLDivElement | null>(null);
+  const itemButtonRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
+  const suppressClickRef = useRef(false);
+  const suppressClearRafRef = useRef<number | null>(null);
+  const dragStateRef = useRef<{
+    active: boolean;
+    pointerId: number | null;
+    hasCapture: boolean;
+    startClientX: number;
+    startClientY: number;
+    startPageX: number;
+    startPageY: number;
+    lastClientX: number;
+    lastClientY: number;
+    moved: boolean;
+    baseSelection: Set<string>;
+    scrollVelocity: number;
+  }>({
+    active: false,
+    pointerId: null,
+    hasCapture: false,
+    startClientX: 0,
+    startClientY: 0,
+    startPageX: 0,
+    startPageY: 0,
+    lastClientX: 0,
+    lastClientY: 0,
+    moved: false,
+    baseSelection: new Set(),
+    scrollVelocity: 0,
+  });
+  const marqueeRafRef = useRef<number | null>(null);
+  const autoScrollRafRef = useRef<number | null>(null);
+
+  const applyMarquee = useCallback(() => {
+    const state = dragStateRef.current;
+    if (!state.active) return;
+    const el = marqueeElRef.current;
+    if (!el) return;
+
+    // Anchor the marquee in page coordinates so it can grow while the page scrolls.
+    const scrollX = window.scrollX || 0;
+    const scrollY = window.scrollY || 0;
+    const lastPageX = state.lastClientX + scrollX;
+    const lastPageY = state.lastClientY + scrollY;
+
+    const dragDistance = Math.hypot(lastPageX - state.startPageX, lastPageY - state.startPageY);
+    // Avoid changing selection on small pointer jitter; box-select should only kick in once the user drags.
+    if (dragDistance < 14) {
+      el.style.display = "none";
+      return;
+    }
+    // If the page scrolls while the cursor stays still, treat it as a drag.
+    if (!state.moved) state.moved = true;
+
+    const x1Page = Math.min(state.startPageX, lastPageX);
+    const y1Page = Math.min(state.startPageY, lastPageY);
+    const x2Page = Math.max(state.startPageX, lastPageX);
+    const y2Page = Math.max(state.startPageY, lastPageY);
+
+    // Convert back to client coords for rendering the overlay.
+    const x1 = x1Page - scrollX;
+    const y1 = y1Page - scrollY;
+    const x2 = x2Page - scrollX;
+    const y2 = y2Page - scrollY;
+
+    const w = Math.max(1, x2 - x1);
+    const h = Math.max(1, y2 - y1);
+
+    el.style.display = "block";
+    el.style.transform = `translate3d(${x1}px, ${y1}px, 0)`;
+    el.style.width = `${w}px`;
+    el.style.height = `${h}px`;
+
+    const next = new Set<string>(state.baseSelection);
+    itemButtonRefs.current.forEach((btn, id) => {
+      const r = btn.getBoundingClientRect();
+      // Compare in page coordinates so off-screen items are included as the user scrolls.
+      const left = r.left + scrollX;
+      const right = r.right + scrollX;
+      const top = r.top + scrollY;
+      const bottom = r.bottom + scrollY;
+      const intersects = !(right < x1Page || left > x2Page || bottom < y1Page || top > y2Page);
+      if (intersects) next.add(id);
+    });
+
+    const current = new Set(selectionRef.current.map((id) => String(id)));
+    if (current.size === next.size) {
+      let same = true;
+      for (const id of next) {
+        if (!current.has(id)) {
+          same = false;
+          break;
+        }
+      }
+      if (same) return;
+    }
+
+    onSelectionChange?.(Array.from(next) as any);
+  }, [onSelectionChange]);
+
+  const scheduleMarquee = useCallback(() => {
+    if (marqueeRafRef.current) return;
+    marqueeRafRef.current = requestAnimationFrame(() => {
+      marqueeRafRef.current = null;
+      applyMarquee();
+    });
+  }, [applyMarquee]);
+
+  const startAutoScrollLoop = useCallback(() => {
+    if (autoScrollRafRef.current) return;
+    const tick = () => {
+      autoScrollRafRef.current = null;
+      const state = dragStateRef.current;
+      if (!state.active) return;
+      if (!state.scrollVelocity) return;
+
+      const prevY = window.scrollY;
+      window.scrollBy(0, state.scrollVelocity);
+      if (window.scrollY === prevY) {
+        // Hit top/bottom; stop.
+        state.scrollVelocity = 0;
+        return;
+      }
+
+      // Items moved (page scrolled); recompute selection. The marquee grows in page space.
+      scheduleMarquee();
+      autoScrollRafRef.current = requestAnimationFrame(tick);
+    };
+    autoScrollRafRef.current = requestAnimationFrame(tick);
+  }, [scheduleMarquee]);
+
+  useEffect(() => {
+    return () => {
+      if (marqueeRafRef.current) cancelAnimationFrame(marqueeRafRef.current);
+      if (autoScrollRafRef.current) cancelAnimationFrame(autoScrollRafRef.current);
+      if (suppressClearRafRef.current) cancelAnimationFrame(suppressClearRafRef.current);
+    };
+  }, []);
 
   const selectedTagFilters = useMemo(
     () =>
@@ -636,7 +786,7 @@ export const Library: React.FC<LibraryProps> = ({
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 rounded-2xl border border-gray-200 bg-white/95 p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-1 items-center gap-3">
+        <div className="flex flex-1 flex-wrap items-center gap-3">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
             <Input
@@ -656,6 +806,7 @@ export const Library: React.FC<LibraryProps> = ({
             Filters
             {hasActiveFilters && <span className="h-2 w-2 rounded-full bg-gray-700" />}
           </Button>
+          {headerActions}
         </div>
         <div className="flex items-center gap-2 text-xs text-gray-500">
           <span>{filteredAssets.length} items</span>
@@ -1007,7 +1158,160 @@ export const Library: React.FC<LibraryProps> = ({
         </Dialog>
       )}
 
-      <div className="library-masonry">
+      <div
+        ref={masonryRef}
+        className="library-masonry relative"
+        style={masonryColumns ? ({ columnCount: masonryColumns } as any) : undefined}
+        onClickCapture={(event) => {
+          // If we just finished a marquee drag, suppress the click that would otherwise
+          // toggle/open an item.
+          if (suppressClickRef.current) {
+            event.preventDefault();
+            event.stopPropagation();
+            suppressClickRef.current = false;
+          }
+        }}
+        onPointerDown={(event) => {
+          if (!isImportMode) return;
+          if (!areaSelectionEnabled) return;
+          if (!onSelectionChange) return;
+          if (event.button !== 0) return;
+          if (suppressClearRafRef.current) {
+            cancelAnimationFrame(suppressClearRafRef.current);
+            suppressClearRafRef.current = null;
+          }
+
+          const container = masonryRef.current;
+          if (!container) return;
+          const startClientX = event.clientX;
+          const startClientY = event.clientY;
+          const startPageX = startClientX + (window.scrollX || 0);
+          const startPageY = startClientY + (window.scrollY || 0);
+
+          const base =
+            event.shiftKey ? new Set(selectionRef.current.map((id) => String(id))) : new Set<string>();
+
+          dragStateRef.current = {
+            active: true,
+            pointerId: event.pointerId,
+            hasCapture: false,
+            startClientX,
+            startClientY,
+            startPageX,
+            startPageY,
+            lastClientX: startClientX,
+            lastClientY: startClientY,
+            moved: false,
+            baseSelection: base,
+            scrollVelocity: 0,
+          };
+        }}
+        onPointerMove={(event) => {
+          const state = dragStateRef.current;
+          if (!state.active) return;
+          if (state.pointerId !== event.pointerId) return;
+          const nextClientX = event.clientX;
+          const nextClientY = event.clientY;
+          state.lastClientX = nextClientX;
+          state.lastClientY = nextClientY;
+
+          const dx = nextClientX - state.startClientX;
+          const dy = nextClientY - state.startClientY;
+          if (!state.moved && Math.hypot(dx, dy) >= 14) {
+            state.moved = true;
+          }
+
+          // Only enter marquee mode once the user actually drags.
+          if (state.moved) {
+            if (!state.hasCapture) {
+              try {
+                (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+                state.hasCapture = true;
+              } catch {
+                // ignore
+              }
+            }
+
+            // Prevent image drag ghost / accidental click selection when marquee is active.
+            event.preventDefault();
+
+            // Auto-scroll when close to viewport edges (OS-like marquee selection).
+            const EDGE = 72;
+            const MAX_SPEED = 18; // px/frame
+            let velocity = 0;
+            const vh = window.innerHeight || 0;
+            if (nextClientY < EDGE) {
+              const t = Math.max(0, Math.min(1, (EDGE - nextClientY) / EDGE));
+              velocity = -Math.round(4 + t * (MAX_SPEED - 4));
+            } else if (nextClientY > vh - EDGE) {
+              const t = Math.max(0, Math.min(1, (nextClientY - (vh - EDGE)) / EDGE));
+              velocity = Math.round(4 + t * (MAX_SPEED - 4));
+            }
+            state.scrollVelocity = velocity;
+            if (velocity) startAutoScrollLoop();
+
+            scheduleMarquee();
+          } else {
+            state.scrollVelocity = 0;
+          }
+        }}
+        onPointerUp={(event) => {
+          const state = dragStateRef.current;
+          if (!state.active) return;
+          if (state.pointerId !== event.pointerId) return;
+          // Suppress click only if marquee selection actually kicked in.
+          suppressClickRef.current = state.moved;
+          if (state.moved) {
+            if (suppressClearRafRef.current) cancelAnimationFrame(suppressClearRafRef.current);
+            // If the browser doesn't emit a click (due to preventDefault during drag),
+            // auto-clear suppression so the next intentional click still works.
+            suppressClearRafRef.current = requestAnimationFrame(() => {
+              suppressClickRef.current = false;
+              suppressClearRafRef.current = null;
+            });
+          }
+          dragStateRef.current.active = false;
+          dragStateRef.current.pointerId = null;
+          dragStateRef.current.hasCapture = false;
+          dragStateRef.current.scrollVelocity = 0;
+          const el = marqueeElRef.current;
+          if (el) el.style.display = "none";
+          try {
+            (event.currentTarget as HTMLElement).releasePointerCapture(event.pointerId);
+          } catch {
+            // ignore
+          }
+        }}
+        onPointerCancel={(event) => {
+          const state = dragStateRef.current;
+          if (!state.active) return;
+          if (state.pointerId !== event.pointerId) return;
+          suppressClickRef.current = state.moved;
+          if (state.moved) {
+            if (suppressClearRafRef.current) cancelAnimationFrame(suppressClearRafRef.current);
+            suppressClearRafRef.current = requestAnimationFrame(() => {
+              suppressClickRef.current = false;
+              suppressClearRafRef.current = null;
+            });
+          }
+          dragStateRef.current.active = false;
+          dragStateRef.current.pointerId = null;
+          dragStateRef.current.hasCapture = false;
+          dragStateRef.current.scrollVelocity = 0;
+          const el = marqueeElRef.current;
+          if (el) el.style.display = "none";
+          try {
+            (event.currentTarget as HTMLElement).releasePointerCapture(event.pointerId);
+          } catch {
+            // ignore
+          }
+        }}
+      >
+        <div
+          ref={marqueeElRef}
+          className="pointer-events-none fixed left-0 top-0 hidden rounded-xl border border-gray-900/60 bg-gray-900/10 shadow-[0_0_0_1px_rgba(0,0,0,0.05)] z-[2147483644]"
+          style={{ width: 0, height: 0 }}
+        />
         {isLoading && (
           <div className="library-masonry-item rounded-2xl border border-gray-200 bg-white p-6 text-sm text-gray-500">
             Loading references...
@@ -1025,7 +1329,27 @@ export const Library: React.FC<LibraryProps> = ({
           return (
             <div key={asset._id} className="library-masonry-item">
               <button
-                className="relative w-full overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm"
+                ref={(el) => {
+                  const key = String(asset._id);
+                  if (el) itemButtonRefs.current.set(key, el);
+                  else itemButtonRefs.current.delete(key);
+                }}
+                data-asset-button="true"
+                aria-pressed={isImportMode ? isSelected : undefined}
+                className={[
+                  "group relative w-full overflow-hidden rounded-2xl border bg-white shadow-sm transition",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 focus-visible:ring-offset-2 focus-visible:ring-offset-white",
+                  isImportMode
+                    ? isSelected
+                      ? [
+                          "border-gray-200",
+                          "ring-2 ring-gray-900 ring-offset-0",
+                          "shadow-[0_12px_28px_rgba(15,23,42,0.10)]",
+                          "after:pointer-events-none after:absolute after:inset-0 after:bg-black/10",
+                        ].join(" ")
+                      : "border-gray-200 hover:border-gray-300 hover:shadow-md"
+                    : "border-gray-200 hover:border-gray-300 hover:shadow-md",
+                ].join(" ")}
                 onClick={() => {
                   if (isImportMode) toggleSelection(asset._id);
                   else setViewerAssetId(asset._id);
@@ -1038,6 +1362,7 @@ export const Library: React.FC<LibraryProps> = ({
                       alt={asset.title}
                       className="h-full w-full object-contain"
                       loading="lazy"
+                      draggable={false}
                     />
                   ) : mediaType === "video" ? (
                     <video
@@ -1054,14 +1379,14 @@ export const Library: React.FC<LibraryProps> = ({
                   )}
                 </div>
                 {isImportMode && (
-                  <span className="absolute left-3 top-3 flex items-center gap-2 rounded-full bg-white/90 px-3 py-1 text-xs font-semibold text-gray-700 shadow">
-                    {isSelected ? (
-                      <CheckSquare className="h-4 w-4" />
-                    ) : (
-                      <Square className="h-4 w-4" />
+                  <>
+                    {isSelected && (
+                      <span className="absolute right-3 top-3 inline-flex h-9 w-9 items-center justify-center rounded-full border border-gray-900/70 bg-white/95 shadow-sm backdrop-blur">
+                        <span className="absolute inset-0 rounded-full bg-black/5" />
+                        <Check className="relative h-4 w-4 text-gray-900" />
+                      </span>
                     )}
-                    {isSelected ? "Selected" : "Select"}
-                  </span>
+                  </>
                 )}
               </button>
             </div>

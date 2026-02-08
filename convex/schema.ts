@@ -186,6 +186,47 @@ export default defineSchema({
       filterFields: ["userId", "type"],
     }),
 
+  assetCollections: defineTable({
+    ownerId: v.id("users"),
+    title: v.string(),
+    projectId: v.optional(v.id("projects")),
+    coverUrl: v.optional(v.string()),
+    coverStorageKey: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("byOwner", ["ownerId"])
+    .index("byOwnerUpdatedAt", ["ownerId", "updatedAt"])
+    .index("byProject", ["projectId"]),
+
+  assetCollectionItems: defineTable({
+    collectionId: v.id("assetCollections"),
+    assetId: v.id("assets"),
+    addedBy: v.id("users"),
+    addedAt: v.number(),
+  })
+    .index("byCollection", ["collectionId"])
+    .index("byAsset", ["assetId"])
+    .index("byCollectionAsset", ["collectionId", "assetId"]),
+
+  assetCollectionSharing: defineTable({
+    collectionId: v.id("assetCollections"),
+    userId: v.optional(v.id("users")),
+    userEmail: v.optional(v.string()),
+    groupId: v.optional(v.id("shareGroups")),
+    role: v.string(), // viewer | editor
+    invitedBy: v.id("users"),
+    createdAt: v.number(),
+    acceptedAt: v.optional(v.number()),
+  })
+    .index("byCollection", ["collectionId"])
+    .index("byUser", ["userId"])
+    .index("byEmail", ["userEmail"])
+    .index("byGroup", ["groupId"])
+    .index("byCollectionUser", ["collectionId", "userId"])
+    .index("byCollectionEmail", ["collectionId", "userEmail"])
+    .index("byCollectionGroup", ["collectionId", "groupId"]),
+
   assetAnalysisJobs: defineTable({
     assetId: v.id("assets"),
     userId: v.id("users"),

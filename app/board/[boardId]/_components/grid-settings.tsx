@@ -209,7 +209,7 @@ export const GridSettings = ({ config, onConfigChange }: GridSettingsProps) => {
                           option.value === "#000000" ? "bg-white" : "bg-gray-900"
                         }`}>
                           <svg className={`w-2.5 h-2.5 ${
-                            option.value === "#000000" ? "text-gray-900" : "text-white"
+                            option.value === "#000000" ? "text-gray-900" : "text-slate-50"
                           }`} fill="currentColor" viewBox="0 0 20 20">
                             <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                           </svg>
@@ -218,7 +218,7 @@ export const GridSettings = ({ config, onConfigChange }: GridSettingsProps) => {
                       
                       {/* Label al hover */}
                       <div className="absolute -bottom-7 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-                        <div className="bg-gray-900 text-white text-xs px-2 py-0.5 rounded whitespace-nowrap">
+                        <div className="bg-gray-900 text-slate-50 text-xs px-2 py-0.5 rounded whitespace-nowrap">
                           {option.label}
                         </div>
                       </div>
