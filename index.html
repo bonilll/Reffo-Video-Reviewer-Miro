@@ -5,10 +5,46 @@
     <meta charset="UTF-8" />
     <link rel="icon" href="/icon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <meta name="theme-color" content="#111827" />
+    <meta name="robots" content="index,follow" data-seo="robots" />
     <!-- Miro Web SDK v2 -->
     <script src="https://miro.com/app/static/sdk/v2/miro.js"></script>
-    <title>Reffo Reviewer</title>
-    <meta name="description" content="Fast, focused video feedback for teams. Review, collaborate, and ship faster with Reffo Reviewer." />
+    <title data-seo="title">Reffo</title>
+    <meta
+      name="description"
+      content="Fast, focused video feedback for teams. Review, collaborate, and ship faster with Reffo."
+      data-seo="description"
+    />
+    <link rel="canonical" href="https://reffo.studio/" data-seo="canonical" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Reffo" />
+    <meta property="og:title" content="Reffo" data-seo="og:title" />
+    <meta
+      property="og:description"
+      content="Fast, focused video feedback for teams. Review, collaborate, and ship faster with Reffo."
+      data-seo="og:description"
+    />
+    <meta property="og:url" content="https://reffo.studio/" data-seo="og:url" />
+    <meta property="og:image" content="/icon.svg" data-seo="og:image" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="Reffo" data-seo="twitter:title" />
+    <meta
+      name="twitter:description"
+      content="Fast, focused video feedback for teams. Review, collaborate, and ship faster with Reffo."
+      data-seo="twitter:description"
+    />
+    <meta name="twitter:image" content="/icon.svg" data-seo="twitter:image" />
+    <script type="application/ld+json" data-seo="jsonld">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "Reffo",
+        "applicationCategory": "BusinessApplication",
+        "operatingSystem": "Web",
+        "description": "Collaborative video review with annotations, threaded comments, and frame-accurate feedback."
+      }
+    </script>
     <script src="https://unpkg.com/@lottiefiles/lottie-player@latest/dist/lottie-player.js" defer></script>
   </head>
   <body class="antialiased">
@@ -60,8 +96,8 @@
                   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);backdrop-filter:blur(4px);z-index:9999';
                   const box = document.createElement('div');
                   box.style.cssText = 'position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(520px,92vw);padding:16px;border-radius:12px;border:1px solid rgba(255,255,255,.2);background:#111;color:#fff;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;';
-                  box.innerHTML = '<div style="font-weight:700;margin-bottom:8px">Open a Reffo Review</div>'+
-                                  '<div style="font-size:12px;opacity:.8;margin-bottom:8px">Paste a link (https://…/share/{token} or /share/{token})</div>';
+                  box.innerHTML = '<div style="font-weight:700;margin-bottom:8px">Open in Reffo</div>'+
+                                  '<div style="font-size:12px;opacity:.8;margin-bottom:8px">Paste a share link (https://…/share/{token} or /share/{token})</div>';
                   const input = document.createElement('input');
                   input.type = 'text'; input.value = initialValue; input.placeholder = 'https://…/share/abc123 or /share/abc123';
                   input.style.cssText = 'width:100%;padding:10px 12px;border-radius:10px;border:1px solid rgba(255,255,255,.2);background:#161616;color:#fff;outline:none;';
@@ -93,7 +129,7 @@
                       y: center.y,
                       width: 360,
                       height: 140,
-                      content: `<p><strong>Open Reffo Review</strong></p><p style=\"font-size:12px;\">${safeUrl}</p>`,
+                      content: `<p><strong>Open in Reffo</strong></p><p style=\"font-size:12px;\">${safeUrl}</p>`,
                       style: { fillColor: 'light_yellow', textColor: '#111111' },
                     });
                     return true;
@@ -103,7 +139,7 @@
                 try {
                   if (typeof window.miro.board.createStickyNote === 'function') {
                     await window.miro.board.createStickyNote({
-                      content: `Open Reffo Review\n${url}`,
+                      content: `Open in Reffo\n${url}`,
                       x: center.x,
                       y: center.y,
                       shape: 'square',
@@ -253,7 +289,7 @@
             overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);backdrop-filter:blur(4px);z-index:9999';
             const box = document.createElement('div');
             box.style.cssText = 'position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(520px,92vw);padding:16px;border-radius:12px;border:1px solid rgba(255,255,255,.2);background:#111;color:#fff;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;';
-            box.innerHTML = '<div style="font-weight:700;margin-bottom:8px">Paste a Reffo Review link</div>'+
+            box.innerHTML = '<div style="font-weight:700;margin-bottom:8px">Paste a share link</div>'+
                             '<div style="font-size:12px;opacity:.8;margin-bottom:8px">Example: https://…/share/{token} or /share/{token}</div>';
             const input = document.createElement('input');
             input.type = 'text'; input.value = initialValue; input.placeholder = 'https://…/share/abc123 or /share/abc123';

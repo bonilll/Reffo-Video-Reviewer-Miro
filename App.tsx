@@ -133,6 +133,55 @@ function navigate(path: string, replace = false) {
   }
 }
 
+type SeoInput = {
+  title: string;
+  description: string;
+  canonicalUrl: string;
+  robots: string;
+};
+
+const setSeo = (input: SeoInput) => {
+  const setMeta = (selector: string, content: string) => {
+    const el = document.head.querySelector(selector) as HTMLMetaElement | null;
+    if (el) el.setAttribute("content", content);
+  };
+  const setLink = (selector: string, href: string) => {
+    const el = document.head.querySelector(selector) as HTMLLinkElement | null;
+    if (el) el.setAttribute("href", href);
+  };
+
+  if (typeof document !== "undefined") {
+    const absoluteIcon = (() => {
+      try {
+        const u = new URL(input.canonicalUrl);
+        return `${u.origin}/icon.svg`;
+      } catch {
+        return "/icon.svg";
+      }
+    })();
+
+    document.title = input.title;
+    setMeta('meta[data-seo="description"]', input.description);
+    setMeta('meta[data-seo="og:title"]', input.title);
+    setMeta('meta[data-seo="og:description"]', input.description);
+    setMeta('meta[data-seo="og:url"]', input.canonicalUrl);
+    setMeta('meta[data-seo="og:image"]', absoluteIcon);
+    setMeta('meta[data-seo="twitter:title"]', input.title);
+    setMeta('meta[data-seo="twitter:description"]', input.description);
+    setMeta('meta[data-seo="twitter:image"]', absoluteIcon);
+    setMeta('meta[data-seo="robots"]', input.robots);
+    setLink('link[data-seo="canonical"]', input.canonicalUrl);
+  }
+};
+
+const buildCanonicalUrl = (pathname: string) => {
+  const base =
+    ((import.meta as any)?.env?.VITE_PUBLIC_SITE_URL as string | undefined)?.replace(/\/$/, "") ||
+    window.location.origin.replace(/\/$/, "");
+  const url = new URL(base + (pathname.startsWith("/") ? pathname : `/${pathname}`));
+  return url.toString();
+};
+
 const getClerkErrorMessage = (error: unknown): string => {
   if (error && typeof error === 'object' && 'errors' in (error as any)) {
     const clerkErrors = (error as any).errors;
@@ -801,9 +850,9 @@ const App: React.FC = () => {
             <div>
               <div className="flex items-center gap-2">
                 <img src={logo} alt="Reffo" className="h-7 w-auto" />
-                <span className="text-lg font-semibold">Reffo Review</span>
+                <span className="text-lg font-semibold">Reffo</span>
               </div>
-              <p className="text-xs text-white/60">Legal documentation (draft – requires legal review)</p>
+              <p className="text-xs text-white/60">Legal documentation</p>
             </div>
             <nav className="flex flex-wrap items-center gap-2 text-xs">
               {navItems.map((item) => (
@@ -841,6 +890,61 @@ const App: React.FC = () => {
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
   }, []);
+
+  // Route → SEO/meta (SPA-friendly). Private/app routes default to noindex.
+  useEffect(() => {
+    const defaultTitle = "Reffo";
+    const defaultDescription =
+      "Fast, focused video feedback for teams. Review, collaborate, and ship faster with Reffo.";
+    const canonicalPath =
+      route.name === "legal"
+        ? route.page === "privacy"
+          ? "/privacy-policy"
+          : route.page === "cookies"
+            ? "/cookie-policy"
+            : "/terms-of-use"
+        : window.location.pathname;
+    const canonicalUrl = buildCanonicalUrl(canonicalPath);
+
+    const isIndexablePublicRoute =
+      route.name === "home" ||
+      (route.name === "legal" &&
+        (route.page === "privacy" || route.page === "cookies" || route.page === "terms"));
+
+    const robots = isIndexablePublicRoute ? "index,follow" : "noindex,nofollow";
+
+    let title = defaultTitle;
+    let description = defaultDescription;
+
+    if (route.name === "legal") {
+      const pageTitle =
+        route.page === "privacy"
+          ? "Privacy Policy"
+          : route.page === "cookies"
+            ? "Cookie Policy"
+            : "Terms of Use";
+      title = `${pageTitle} | ${defaultTitle}`;
+      description = `Read the ${pageTitle.toLowerCase()} for Reffo.`;
+    } else if (route.name === "dashboard") {
+      title = `Dashboard | ${defaultTitle}`;
+    } else if (route.name === "library") {
+      title = `Library | ${defaultTitle}`;
+    } else if (route.name === "profile") {
+      title = `Profile | ${defaultTitle}`;
+    } else if (route.name === "project") {
+      title = `Project | ${defaultTitle}`;
+    } else if (route.name === "review") {
+      title = `Review | ${defaultTitle}`;
+    } else if (route.name === "board") {
+      title = `Board | ${defaultTitle}`;
+    } else if (route.name === "edit") {
+      title = `Editor | ${defaultTitle}`;
+    } else if (route.name === "share") {
+      title = `Shared Review | ${defaultTitle}`;
+    }
+
+    setSeo({ title, description, canonicalUrl, robots });
+  }, [route]);
 
   useEffect(() => {
     setActiveCompositionId(null);
@@ -1040,7 +1144,7 @@ const App: React.FC = () => {
             <div className="mx-auto w-full max-w-sm rounded-2xl border border-gray-200 bg-white p-5 text-center shadow-2xl">
               <div className="mb-2 flex items-center justify-center gap-2 text-gray-900">
                 <img src={logo} alt="Reffo" className="h-7 w-auto" />
-                <span className="text-base font-semibold">Reffo Reviewer</span>
+                <span className="text-base font-semibold">Reffo</span>
               </div>
               <p className="mb-5 text-xs text-gray-600">Fast, focused video feedback.</p>
               <div className="flex flex-col items-stretch gap-3">
@@ -1072,7 +1176,7 @@ const App: React.FC = () => {
               <div className="text-center">
                 <div className="mx-auto mb-2 flex items-center justify-center gap-2">
                   <img src={logo} alt="Reffo" className="h-8 w-auto" />
-                  <h1 className="text-2xl font-semibold text-gray-900 sm:text-3xl">Reffo Reviewer</h1>
+                  <h1 className="text-2xl font-semibold text-gray-900 sm:text-3xl">Reffo</h1>
                 </div>
                 <p className="text-sm text-gray-600 sm:text-base">Fast, focused video feedback for teams.</p>
               </div>

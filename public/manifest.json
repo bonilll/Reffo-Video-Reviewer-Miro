@@ -1,5 +1,5 @@
 {
-  "name": "Reffo Review",
+  "name": "Reffo",
   "url": "/",
   "sdkVersion": "2.0",
   "permissions": [
@@ -9,7 +9,7 @@
   ],
   "toolbar": {
     "toolbarSvgIcon": "/icon.svg",
-    "toolbarName": "Reffo Review",
+    "toolbarName": "Reffo",
     "librarySvgIcon": "/icon.svg"
   }
 }

@@ -2,9 +2,9 @@
 <img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
 </div>
 
-# Video Reviewer – Convex + Clerk
+# Reffo (reffo.studio) – Convex + Clerk
 
-This project combines a React/Vite front‑end with a Convex backend and Clerk authentication to deliver a collaborative video review workflow with annotations, threaded comments, and frame-accurate navigation.
+This project combines a React/Vite front-end with a Convex backend and Clerk authentication to deliver a collaborative video review workflow with annotations, threaded comments, and frame-accurate navigation.
 
 ## Prerequisites
 
