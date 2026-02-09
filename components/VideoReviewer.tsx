@@ -129,9 +129,16 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
 
 
   const videoRef = useRef<HTMLVideoElement>(null);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [currentFrame, setCurrentFrame] = useState(0);
+	  const [isPlaying, setIsPlaying] = useState(false);
+	  const [currentTime, setCurrentTime] = useState(0);
+	  const [currentFrame, setCurrentFrame] = useState(0);
+	  // Throttle state churn from video frame callbacks and aggressive scrubbing.
+	  const pendingTimeRef = useRef<number>(0);
+	  const pendingFrameRef = useRef<number>(0);
+	  const timeRafRef = useRef<number | null>(null);
+	  const lastUiCommitRef = useRef<number>(0);
+	  const pendingSeekRef = useRef<number | null>(null);
+	  const seekRafRef = useRef<number | null>(null);
   
   const [activeTool, setActiveTool] = useState<AnnotationTool>(AnnotationTool.SELECT);
   const [brushColor, setBrushColorState] = useState('#ef4444'); // red-500
@@ -954,14 +961,28 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
     historyRecordingRef.current = true;
   }, [video.id]);
 
-  const handleTimeUpdate = (time: number, frame: number) => {
-    setCurrentTime(time);
-    setCurrentFrame(frame);
-    // Enforce A–B loop if enabled and valid
-    const fpsCanonical = Math.max(1, Math.floor(video.fps || 24));
-    const epsilon = 1 / fpsCanonical;
-    if (abLoopEnabled && abA != null && abB != null && abB > abA + epsilon) {
-      if (time >= abB - epsilon) {
+	  const handleTimeUpdate = (time: number, frame: number) => {
+	    // Keep React updates bounded; the <video> paints itself, so UI can update slower than the decode rate.
+	    const now = performance.now();
+	    pendingTimeRef.current = time;
+	    pendingFrameRef.current = frame;
+	    const UI_INTERVAL_MS = isPlaying ? 33 : 0; // ~30Hz while playing; immediate when paused/seeking
+	    if (
+	      timeRafRef.current == null &&
+	      (UI_INTERVAL_MS === 0 || now - lastUiCommitRef.current >= UI_INTERVAL_MS)
+	    ) {
+	      timeRafRef.current = window.requestAnimationFrame(() => {
+	        timeRafRef.current = null;
+	        setCurrentTime(pendingTimeRef.current);
+	        setCurrentFrame(pendingFrameRef.current);
+	        lastUiCommitRef.current = performance.now();
+	      });
+	    }
+	    // Enforce A–B loop if enabled and valid
+	    const fpsCanonical = Math.max(1, Math.floor(video.fps || 24));
+	    const epsilon = 1 / fpsCanonical;
+	    if (abLoopEnabled && abA != null && abB != null && abB > abA + epsilon) {
+	      if (time >= abB - epsilon) {
         handleSeek(abA);
         if (!isPlaying) setIsPlaying(true);
         return;
@@ -978,21 +999,71 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
         handleSeek(0);
         if (!isPlaying) setIsPlaying(true);
       }
-    }
-  };
-  
-  const handleSeek = (time: number) => {
-    if (videoRef.current) {
-        videoRef.current.currentTime = time;
-        setCurrentTime(time);
-        setCurrentFrame(Math.round(time * video.fps));
-    }
-    if (compareSource) {
-      compareElements().forEach((el) => {
-        try { el.currentTime = time; } catch {}
-      });
-    }
-  };
+	    }
+	  };
+	  
+	  const applySeek = useCallback(
+	    (time: number) => {
+	      const el = videoRef.current;
+	      if (!el) return;
+	      const clamped = Math.max(0, Math.min(duration > 0 ? duration : Number.POSITIVE_INFINITY, time));
+	      const anyEl = el as any;
+	      try {
+	        // fastSeek is optimized in some browsers for scrubbing.
+	        if (typeof anyEl.fastSeek === "function") anyEl.fastSeek(clamped);
+	        else el.currentTime = clamped;
+	      } catch {
+	        try { el.currentTime = clamped; } catch {}
+	      }
+
+	      // Update UI immediately, but not on every mousemove (we rAF-throttle seek calls).
+	      const fpsCanonical = Math.max(1, Math.floor(video.fps || 24));
+	      pendingTimeRef.current = clamped;
+	      pendingFrameRef.current = Math.round(clamped * fpsCanonical);
+	      if (timeRafRef.current == null) {
+	        timeRafRef.current = window.requestAnimationFrame(() => {
+	          timeRafRef.current = null;
+	          setCurrentTime(pendingTimeRef.current);
+	          setCurrentFrame(pendingFrameRef.current);
+	        });
+	      }
+
+	      if (compareSource) {
+	        compareElements().forEach((cmp) => {
+	          const anyCmp = cmp as any;
+	          try {
+	            if (typeof anyCmp.fastSeek === "function") anyCmp.fastSeek(clamped);
+	            else cmp.currentTime = clamped;
+	          } catch {}
+	        });
+	      }
+	    },
+	    [compareElements, compareSource, duration, video.fps],
+	  );
+
+	  const handleSeek = useCallback(
+	    (time: number) => {
+	      pendingSeekRef.current = time;
+	      if (seekRafRef.current != null) return;
+	      seekRafRef.current = window.requestAnimationFrame(() => {
+	        seekRafRef.current = null;
+	        const target = pendingSeekRef.current;
+	        pendingSeekRef.current = null;
+	        if (target == null) return;
+	        applySeek(target);
+	      });
+	    },
+	    [applySeek],
+	  );
+
+	  useEffect(() => {
+	    return () => {
+	      if (timeRafRef.current != null) window.cancelAnimationFrame(timeRafRef.current);
+	      if (seekRafRef.current != null) window.cancelAnimationFrame(seekRafRef.current);
+	      timeRafRef.current = null;
+	      seekRafRef.current = null;
+	    };
+	  }, []);
 
   const handleAddAnnotation = useCallback((newAnnotation: Omit<Annotation, 'id' | 'videoId' | 'authorId' | 'createdAt'>) => {
     const tempId = `client-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -2260,14 +2331,24 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
           </div>
           {/* Left Controls: restricted to video display width and not under comments */}
           <div className="flex-none">
-            <div className={`flex items-stretch justify-center px-0 pb-6 ${isDark ? 'bg-black' : 'bg-gray-100'}`}>
-              <div
-                ref={controlsEl}
-                className={`${isDark ? 'bg-black border-t border-white/10 text-white' : 'bg-gray-100 border-t border-gray-200 text-gray-900'} flex flex-col gap-3 px-6 py-3 h-28`}
-                style={{ width: (compareSource && compareMode !== 'overlay')
-                                ? (baseControlsWidthRef.current ? `${baseControlsWidthRef.current}px` : (videoWidthPx ? `${videoWidthPx}px` : '100%'))
-                                : (videoWidthPx ? `${videoWidthPx}px` : '100%') }}
-              >
+	            <div className={`flex items-stretch justify-center px-0 pb-6 ${isDark ? 'bg-black' : 'bg-gray-100'}`}>
+	              <div
+	                ref={controlsEl}
+	                className={`${isDark ? 'bg-black border-t border-white/10 text-white' : 'bg-gray-100 border-t border-gray-200 text-gray-900'} flex flex-col gap-3 px-3 py-3 h-28 sm:px-6`}
+	                style={{
+	                  width:
+	                    compareSource && compareMode !== 'overlay'
+	                      ? baseControlsWidthRef.current
+	                        ? `${baseControlsWidthRef.current}px`
+	                        : videoWidthPx
+	                          ? `${videoWidthPx}px`
+	                          : '100%'
+	                      : videoWidthPx
+	                        ? `${videoWidthPx}px`
+	                        : '100%',
+	                  maxWidth: '100%',
+	                }}
+	              >
                 <div className="flex-1 flex flex-col">
                   <Timeline
                     currentTime={currentTime}

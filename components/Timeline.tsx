@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useEffect, useCallback } from 'react';
+import React, { useMemo, useRef, useEffect, useCallback, useState } from 'react';
 import { Video, Annotation, Comment } from '../types';
 
 interface TimelineProps {
@@ -15,9 +15,21 @@ interface TimelineProps {
 
 const Timeline: React.FC<TimelineProps> = ({ currentTime, duration, onSeek, video, annotations, comments, isDark = true, abLoop, onAbChange }) => {
   const timelineRef = useRef<HTMLDivElement>(null);
+  const [timelineWidth, setTimelineWidth] = useState(0);
   const isSeeking = useRef(false);
   const abDragging = useRef<null | 'a' | 'b'>(null);
-  const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
+  // While scrubbing we want the playhead to feel 1:1 with the pointer even if the
+  // video decoder can't keep up. We keep a local UI time and throttle actual seeks.
+  const [scrubTime, setScrubTime] = useState<number | null>(null);
+  const displayTime = scrubTime != null ? scrubTime : currentTime;
+  const progress = duration > 0 ? (displayTime / duration) * 100 : 0;
+  const fps = useMemo(() => Math.max(1, Math.floor(video.fps || 24)), [video.fps]);
+  const pendingSeekTimeRef = useRef<number | null>(null);
+  const seekTimerRef = useRef<number | null>(null);
+  const lastSeekEmitRef = useRef<number>(0);
+  const SEEK_INTERVAL_MS = 50; // ~20Hz: less thrash, smoother decoder during scrubs
+  const scrubTimeRef = useRef<number | null>(null);
+  useEffect(() => { scrubTimeRef.current = scrubTime; }, [scrubTime]);
 
   const getTimeFromPosition = useCallback((clientX: number): number => {
     const timeline = timelineRef.current;
@@ -39,18 +51,62 @@ const Timeline: React.FC<TimelineProps> = ({ currentTime, duration, onSeek, vide
   }, [getTimeFromPosition]);
 
   useEffect(() => {
+    const el = timelineRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const update = () => {
+      const w = el.getBoundingClientRect().width;
+      setTimelineWidth(Number.isFinite(w) ? Math.max(0, w) : 0);
+    };
+    update();
+    const obs = new ResizeObserver(() => update());
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, []);
+
+  useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (abDragging.current && duration > 0 && onAbChange) {
         onAbChange(abDragging.current, getTimeFromMouseEvent(e));
         return;
       }
       if (isSeeking.current) {
-        onSeek(getTimeFromMouseEvent(e));
+        const t = getTimeFromMouseEvent(e);
+        setScrubTime(t);
+        pendingSeekTimeRef.current = t;
+        // Throttle actual seeks to reduce decoder stalls.
+        const now = performance.now();
+        const elapsed = now - lastSeekEmitRef.current;
+        if (elapsed >= SEEK_INTERVAL_MS) {
+          lastSeekEmitRef.current = now;
+          onSeek(t);
+          return;
+        }
+        if (seekTimerRef.current == null) {
+          seekTimerRef.current = window.setTimeout(() => {
+            seekTimerRef.current = null;
+            const target = pendingSeekTimeRef.current;
+            pendingSeekTimeRef.current = null;
+            if (target == null) return;
+            lastSeekEmitRef.current = performance.now();
+            onSeek(target);
+          }, Math.max(0, SEEK_INTERVAL_MS - elapsed));
+        }
       }
     };
 
     const handleMouseUp = () => {
-      if (isSeeking.current) isSeeking.current = false;
+      if (isSeeking.current) {
+        isSeeking.current = false;
+        // Flush final seek for accurate landing.
+        if (seekTimerRef.current != null) {
+          window.clearTimeout(seekTimerRef.current);
+          seekTimerRef.current = null;
+        }
+        const target = pendingSeekTimeRef.current ?? scrubTimeRef.current;
+        pendingSeekTimeRef.current = null;
+        if (target != null) onSeek(target);
+        setScrubTime(null);
+      }
       if (abDragging.current) abDragging.current = null;
     };
 
@@ -62,12 +118,41 @@ const Timeline: React.FC<TimelineProps> = ({ currentTime, duration, onSeek, vide
       }
       if (isSeeking.current) {
         e.preventDefault();
-        onSeek(getTimeFromTouchEvent(e));
+        const t = getTimeFromTouchEvent(e);
+        setScrubTime(t);
+        pendingSeekTimeRef.current = t;
+        const now = performance.now();
+        const elapsed = now - lastSeekEmitRef.current;
+        if (elapsed >= SEEK_INTERVAL_MS) {
+          lastSeekEmitRef.current = now;
+          onSeek(t);
+          return;
+        }
+        if (seekTimerRef.current == null) {
+          seekTimerRef.current = window.setTimeout(() => {
+            seekTimerRef.current = null;
+            const target = pendingSeekTimeRef.current;
+            pendingSeekTimeRef.current = null;
+            if (target == null) return;
+            lastSeekEmitRef.current = performance.now();
+            onSeek(target);
+          }, Math.max(0, SEEK_INTERVAL_MS - elapsed));
+        }
       }
     };
 
     const handleTouchEnd = () => {
-      if (isSeeking.current) isSeeking.current = false;
+      if (isSeeking.current) {
+        isSeeking.current = false;
+        if (seekTimerRef.current != null) {
+          window.clearTimeout(seekTimerRef.current);
+          seekTimerRef.current = null;
+        }
+        const target = pendingSeekTimeRef.current ?? scrubTimeRef.current;
+        pendingSeekTimeRef.current = null;
+        if (target != null) onSeek(target);
+        setScrubTime(null);
+      }
       if (abDragging.current) abDragging.current = null;
     };
 
@@ -82,6 +167,11 @@ const Timeline: React.FC<TimelineProps> = ({ currentTime, duration, onSeek, vide
       window.removeEventListener('mouseup', handleMouseUp);
       window.removeEventListener('touchmove', handleTouchMove as any);
       window.removeEventListener('touchend', handleTouchEnd);
+      if (seekTimerRef.current != null) {
+        window.clearTimeout(seekTimerRef.current);
+        seekTimerRef.current = null;
+      }
+      pendingSeekTimeRef.current = null;
     };
   }, [getTimeFromMouseEvent, getTimeFromTouchEvent, onSeek, onAbChange, duration]);
 
@@ -89,48 +179,63 @@ const Timeline: React.FC<TimelineProps> = ({ currentTime, duration, onSeek, vide
     const target = e.target as HTMLElement;
     if (target && target.dataset && target.dataset.abHandle) return; // handled by handle element
     isSeeking.current = true;
-    onSeek(getTimeFromMouseEvent(e.nativeEvent));
+    const t = getTimeFromMouseEvent(e.nativeEvent);
+    setScrubTime(t);
+    pendingSeekTimeRef.current = t;
+    lastSeekEmitRef.current = performance.now();
+    onSeek(t);
   };
 
   const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
     const target = e.target as HTMLElement;
     if (target && (target as any).dataset && (target as any).dataset.abHandle) return;
     isSeeking.current = true;
-    onSeek(getTimeFromPosition(e.touches[0].clientX));
+    const t = getTimeFromPosition(e.touches[0].clientX);
+    setScrubTime(t);
+    pendingSeekTimeRef.current = t;
+    lastSeekEmitRef.current = performance.now();
+    onSeek(t);
   };
 
-  const markers = useMemo(() => {
+  const noteMarkers = useMemo(() => {
     const markerFrames = new Set<number>();
-    annotations.forEach(a => markerFrames.add(a.frame));
-    comments.forEach(c => c.frame !== undefined && markerFrames.add(c.frame));
-    
-    return Array.from(markerFrames).map(frame => ({
-      frame,
-      // Guard against division by zero if duration is not loaded yet
-      position: duration > 0 && video.fps > 0 ? (frame / (duration * video.fps)) * 100 : 0,
-    }));
-  }, [annotations, comments, duration, video.fps]);
+    comments.forEach((c) => c.frame !== undefined && markerFrames.add(c.frame));
+    const totalFrames = Math.max(1, Math.floor(duration * fps));
 
-  const currentFrameNumber = useMemo(() => Math.max(0, Math.round(currentTime * (video.fps || 0))), [currentTime, video.fps]);
+    return Array.from(markerFrames).map((frame) => ({
+      frame,
+      position: duration > 0 ? (frame / totalFrames) * 100 : 0,
+    }));
+  }, [comments, duration, fps]);
+
+  const currentFrameNumber = useMemo(() => Math.max(0, Math.round(displayTime * fps)), [displayTime, fps]);
+  const currentFrameLabelLeftPct = useMemo(() => {
+    // Approximate the label width from the digit count to avoid DOM measuring every frame.
+    const digits = String(currentFrameNumber).length;
+    const approx = Math.max(32, 16 + digits * 7);
+    const w = Math.max(1, timelineWidth);
+    const half = Math.min(w / 2, approx / 2);
+    const px = (Math.max(0, Math.min(100, progress)) / 100) * w;
+    const clamped = Math.max(half, Math.min(w - half, px));
+    return (clamped / w) * 100;
+  }, [currentFrameNumber, progress, timelineWidth]);
 
   // Build adaptive tick marks so we show ~10 nicely spaced labels
   const tickConfig = useMemo(() => {
-    const fps = Math.max(1, Math.floor(video.fps || 0));
     const totalFrames = Math.max(1, Math.floor(duration * fps));
-    const target = 10; // desired number of labeled ticks
+    const target = 10; // desired number of ticks (labels will adapt below)
     const raw = Math.max(1, Math.ceil(totalFrames / target));
     const pow = Math.pow(10, Math.max(0, Math.floor(Math.log10(raw))));
     const options = [1, 2, 5].map((m) => m * pow);
     let interval = options[0];
     for (const c of options) { if (raw <= c) { interval = c; break; } interval = c; }
-    const ticks: Array<{ frame: number; position: number; label: boolean }> = [];
+    const ticks: Array<{ frame: number; position: number }> = [];
     for (let f = 0; f <= totalFrames; f += interval) {
       const position = (f / totalFrames) * 100;
-      const label = ticks.length % 2 === 0; // label every other tick to avoid clutter
-      ticks.push({ frame: f, position, label });
+      ticks.push({ frame: f, position });
     }
     return { ticks, totalFrames };
-  }, [duration, video.fps]);
+  }, [duration, fps]);
 
   return (
     <div className="w-full group px-2 select-none">
@@ -144,27 +249,43 @@ const Timeline: React.FC<TimelineProps> = ({ currentTime, duration, onSeek, vide
             className={`absolute top-0 left-0 h-full rounded-full ${isDark ? 'bg-white/30' : 'bg-gray-900/20'}`} 
             style={{ width: `${progress}%` }}
         />
-        {/* Current position and inline label inside the track */}
-        <div
-          className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 flex items-center pointer-events-none`}
-          style={{ left: `${progress}%` }}
-        >
-          <div className={`${isDark ? 'bg-white' : 'bg-gray-900'}`} style={{ width: 1, height: 24 }} />
+        {/* Note markers (comments) */}
+        {noteMarkers.map(({ frame, position }) => (
           <div
-            className={`${isDark ? 'bg-white text-black ring-1 ring-black/10' : 'bg-gray-900 text-gray-50 ring-1 ring-white/15'} ml-1 rounded-md px-2 py-0.5 text-[10px] font-semibold shadow-md whitespace-nowrap`}
-            title={`Frame ${currentFrameNumber}`}
+            key={`note-marker-${frame}`}
+            className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 h-2 w-2 rounded-full ${isDark ? 'bg-yellow-300' : 'bg-yellow-500'} ring-1 ring-black/40`}
+            style={{ left: `${position}%` }}
+            title={`Note at frame ${frame}`}
+          />
+        ))}
+
+        {/* Playhead: only the frame label (no bar, no dot) */}
+        {duration > 0 && (
+          <div
+            className="absolute top-1/2 z-30 -translate-x-1/2 -translate-y-1/2 pointer-events-none"
+            style={{ left: `${currentFrameLabelLeftPct}%` }}
+            aria-hidden="true"
           >
-            {currentFrameNumber}
+            <div
+              className="rounded-md bg-white px-2 py-0.5 text-[10px] font-semibold text-black shadow-md border border-black whitespace-nowrap"
+              title={`Frame ${currentFrameNumber}`}
+            >
+              {currentFrameNumber}
+            </div>
           </div>
-        </div>
+        )}
+
         {/* Adaptive frame ticks and labels */}
-        {tickConfig.ticks.map(({ frame, position, label }, i) => (
+        {tickConfig.ticks.map(({ frame, position }, i) => {
+          const labelEvery = timelineWidth < 420 ? 4 : timelineWidth < 768 ? 3 : 2;
+          const showLabel = i % labelEvery === 0;
+          return (
           <React.Fragment key={`tick-${frame}-${i}`}>
             <div
               className={`absolute top-1/2 -translate-y-1/2 ${isDark ? 'bg-white/40' : 'bg-gray-700'}`}
               style={{ left: `${position}%`, width: 1, height: 10 }}
             />
-            {label && (
+            {showLabel && (
               <div
                 className={`absolute bottom-0 translate-y-[110%] -translate-x-1/2 text-[10px] ${isDark ? 'text-white/60' : 'text-gray-800'}`}
                 style={{ left: `${position}%` }}
@@ -173,15 +294,8 @@ const Timeline: React.FC<TimelineProps> = ({ currentTime, duration, onSeek, vide
               </div>
             )}
           </React.Fragment>
-        ))}
-        {markers.map(({ frame, position }) => (
-            <div 
-                key={`note-marker-${frame}`}
-                className={`absolute top-1/2 -translate-y-1/2 h-3 w-0.5 ${isDark ? 'bg-yellow-300/80' : 'bg-yellow-600/80'}`}
-                style={{ left: `${position}%` }}
-                title={`Note at frame ${frame}`}
-            />
-        ))}
+          );
+        })}
         {/* A/B loop markers */}
         {duration > 0 && abLoop?.a != null && abLoop.a! >= 0 && abLoop.a! <= duration && (
           <>
