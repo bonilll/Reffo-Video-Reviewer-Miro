@@ -7,13 +7,14 @@ import {
   Point,
   RectangleAnnotation,
   EllipseAnnotation,
+  TextAnnotation,
   CurrentUserProfile,
 } from '../types';
 import VideoPlayer from './VideoPlayer';
 import AnnotationCanvas from './AnnotationCanvas';
 import CommentsPane from './CommentsPane';
 import Toolbar from './Toolbar';
-import { ChevronLeft, Eye, EyeOff, Play, Pause, Volume2, VolumeX, SkipBack, SkipForward, Rewind, FastForward, Maximize, Minimize, Share2, MessageSquare, Settings } from 'lucide-react';
+import { ChevronLeft, Eye, EyeOff, Play, Pause, Volume2, VolumeX, SkipBack, SkipForward, StepBack, StepForward, Maximize, Minimize, Share2, PanelRightOpen, PanelRightClose } from 'lucide-react';
 import Timeline from './Timeline';
 import { useQuery, useMutation, useAction } from 'convex/react';
 import { api } from '../convex/_generated/api';
@@ -129,6 +130,8 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
 
 
   const videoRef = useRef<HTMLVideoElement>(null);
+  // Container for the whole reviewer "stage" (video + controls). Used for fullscreen + resize observing.
+  const containerRef = useRef<HTMLDivElement>(null);
 	  const [isPlaying, setIsPlaying] = useState(false);
 	  const [currentTime, setCurrentTime] = useState(0);
 	  const [currentFrame, setCurrentFrame] = useState(0);
@@ -162,6 +165,11 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
   }, []);
 
   const [selectedAnnotationIds, setSelectedAnnotationIds] = useState<string[]>([]);
+  const selectedAnnotations = useMemo(() => {
+    if (selectedAnnotationIds.length === 0) return [];
+    const selectedSet = new Set(selectedAnnotationIds);
+    return annotations.filter((a) => selectedSet.has(a.id));
+  }, [annotations, selectedAnnotationIds]);
   
   const [activeCommentId, setActiveCommentId] = useState<string | null>(null);
   const [activeCommentPopoverId, setActiveCommentPopoverId] = useState<string | null>(null);
@@ -293,9 +301,10 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
     await completeMultipart({ storageKey, uploadId, parts: completed });
     return { storageKey, publicUrl } as { storageKey: string; publicUrl: string };
   };
-  // Allow owners to insert their rendered edits back into the review
-  const showInsertButton = Boolean(video.isOwnedByCurrentUser);
-  const showEditButton = Boolean(video.isOwnedByCurrentUser);
+	  // Allow owners to insert their rendered edits back into the review
+	  const showInsertButton = Boolean(video.isOwnedByCurrentUser);
+	  // Editor entrypoint is intentionally hidden in reviewer UI (user request).
+	  const showEditButton = false;
   const [exportsForVideo, setExportsForVideo] = useState<Array<{ export: any; composition: any }> | undefined>(undefined);
   const completedExports = (exportsForVideo ?? []).filter(
     (item) => item.export.status === 'completed' && item.export.outputPublicUrl,
@@ -334,9 +343,6 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
     } catch {}
   }, [exportsForVideo]);
   const [loopMenuOpen, setLoopMenuOpen] = useState(false);
-  const [videoWidthPx, setVideoWidthPx] = useState(0);
-  // Preserve a stable controls width so the bottom control bar doesn't jump when compare is active
-  const baseControlsWidthRef = useRef<number>(0);
   const [effectiveFps, setEffectiveFps] = useState<number>(Math.max(1, Math.floor(video.fps || 24)));
   const [fpsDetected, setFpsDetected] = useState<boolean>(false);
 
@@ -650,18 +656,6 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
     };
   }, []);
 
-  const updateVideoWidth = useCallback(() => {
-    const w = videoRef.current?.getBoundingClientRect().width ?? 0;
-    setVideoWidthPx(w);
-  }, []);
-
-  // When not in side-by-side compare, learn/update the stable width for controls
-  useEffect(() => {
-    if (!compareSource || compareMode === 'overlay') {
-      if (videoWidthPx > 0) baseControlsWidthRef.current = videoWidthPx;
-    }
-  }, [videoWidthPx, compareSource, compareMode]);
-
   useEffect(() => {
     let cancelled = false;
     const setup = async () => {
@@ -680,10 +674,8 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
       }
     };
     setup();
-    // Measure display width once source/metadata stabilize
-    setTimeout(updateVideoWidth, 50);
     return () => { cancelled = true; };
-  }, [video.id, video.storageKey, video.src, sourceUrl, getDownloadUrlAction, updateVideoWidth]);
+  }, [video.id, video.storageKey, video.src, sourceUrl, getDownloadUrlAction]);
 
   // Fallback if the main video fails to become playable
   useEffect(() => {
@@ -724,10 +716,6 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
       if (timer) window.clearTimeout(timer);
     };
   }, [playbackUrl, playbackKind, playbackAttempt, video.storageKey, video.src, getDownloadUrlAction]);
-
-  useEffect(() => {
-    setTimeout(updateVideoWidth, 60);
-  }, [compareSource, compareMode, updateVideoWidth]);
 
   const compareElements = useCallback(() => {
     const els: HTMLVideoElement[] = [];
@@ -1169,6 +1157,11 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
     })();
   }, [annotations, deleteAnnotationsMutation, pushHistory]);
 
+  const handleDeleteSelected = useCallback(() => {
+    if (selectedAnnotationIds.length === 0) return;
+    handleDeleteAnnotations(selectedAnnotationIds);
+  }, [handleDeleteAnnotations, selectedAnnotationIds]);
+
   const handleUndo = useCallback(async () => {
     if (undoStack.current.length === 0) return;
     const entry = undoStack.current.pop()!;
@@ -1275,29 +1268,6 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
     void handleRedo();
   }, [handleRedo]);
 
-  // Keyboard shortcuts for undo/redo
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
-        return;
-      }
-
-      const isMac = navigator.platform.toUpperCase().includes('MAC');
-      const isUndo = (isMac ? e.metaKey : e.ctrlKey) && e.key === 'z' && !e.shiftKey;
-      const isRedo = isMac ? (e.metaKey && e.shiftKey && e.key === 'z') : (e.ctrlKey && e.key === 'y');
-
-      if (isUndo) {
-        e.preventDefault();
-        if (canUndo) triggerUndo();
-      } else if (isRedo) {
-        e.preventDefault();
-        if (canRedo) triggerRedo();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [canUndo, canRedo, triggerRedo, triggerUndo]);
-
   const handleBrushColorChange = useCallback(
     (color: string) => {
       setBrushColorState(color);
@@ -1383,6 +1353,43 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
       setShapeFillOpacity(clamp01(average));
     }
   }, [annotations, selectedAnnotationIds, setShapeFillEnabled, setShapeFillOpacity]);
+
+  // Keep style controls in sync with selected annotations (so you can edit while the Select tool is active).
+  useEffect(() => {
+    if (selectedAnnotations.length === 0) return;
+
+    // Color: only auto-sync when selection is uniform.
+    // Note: image/video annotations typically use `color: 'transparent'`; syncing to that would make
+    // subsequent strokes/text appear "invisible". Keep previous brushColor in that case.
+    const colors = selectedAnnotations
+      .map((a) => a.color)
+      .filter((c) => Boolean(c) && c !== 'transparent');
+    if (colors.length > 0 && colors.every((c) => c === colors[0])) {
+      setBrushColorState(colors[0] as string);
+    }
+
+    // Stroke width: average across non-text annotations.
+    const strokeCandidates = selectedAnnotations.filter((a) => a.type !== AnnotationTool.TEXT);
+    if (strokeCandidates.length > 0) {
+      const widths = strokeCandidates
+        .map((a) => (a as any).lineWidth as number)
+        .filter((v) => Number.isFinite(v) && v > 0);
+      if (widths.length > 0) {
+        const avg = Math.round(widths.reduce((sum, v) => sum + v, 0) / widths.length);
+        setBrushSizeState(Math.max(1, Math.min(24, avg)));
+      }
+    }
+
+    // Font size: average across selected text annotations.
+    const textCandidates = selectedAnnotations.filter((a) => a.type === AnnotationTool.TEXT) as TextAnnotation[];
+    if (textCandidates.length > 0) {
+      const sizes = textCandidates.map((t) => t.fontSize).filter((v) => Number.isFinite(v) && v > 0);
+      if (sizes.length > 0) {
+        const avg = Math.round(sizes.reduce((sum, v) => sum + v, 0) / sizes.length);
+        setFontSize(Math.max(10, Math.min(48, avg)));
+      }
+    }
+  }, [selectedAnnotations, setBrushColorState, setBrushSizeState, setFontSize]);
 
   const handleAddComment = useCallback((text: string, parentId?: string) => {
     const pendingPosition = pendingComment?.position;
@@ -1596,6 +1603,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
     comments.forEach(c => c.frame !== undefined && frames.add(c.frame));
     return Array.from(frames).sort((a, b) => a - b);
   }, [annotations, comments]);
+  const hasJumpMarks = jumpFrames.length > 0;
 
   const handleJump = useCallback((direction: 'prev' | 'next') => {
     let targetFrame: number | undefined;
@@ -1610,14 +1618,109 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
     if (targetFrame !== undefined) handleSeek(targetFrame / Math.max(1, Math.floor(video.fps || 24)));
   }, [jumpFrames, currentFrame, handleSeek, video.fps]);
 
-  const containerRef = useRef<HTMLDivElement>(null);
+  // Keyboard shortcuts:
+  // - Space: play/pause
+  // - Left/Right: prev/next frame
+  // - Shift+Left/Right: prev/next marker
+  // - Cmd/Ctrl+Z, Cmd+Shift+Z/Ctrl+Y: undo/redo
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement ||
+        e.target instanceof HTMLSelectElement ||
+        (target && (target.isContentEditable || target.closest?.('[contenteditable="true"]')))
+      ) {
+        return;
+      }
+
+      // Arrow keys
+      if (
+        (e.key === "ArrowLeft" || e.key === "ArrowRight") &&
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !e.altKey
+      ) {
+        e.preventDefault();
+        if (e.shiftKey) {
+          if (jumpFrames.length > 0) {
+            handleJump(e.key === "ArrowLeft" ? "prev" : "next");
+          }
+        } else {
+          stepFrame(e.key === "ArrowLeft" ? -1 : 1);
+        }
+        return;
+      }
+
+      // Spacebar: play/pause
+      if (
+        (e.code === "Space" || e.key === " ") &&
+        !e.repeat &&
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !e.altKey
+      ) {
+        e.preventDefault();
+        setIsPlaying((p) => !p);
+        return;
+      }
+
+      // Undo/redo
+      const isMac = navigator.platform.toUpperCase().includes("MAC");
+      const isUndo = (isMac ? e.metaKey : e.ctrlKey) && e.key === "z" && !e.shiftKey;
+      const isRedo = isMac ? (e.metaKey && e.shiftKey && e.key === "z") : (e.ctrlKey && e.key === "y");
+      if (isUndo) {
+        e.preventDefault();
+        if (canUndo) triggerUndo();
+        return;
+      }
+      if (isRedo) {
+        e.preventDefault();
+        if (canRedo) triggerRedo();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [canUndo, canRedo, triggerRedo, triggerUndo, stepFrame, handleJump, jumpFrames.length]);
+
+  const commentsBeforeFullscreenRef = useRef<boolean | null>(null);
+
+  const getFullscreenElement = () => {
+    if (typeof document === 'undefined') return null;
+    return (
+      document.fullscreenElement ||
+      (document as any).webkitFullscreenElement ||
+      (document as any).mozFullScreenElement ||
+      (document as any).msFullscreenElement ||
+      null
+    );
+  };
 
   const toggleFullscreen = () => {
     const el = containerRef.current as any;
     if (!el) return;
-    if (!document.fullscreenElement) {
+    if (!getFullscreenElement()) {
+      // Hide the comments panel while in fullscreen and restore it on exit.
+      // We only hide it after fullscreen is actually active, so a rejected/unsupported request
+      // doesn't leave the comments stuck closed.
+      commentsBeforeFullscreenRef.current = showComments;
       const req = el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen || el.mozRequestFullScreen;
-      if (req) req.call(el);
+      if (req) {
+        try {
+          const result = req.call(el);
+          if (result && typeof result.then === 'function') {
+            result.catch(() => {
+              commentsBeforeFullscreenRef.current = null;
+            });
+          }
+        } catch {
+          commentsBeforeFullscreenRef.current = null;
+        }
+      } else {
+        commentsBeforeFullscreenRef.current = null;
+      }
     } else {
       const exit = document.exitFullscreen || (document as any).webkitExitFullscreen || (document as any).msExitFullscreen || (document as any).mozCancelFullScreen;
       if (exit) exit.call(document);
@@ -1625,34 +1728,28 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
   };
 
   useEffect(() => {
-    const onFsChange = () => setIsFullscreen(Boolean(document.fullscreenElement));
+    const onFsChange = () => {
+      const active = Boolean(getFullscreenElement());
+      setIsFullscreen(active);
+      if (active && commentsBeforeFullscreenRef.current != null) {
+        setShowComments(false);
+      } else if (!active && commentsBeforeFullscreenRef.current != null) {
+        setShowComments(commentsBeforeFullscreenRef.current);
+        commentsBeforeFullscreenRef.current = null;
+      }
+    };
+
     document.addEventListener('fullscreenchange', onFsChange);
-    return () => document.removeEventListener('fullscreenchange', onFsChange);
+    // Safari/iOS
+    document.addEventListener('webkitfullscreenchange', onFsChange as any);
+    return () => {
+      document.removeEventListener('fullscreenchange', onFsChange);
+      document.removeEventListener('webkitfullscreenchange', onFsChange as any);
+    };
   }, []);
 
-  useEffect(() => {
-    const onResize = () => updateVideoWidth();
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
-  }, [updateVideoWidth]);
-
-  const headerEl = useRef<HTMLDivElement>(null);
-  const controlsEl = useRef<HTMLDivElement>(null);
-  const [availableHeight, setAvailableHeight] = useState<number | null>(null);
-
-  const recalcHeights = useCallback(() => {
-    const headerH = headerEl.current?.getBoundingClientRect().height ?? 0;
-    const vh = window.innerHeight;
-    const next = Math.max(0, vh - headerH);
-    setAvailableHeight(next);
-  }, []);
-
-  useEffect(() => {
-    recalcHeights();
-    const onResize = () => recalcHeights();
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
-  }, [recalcHeights]);
+  // Layout sizing is handled via flex + `h-[100dvh]` on the page root.
+  // We avoid manual height calculations that can get stale after resizes.
 
   // Share helpers
   const activeShares = useMemo(() => {
@@ -1742,8 +1839,45 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
     }
   }, [attachEditedClipMutation, insertFrame, selectedExportId, video.id]);
 
-  return (
-    <div className={"w-full h-full flex flex-col"}>
+  const pageMaxWidth = "max-w-[1800px]";
+  const pagePadX = "px-4 sm:px-6 lg:px-12";
+	  const ui = {
+    pageBg: isDark ? "bg-neutral-950" : "bg-gray-50",
+    card: isDark
+      ? "border-white/10 bg-black/40 text-white"
+      : "border-gray-200 bg-white/95 text-gray-900",
+    cardSolid: isDark
+      ? "border-white/10 bg-black/70 text-white"
+      : "border-gray-200 bg-white text-gray-900",
+    subtleText: isDark ? "text-white/50" : "text-gray-500",
+    subtleLabel: isDark ? "text-white/60" : "text-gray-500",
+    iconBtn: isDark
+      ? "bg-white/5 border border-white/10 text-white/80 hover:bg-white/10 hover:text-white"
+      : "bg-white border border-gray-200 text-gray-900 hover:bg-gray-50",
+    chip: isDark ? "border-white/10 bg-white/5" : "border-gray-200 bg-gray-50",
+    chipActive: isDark ? "bg-white text-black" : "bg-white text-gray-900 shadow-sm",
+    chipInactive: isDark
+      ? "text-white/60 hover:text-white hover:bg-white/10"
+      : "text-gray-600 hover:text-gray-900 hover:bg-white/70",
+    primaryBtn: isDark ? "bg-white text-black hover:bg-white/90" : "bg-gray-900 text-gray-50 hover:bg-black",
+    softBtn: isDark ? "bg-white/10 hover:bg-white/20 text-white/80" : "bg-gray-100 hover:bg-gray-200 text-gray-900",
+	  };
+	  const headerActionBtn =
+	    "h-10 w-10 rounded-full bg-white text-black border border-black/10 shadow-sm hover:bg-gray-50 transition-colors active:scale-[0.98]";
+	  const headerActionBtnSmall =
+	    "h-9 w-9 rounded-full bg-white text-black border border-black/10 shadow-sm hover:bg-gray-50 transition-colors active:scale-[0.98]";
+	  const stageAspectRatio = (() => {
+	    const w = Math.max(1, Math.floor(video.width || 16));
+	    const h = Math.max(1, Math.floor(video.height || 9));
+	    if (compareSource && compareMode !== 'overlay') {
+	      if (compareMode === 'side-by-side-vertical') return `${w}/${h * 2}`;
+	      return `${w * 2}/${h}`; // side-by-side-horizontal
+	    }
+	    return `${w}/${h}`;
+	  })();
+
+	  return (
+	    <div className={`h-[100dvh] w-full flex flex-col overflow-hidden ${ui.pageBg}`}>
       {showInsertButton && (
         <EditedExportsErrorBoundary>
           <EditedExportsQuery videoId={videoId} onData={setExportsForVideo} />
@@ -1788,111 +1922,32 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
           </div>
         </div>
       )}
-      <header
-        ref={headerEl}
-        className={`flex-shrink-0 border-b px-4 md:px-8 py-3 md:py-4 grid grid-cols-1 gap-3 md:gap-0 md:grid-cols-[minmax(0,1fr)_360px] md:items-center z-20 backdrop-blur ${
-          isDark ? 'bg-black/30 border-white/10 text-white' : 'bg-white/80 border-gray-200 text-gray-900'
-        }`}
-      >
-        {/* Left column (aligned with video area): back at left, title centered */}
-        <div className="grid grid-cols-3 items-center min-w-0">
-          <div className="justify-self-start">
-            <button
-              onClick={onGoBack}
-              className={`${
-                isDark
-                  ? 'text-white/70 hover:text-white hover:bg-white/10'
-                  : 'text-gray-700 hover:text-gray-900 hover:bg-gray-100'
-              } inline-flex items-center gap-2 text-[11px] font-semibold uppercase px-3 py-1.5 rounded-full transition`}
-            >
-              <ChevronLeft size={16} /> Back
-            </button>
-          </div>
-          <div className="min-w-0 text-center col-start-2">
-            <h1
-              className={`${isDark ? 'text-white' : 'text-gray-900'} text-base md:text-lg font-semibold truncate`}
-              title={video.title}
-            >
-              {video.title}
-            </h1>
-            <div className={`${isDark ? 'text-white/50' : 'text-gray-500'} text-[11px]`}> 
-              {video.width}×{video.height} • {fpsDetected ? `${effectiveFps} fps` : '... fps'} • {formatClock(headerDuration)}
-            </div>
-          </div>
-          <div className="justify-self-end">
-            {showEditButton && (
-              <button
-                onClick={handleOpenEditor}
-                disabled={creatingEdit}
-                className={`${
-                  isDark ? 'bg-white/10 text-white hover:bg-white/20' : 'bg-black/5 text-gray-900 hover:bg-black/10'
-                } inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[11px] font-semibold uppercase transition disabled:opacity-50`}
-              >
-                {creatingEdit ? 'Preparing…' : 'Edit Mode (development)'}
-              </button>
-            )}
-          </div>
-        </div>
-        {/* Right column (aligned with comments): controls + share */}
-        <div className={'grid grid-cols-4 items-center justify-items-center w-full md:w-[360px] md:justify-self-end gap-2 md:gap-3'}>
-          {/* Toggle comments panel */}
-          <button
-            onClick={() => setShowComments((v) => !v)}
-            title={showComments ? 'Hide Comments' : 'Show Comments'}
-            className={`${
-              isDark ? 'text-white/70 hover:text-white hover:bg-white/10' : 'text-gray-700 hover:text-gray-900 hover:bg-gray-100'
-            } p-2 rounded-full transition-colors`}
-          >
-            <MessageSquare size={18} />
-          </button>
-          <button
-            onClick={() => setShowAnnotations((s) => !s)}
-            title={showAnnotations ? 'Hide Annotations' : 'Show Annotations'}
-            className={`${
-              isDark ? 'text-white/70 hover:text-white hover:bg-white/10' : 'text-gray-700 hover:text-gray-900 hover:bg-gray-100'
-            } p-2 rounded-full transition-colors`}
-          >
-            {showAnnotations ? <EyeOff size={18} /> : <Eye size={18} />}
-          </button>
-          <button
-            onClick={() => setShareOpen(true)}
-            title="Share"
-            aria-label="Share"
-            className={`${
-              isDark
-                ? 'text-black bg-white hover:bg-white/90'
-                : 'bg-white border border-black'
-            } inline-flex items-center justify-center p-2 rounded-full transition`}
-          >
-            {isDark ? (
-              <Share2 size={16} />
-            ) : (
-              <Share2 size={16} color="#000" />
-            )}
-          </button>
-          {/* Settings moved into Toolbar → More menu */}
-          {currentUser?.avatar || clerkUser?.imageUrl ? (
-            <img
-              src={currentUser?.avatar || clerkUser?.imageUrl}
-              alt={
-                currentUser?.name ??
-                clerkUser?.fullName ??
-                clerkUser?.emailAddresses[0]?.emailAddress ??
-                'User'
-              }
-              className={`w-8 h-8 rounded-full object-cover ${isDark ? 'border border-white/20' : 'border border-gray-200'}`}
-            />
-          ) : (
-            <div
-              className={`w-8 h-8 rounded-full flex items-center justify-center font-bold ${
-                isDark ? 'bg-white/10 border border-white/20 text-white' : 'bg-gray-100 border border-gray-300 text-gray-800'
-              }`}
-            >
-              {(currentUser?.name?.[0] ?? clerkUser?.firstName?.[0] ?? 'U').toUpperCase()}
-            </div>
-          )}
-        </div>
-      </header>
+	      <div className={`w-full flex flex-1 min-h-0 overflow-hidden ${isFullscreen ? '' : `${pagePadX} pt-6 pb-8`}`}>
+	        <div className={`mx-auto w-full ${pageMaxWidth} flex flex-1 min-h-0 min-w-0 gap-6`}>
+	          <div className="flex-1 flex flex-col min-h-0 min-w-0 gap-4">
+	            <header className="flex-shrink-0">
+	              <section className={`rounded-3xl border shadow-sm ${ui.card}`}>
+	                <div className="px-4 py-3 sm:px-6 sm:py-4 grid grid-cols-3 items-center min-w-0">
+	                  <div className="justify-self-start">
+	                    <button
+	                      onClick={onGoBack}
+	                      className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[11px] font-semibold uppercase transition ${ui.iconBtn}`}
+	                    >
+	                      <ChevronLeft size={16} /> Back
+	                    </button>
+	                  </div>
+	                  <div className="min-w-0 text-center col-start-2">
+	                    <h1 className="text-base md:text-lg font-semibold truncate" title={video.title}>
+	                      {video.title}
+	                    </h1>
+	                    <div className={`${ui.subtleText} text-[11px]`}>
+	                      {video.width}×{video.height} • {fpsDetected ? `${effectiveFps} fps` : '... fps'} • {formatClock(headerDuration)}
+	                    </div>
+	                  </div>
+	                  <div className="justify-self-end" />
+	                </div>
+	              </section>
+	            </header>
       {replaceOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
           <div className={`${isDark ? 'bg-black/85 text-white' : 'bg-white text-gray-900'} w-full max-w-3xl rounded-3xl border ${isDark ? 'border-white/10' : 'border-gray-200'} p-0 shadow-2xl overflow-hidden`}>
@@ -2044,36 +2099,47 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
           </div>
         </div>
       )}
-      <div className="w-full flex flex-1 overflow-hidden" ref={containerRef} style={availableHeight != null ? { height: availableHeight, maxHeight: availableHeight } : undefined}>
-        <div className={`flex-1 flex flex-col relative ${isDark ? 'bg-black/60' : 'bg-white'}`}>
-          <Toolbar 
-            activeTool={activeTool} 
-            setActiveTool={setActiveTool}
-            brushColor={brushColor}
-            setBrushColor={handleBrushColorChange}
-            brushSize={brushSize}
-            setBrushSize={handleBrushSizeChange}
-            fontSize={fontSize}
-            setFontSize={setFontSize}
-            shapeFillEnabled={shapeFillEnabled}
-            onToggleShapeFill={handleShapeFillToggle}
-            shapeFillOpacity={shapeFillOpacity}
-            onChangeShapeFillOpacity={handleShapeFillOpacityChange}
-            undo={triggerUndo}
-            redo={triggerRedo}
-            canUndo={canUndo}
-            canRedo={canRedo}
-            isDark={isDark}
-            onOpenCompare={openCompareModal}
-            onOpenReplace={video.isOwnedByCurrentUser ? () => setReplaceOpen(true) : undefined}
-          />
-          <div className="w-full flex-1 relative overflow-hidden">
-            {compareSource && compareMode !== 'overlay' ? (
-              <div className={`w-full h-full flex ${compareMode === 'side-by-side-vertical' ? 'flex-col' : 'flex-row'}`}>
-                <div className="relative flex-1 flex items-center justify-center overflow-hidden group">
-                  <VideoPlayer
-                    ref={videoRef}
-                    video={video}
+	          <div ref={containerRef} className="flex-1 flex flex-col min-h-0 min-w-0 gap-4">
+            <section
+              className={`relative flex-1 min-h-0 overflow-hidden rounded-3xl border shadow-sm ${ui.cardSolid} ${
+                isFullscreen ? 'rounded-none border-0 shadow-none' : ''
+              }`}
+            >
+	              <Toolbar 
+	                activeTool={activeTool} 
+	                setActiveTool={setActiveTool}
+	                selectedAnnotations={selectedAnnotations}
+	                onDeleteSelected={handleDeleteSelected}
+	                canDeleteSelected={selectedAnnotationIds.length > 0}
+	                deleteCount={selectedAnnotationIds.length}
+	                brushColor={brushColor}
+	                setBrushColor={handleBrushColorChange}
+	                brushSize={brushSize}
+	                setBrushSize={handleBrushSizeChange}
+                fontSize={fontSize}
+                setFontSize={setFontSize}
+                shapeFillEnabled={shapeFillEnabled}
+                onToggleShapeFill={handleShapeFillToggle}
+                shapeFillOpacity={shapeFillOpacity}
+                onChangeShapeFillOpacity={handleShapeFillOpacityChange}
+                undo={triggerUndo}
+                redo={triggerRedo}
+                canUndo={canUndo}
+                canRedo={canRedo}
+                isDark={isDark}
+                onOpenCompare={openCompareModal}
+                onOpenReplace={video.isOwnedByCurrentUser ? () => setReplaceOpen(true) : undefined}
+              />
+		              <div className="w-full h-full relative overflow-hidden bg-black">
+		                <div className="absolute inset-0 flex items-center justify-center">
+		                  <div className="relative h-full w-auto max-w-full" style={{ aspectRatio: stageAspectRatio }}>
+		                    <div className="relative w-full h-full overflow-hidden">
+	            {compareSource && compareMode !== 'overlay' ? (
+	              <div className={`w-full h-full flex ${compareMode === 'side-by-side-vertical' ? 'flex-col' : 'flex-row'}`}>
+	                <div className="relative flex-1 min-w-0 flex items-center justify-center overflow-hidden group">
+	                  <VideoPlayer
+	                    ref={videoRef}
+	                    video={video}
                     sourceUrl={playbackUrl ?? undefined}
                     isPlaying={isPlaying}
                     setIsPlaying={setIsPlaying}
@@ -2118,12 +2184,12 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
                     onUploadAsset={uploadAnnotationAsset}
                     threadMeta={commentThreadMeta}
                     mentionOptions={mentionableOptions ?? []}
-                  />
-                </div>
-                <div className="relative flex-1 flex items-center justify-center overflow-hidden bg-black/80">
-                  <video
-                    key={`cmp-side-${compareMode}-${compareSource.url}`}
-                    ref={compareVideoSideRef}
+	                  />
+	                </div>
+	                <div className="relative flex-1 min-w-0 flex items-center justify-center overflow-hidden bg-black/80">
+	                  <video
+	                    key={`cmp-side-${compareMode}-${compareSource.url}`}
+	                    ref={compareVideoSideRef}
                     src={compareSource.url}
                     className="w-full h-full object-contain"
                     preload="metadata"
@@ -2140,10 +2206,10 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
                       } catch {}
                     }}
                   />
-                </div>
-              </div>
-            ) : (
-              <div className="relative w-full h-full flex items-center justify-center overflow-hidden group">
+	                </div>
+	              </div>
+	            ) : (
+	              <div className="relative w-full h-full flex items-center justify-center overflow-hidden group">
                 <VideoPlayer
                   ref={videoRef}
                   video={video}
@@ -2214,17 +2280,19 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
                       } catch {}
                     }}
                   />
-                )}
-              </div>
-            )}
-            {compareSource && (
-              <div
-                className={`absolute top-4 right-4 md:top-6 md:right-6 z-30 w-[min(90vw,240px)] rounded-xl border px-4 py-3 shadow-lg ${isDark ? 'bg-black/70 border-white/10 text-white/80' : 'bg-white/90 border-gray-200 text-gray-800'}`}
-              >
+	                )}
+	              </div>
+	            )}
+	            {compareSource && (
+	              <div
+	                className={`absolute top-4 right-4 md:top-6 md:right-6 z-30 w-[min(90vw,260px)] rounded-3xl border px-4 py-4 shadow-lg ${
+	                  isDark ? 'bg-black/75 border-white/10 text-white' : 'bg-white/95 border-gray-200 text-gray-900'
+	                }`}
+	              >
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <p className="text-xs uppercase tracking-wide font-semibold">Compare</p>
-                    <p className="text-xs truncate max-w-[200px]">{compareSource.name}</p>
+                    <p className={`text-xs font-semibold uppercase tracking-[0.2em] ${isDark ? 'text-white/70' : 'text-gray-500'}`}>Compare</p>
+                    <p className={`text-xs truncate max-w-[220px] ${isDark ? 'text-white/90' : 'text-gray-900'}`}>{compareSource.name}</p>
                   </div>
                   <button
                     onClick={clearCompare}
@@ -2326,29 +2394,21 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
                     </button>
                   </div>
                 </div>
-              </div>
-            )}
-          </div>
-          {/* Left Controls: restricted to video display width and not under comments */}
-          <div className="flex-none">
-	            <div className={`flex items-stretch justify-center px-0 pb-6 ${isDark ? 'bg-black' : 'bg-gray-100'}`}>
-	              <div
-	                ref={controlsEl}
-	                className={`${isDark ? 'bg-black border-t border-white/10 text-white' : 'bg-gray-100 border-t border-gray-200 text-gray-900'} flex flex-col gap-3 px-3 py-3 h-28 sm:px-6`}
-	                style={{
-	                  width:
-	                    compareSource && compareMode !== 'overlay'
-	                      ? baseControlsWidthRef.current
-	                        ? `${baseControlsWidthRef.current}px`
-	                        : videoWidthPx
-	                          ? `${videoWidthPx}px`
-	                          : '100%'
-	                      : videoWidthPx
-	                        ? `${videoWidthPx}px`
-	                        : '100%',
-	                  maxWidth: '100%',
-	                }}
-	              >
+	              </div>
+	            )}
+		                    </div>
+		                  </div>
+		                </div>
+		              </div>
+            </section>
+
+            {/* Transport + timeline */}
+            <div className="flex-none flex items-stretch justify-center">
+              <div
+                className={`w-full rounded-3xl border shadow-sm ${ui.card} flex flex-col gap-3 px-3 py-3 sm:px-6 ${
+                  isFullscreen ? 'rounded-none border-0 shadow-none' : ''
+                }`}
+              >
                 <div className="flex-1 flex flex-col">
                   <Timeline
                     currentTime={currentTime}
@@ -2385,72 +2445,105 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
                     <div className="group relative">
                       <button
                         onClick={() => setLoopMenuOpen((v) => !v)}
-                        className={`${isDark ? 'bg-white/10 text-white hover:bg-white/20' : 'bg-black/5 text-gray-800 hover:bg-black/10'} px-3 py-1 rounded-full text-xs font-semibold`}
+                        className={`px-3 py-1 rounded-full text-xs font-semibold ${ui.softBtn}`}
                       >
                         Loop ▾
                       </button>
                       <div
-                        className={`absolute left-0 bottom-full mb-2 ${loopMenuOpen ? 'block' : 'hidden'} min-w-[220px] rounded-2xl border shadow-2xl z-30 backdrop-blur ${isDark ? 'bg-black/80 border-white/10 text-white' : 'bg-white border-gray-200 text-gray-900'}`}
+                        className={`absolute left-0 bottom-full mb-2 ${loopMenuOpen ? 'block' : 'hidden'} min-w-[220px] rounded-2xl border shadow-2xl z-30 backdrop-blur ${ui.cardSolid}`}
                         onMouseLeave={() => setLoopMenuOpen(false)}
                       >
                         <button
                           onClick={() => setLoopEnabled((v) => !v)}
-                          className="block w-full px-3 py-2 text-left text-xs hover:bg-white/10"
+                          className={`block w-full px-3 py-2 text-left text-xs ${isDark ? 'hover:bg-white/10' : 'hover:bg-gray-50'}`}
                         >
                           Global loop: {loopEnabled ? 'On' : 'Off'}
                         </button>
                         <button
                           onClick={() => setAbLoopEnabled((v) => !v)}
-                          className="block w-full px-3 py-2 text-left text-xs hover:bg-white/10"
+                          className={`block w-full px-3 py-2 text-left text-xs ${isDark ? 'hover:bg-white/10' : 'hover:bg-gray-50'}`}
                         >
                           A–B loop: {abLoopEnabled ? 'On' : 'Off'}
                         </button>
                         <div className={`my-1 h-px ${isDark ? 'bg-white/10' : 'bg-gray-200'}`} />
                         <button
                           onClick={() => setAbA(currentTime)}
-                          className="block w-full px-3 py-2 text-left text-xs hover:bg-white/10"
+                          className={`block w-full px-3 py-2 text-left text-xs ${isDark ? 'hover:bg-white/10' : 'hover:bg-gray-50'}`}
                           title="Set point A at current time"
                         >
                           Set A at current time
                         </button>
                         <button
                           onClick={() => setAbB(currentTime)}
-                          className="block w-full px-3 py-2 text-left text-xs hover:bg-white/10"
+                          className={`block w-full px-3 py-2 text-left text-xs ${isDark ? 'hover:bg-white/10' : 'hover:bg-gray-50'}`}
                           title="Set point B at current time"
                         >
                           Set B at current time
                         </button>
                         <button
                           onClick={() => { setAbA(null); setAbB(null); setAbLoopEnabled(false); }}
-                          className="block w-full px-3 py-2 text-left text-xs hover:bg-white/10"
+                          className={`block w-full px-3 py-2 text-left text-xs ${isDark ? 'hover:bg-white/10' : 'hover:bg-gray-50'}`}
                         >
                           Clear A and B
                         </button>
                         {(abA != null || abB != null) && (
-                          <div className="px-3 py-2 text-[11px] text-white/60">
+                          <div className={`px-3 py-2 text-[11px] ${ui.subtleText}`}>
                             A: {formatClock(abA ?? 0)} {abB != null && '•'} {abB != null && `B: ${formatClock(abB)}`}
                           </div>
                         )}
                       </div>
                     </div>
                   </div>
-                  {/* Center cluster: prev mark | transport | next mark */}
+                  {/* Center cluster: frame step | jump mark | play | jump mark | frame step */}
                   <div className="flex items-center justify-center gap-3 flex-wrap">
-                    <button onClick={() => handleJump('prev')} className={`${isDark ? 'px-3 py-1 rounded-full bg-white/10 hover:bg-white/20 text-white/80' : 'px-3 py-1 rounded-full bg-black/5 hover:bg-black/10 text-gray-800'}`}>Prev</button>
                     <div className="flex items-center gap-2">
-                      <button onClick={() => stepFrame(-1)} className={`p-2 rounded-full ${isDark ? 'bg-white/10 hover:bg-white/20 text-white/80' : 'bg-black/5 hover:bg-black/10 text-gray-800'}`}><Rewind size={18} /></button>
-                      <button onClick={() => stepFrame(-video.fps)} className={`p-2 rounded-full ${isDark ? 'bg-white/10 hover:bg-white/20 text-white/80' : 'bg-black/5 hover:bg-black/10 text-gray-800'}`}><SkipBack size={18} /></button>
-                      <button onClick={() => setIsPlaying(p => !p)} className={`p-3 rounded-full ${isDark ? 'bg-white text-black hover:bg-white/90 ring-2 ring-white/20' : 'bg-white text-black hover:bg-white/90 ring-2 ring-black/10'}`}>
+                      <button
+                        onClick={() => stepFrame(-1)}
+                        className={`p-2 rounded-full ${ui.softBtn}`}
+                        title="Previous frame"
+                        aria-label="Previous frame"
+                      >
+                        <StepBack size={18} />
+                      </button>
+                      <button
+                        onClick={() => handleJump('prev')}
+                        disabled={!hasJumpMarks}
+                        className={`p-2 rounded-full ${ui.softBtn} disabled:opacity-40 disabled:cursor-not-allowed`}
+                        title={hasJumpMarks ? "Previous marker" : "No markers"}
+                        aria-label="Previous marker"
+                      >
+                        <SkipBack size={18} />
+                      </button>
+                      <button
+                        onClick={() => setIsPlaying((p) => !p)}
+                        className={`p-3 rounded-full ${ui.primaryBtn}`}
+                        title={isPlaying ? "Pause (Space)" : "Play (Space)"}
+                        aria-label={isPlaying ? "Pause" : "Play"}
+                      >
                         {isPlaying ? <Pause size={22} /> : <Play size={22} />}
                       </button>
-                      <button onClick={() => stepFrame(video.fps)} className={`p-2 rounded-full ${isDark ? 'bg-white/10 hover:bg-white/20 text-white/80' : 'bg-black/5 hover:bg-black/10 text-gray-800'}`}><SkipForward size={18} /></button>
-                      <button onClick={() => stepFrame(1)} className={`p-2 rounded-full ${isDark ? 'bg-white/10 hover:bg-white/20 text-white/80' : 'bg-black/5 hover:bg-black/10 text-gray-800'}`}><FastForward size={18} /></button>
+                      <button
+                        onClick={() => handleJump('next')}
+                        disabled={!hasJumpMarks}
+                        className={`p-2 rounded-full ${ui.softBtn} disabled:opacity-40 disabled:cursor-not-allowed`}
+                        title={hasJumpMarks ? "Next marker" : "No markers"}
+                        aria-label="Next marker"
+                      >
+                        <SkipForward size={18} />
+                      </button>
+                      <button
+                        onClick={() => stepFrame(1)}
+                        className={`p-2 rounded-full ${ui.softBtn}`}
+                        title="Next frame"
+                        aria-label="Next frame"
+                      >
+                        <StepForward size={18} />
+                      </button>
                     </div>
-                    <button onClick={() => handleJump('next')} className={`${isDark ? 'px-3 py-1 rounded-full bg-white/10 hover:bg-white/20 text-white/80' : 'px-3 py-1 rounded-full bg-black/5 hover:bg-black/10 text-gray-800'}`}>Next</button>
                   </div>
                   {/* Right side: volume & fullscreen */}
                   <div className="flex items-center gap-3 justify-center md:justify-end">
-                    <button onClick={() => { const next = !isMuted; setIsMuted(next); if (videoRef.current) videoRef.current.muted = next; }} className={`p-2 rounded-full ${isDark ? 'bg-white/10 hover:bg-white/20 text-white' : 'bg-black/5 hover:bg-black/10 text-gray-800'}`}>
+                    <button onClick={() => { const next = !isMuted; setIsMuted(next); if (videoRef.current) videoRef.current.muted = next; }} className={`p-2 rounded-full ${ui.softBtn}`}>
                       {isMuted || volume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}
                     </button>
                     <input
@@ -2465,69 +2558,150 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
                         if (videoRef.current) { videoRef.current.volume = value; videoRef.current.muted = value === 0; }
                         setIsMuted(value === 0);
                       }}
-                      className={`w-20 md:w-24 ${isDark ? 'accent-white' : 'accent-black'}`}
+                      className={`w-20 md:w-24 ${isDark ? 'accent-white' : 'accent-gray-900'}`}
                     />
-                    <button onClick={toggleFullscreen} className={`p-2 rounded-full ${isDark ? 'bg-white/10 hover:bg-white/20 text-white' : 'bg-black/5 hover:bg-black/10 text-gray-800'}`}>
+                    <button onClick={toggleFullscreen} className={`p-2 rounded-full ${ui.softBtn}`}>
                       {isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
                     </button>
                   </div>
                 </div>
               </div>
-              {/* (removed) Offset controls under timeline — offset is available only in floating compare panel */}
             </div>
           </div>
-        </div>
-        {showComments && (
-          <>
-            <div className="hidden md:block flex-shrink-0 overflow-hidden w-[360px] min-h-[93vh]" style={{ minHeight: '93vh' }}>
-              <CommentsPane
-                comments={comments}
-                currentFrame={currentFrame}
-                onAddComment={handleAddComment}
-                onToggleResolve={handleToggleCommentResolved}
-                onJumpToFrame={jumpToFrame}
-                activeCommentId={activeCommentId}
-                setActiveCommentId={setActiveCommentId}
-                onDeleteComment={handleDeleteComment}
-                isDark={isDark}
-                highlightCommentId={highlightedCommentId}
-                highlightTerm={mentionHighlight}
-                mentionOptions={mentionableOptions ?? []}
-              />
-            </div>
-            <div className="md:hidden fixed inset-0 z-40">
-              <div className="absolute inset-0 bg-black/60" onClick={() => setShowComments(false)} />
-              <div
-                className={`absolute inset-x-0 bottom-0 h-[75vh] max-h-[80vh] rounded-t-3xl border ${isDark ? 'bg-black/90 border-white/10 text-white' : 'bg-white border-gray-200 text-gray-900'} shadow-2xl`}
+
+	          </div>
+	        </div>
+
+	        {/* Desktop sidebar: spans full height (including the title header) */}
+	        <aside
+	          className={`hidden md:flex flex-col min-h-0 flex-shrink-0 transition-[width] duration-200 ease-out ml-4 ${
+	            showComments ? 'w-[360px]' : 'w-12'
+	          }`}
+	        >
+	          {showComments ? (
+	            <section className={`h-full overflow-hidden rounded-3xl border shadow-sm ${ui.card} flex flex-col`}>
+	              <div className={`grid grid-cols-4 items-center justify-items-center gap-2 px-3 py-3 border-b ${isDark ? 'border-white/10' : 'border-gray-200'}`}>
+	                <button
+	                  onClick={() => setShowComments(false)}
+	                  title="Hide sidebar"
+	                  aria-label="Hide sidebar"
+	                  className={headerActionBtnSmall}
+	                >
+	                  <PanelRightClose size={18} className="mx-auto" />
+	                </button>
+	                <button
+	                  onClick={() => setShowAnnotations((s) => !s)}
+	                  title={showAnnotations ? 'Hide Annotations' : 'Show Annotations'}
+	                  aria-label={showAnnotations ? 'Hide Annotations' : 'Show Annotations'}
+	                  className={headerActionBtnSmall}
+	                >
+	                  {showAnnotations ? <EyeOff size={18} className="mx-auto" /> : <Eye size={18} className="mx-auto" />}
+	                </button>
+	                <button
+	                  onClick={() => setShareOpen(true)}
+	                  title="Share"
+	                  aria-label="Share"
+	                  className={headerActionBtnSmall}
+	                >
+	                  <Share2 size={16} className="mx-auto" />
+	                </button>
+	                {currentUser?.avatar || clerkUser?.imageUrl ? (
+	                  <img
+	                    src={currentUser?.avatar || clerkUser?.imageUrl}
+	                    alt={
+	                      currentUser?.name ??
+	                      clerkUser?.fullName ??
+	                      clerkUser?.emailAddresses[0]?.emailAddress ??
+	                      'User'
+	                    }
+	                    className={`w-9 h-9 rounded-full object-cover ${isDark ? 'border border-white/10' : 'border border-gray-200'}`}
+	                  />
+	                ) : (
+	                  <div
+	                    className={`w-9 h-9 rounded-full flex items-center justify-center font-bold ${
+	                      isDark ? 'bg-white/5 border border-white/10 text-white' : 'bg-white border border-gray-200 text-gray-800'
+	                    }`}
+	                  >
+	                    {(currentUser?.name?.[0] ?? clerkUser?.firstName?.[0] ?? 'U').toUpperCase()}
+	                  </div>
+	                )}
+	              </div>
+	              <div className="flex-1 min-h-0">
+	                <CommentsPane
+	                  comments={comments}
+	                  currentFrame={currentFrame}
+	                  onAddComment={handleAddComment}
+	                  onToggleResolve={handleToggleCommentResolved}
+	                  onJumpToFrame={jumpToFrame}
+	                  activeCommentId={activeCommentId}
+	                  setActiveCommentId={setActiveCommentId}
+	                  onDeleteComment={handleDeleteComment}
+	                  isDark={isDark}
+	                  highlightCommentId={highlightedCommentId}
+	                  highlightTerm={mentionHighlight}
+	                  mentionOptions={mentionableOptions ?? []}
+	                />
+	              </div>
+	            </section>
+	          ) : (
+	            <div className="h-full flex items-start justify-center pt-1">
+	              <button
+	                onClick={() => setShowComments(true)}
+	                title="Show sidebar"
+	                aria-label="Show sidebar"
+	                className={headerActionBtnSmall}
+	              >
+	                <PanelRightOpen size={18} className="mx-auto" />
+	              </button>
+	            </div>
+	          )}
+	        </aside>
+	      </div>
+
+	        {showComments && (
+	          <div className="md:hidden fixed inset-0 z-40">
+            <div className="absolute inset-0 bg-black/60" onClick={() => setShowComments(false)} />
+            <div
+              className={`absolute inset-x-0 bottom-0 h-[75vh] max-h-[80vh] rounded-t-3xl border shadow-2xl ${ui.cardSolid}`}
+            >
+              <div className={`absolute left-1/2 top-2 h-1.5 w-12 -translate-x-1/2 rounded-full ${isDark ? 'bg-white/30' : 'bg-gray-300'}`} />
+              <button
+                onClick={() => setShowComments(false)}
+                className={`${isDark ? 'text-white/60 hover:text-white' : 'text-gray-600 hover:text-gray-900'} absolute right-3 top-2 text-sm`}
               >
-                <div className="absolute left-1/2 top-2 h-1.5 w-12 -translate-x-1/2 rounded-full bg-white/30" />
-                <button
-                  onClick={() => setShowComments(false)}
-                  className={`${isDark ? 'text-white/60 hover:text-white' : 'text-gray-600 hover:text-gray-900'} absolute right-3 top-2 text-sm`}
-                >
-                  Close
-                </button>
-                <div className="h-full pt-6">
-                  <CommentsPane
-                    comments={comments}
-                    currentFrame={currentFrame}
-                    onAddComment={handleAddComment}
-                    onToggleResolve={handleToggleCommentResolved}
-                    onJumpToFrame={jumpToFrame}
-                    activeCommentId={activeCommentId}
-                    setActiveCommentId={setActiveCommentId}
-                    onDeleteComment={handleDeleteComment}
-                    isDark={isDark}
-                    highlightCommentId={highlightedCommentId}
-                    highlightTerm={mentionHighlight}
-                    mentionOptions={mentionableOptions ?? []}
-                  />
-                </div>
+                Close
+              </button>
+              <div className="h-full pt-6">
+                <CommentsPane
+                  comments={comments}
+                  currentFrame={currentFrame}
+                  onAddComment={handleAddComment}
+                  onToggleResolve={handleToggleCommentResolved}
+                  onJumpToFrame={jumpToFrame}
+                  activeCommentId={activeCommentId}
+                  setActiveCommentId={setActiveCommentId}
+                  onDeleteComment={handleDeleteComment}
+                  isDark={isDark}
+                  highlightCommentId={highlightedCommentId}
+                  highlightTerm={mentionHighlight}
+                  mentionOptions={mentionableOptions ?? []}
+                />
               </div>
             </div>
-          </>
-        )}
-      </div>
+          </div>
+	        )}
+
+	      {/* Mobile: when sidebar is closed, keep a single open button */}
+	      {!showComments && (
+	        <button
+	          onClick={() => setShowComments(true)}
+	          className={`md:hidden fixed right-4 top-4 z-30 ${headerActionBtn}`}
+	          title="Show comments"
+	          aria-label="Show comments"
+	        >
+	          <PanelRightOpen size={18} className="mx-auto" />
+	        </button>
+	      )}
       {shareOpen && shareGroups && (
         <ShareModal
           video={video}

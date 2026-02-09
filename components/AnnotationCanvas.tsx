@@ -723,6 +723,11 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
   };
 
   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    // On touch devices, prevent page panning/scrolling while interacting with the canvas.
+    if (e.pointerType === 'touch' || e.pointerType === 'pen') {
+      e.preventDefault();
+      try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
+    }
     if (editingText || pendingComment) return;
     
     // If a popover is open, a click on the canvas should close it.
@@ -788,6 +793,9 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
   };
   
   const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if ((e.pointerType === 'touch' || e.pointerType === 'pen') && (isDrawing || marquee || transform || movingCommentState)) {
+      e.preventDefault();
+    }
     if (editingText || pendingComment) {
       if (hoveredVideoId !== null) setHoveredVideoId(null);
       return;
@@ -1452,88 +1460,130 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
       return;
     }
 
-    const file = e.dataTransfer.files?.[0];
-    if (!file || (!file.type.startsWith('image/') && !file.type.startsWith('video/'))) return;
-
     const pos = getPointerPosition(e);
-    if (!pos) return;
+    if (!pos || !renderedRect) return;
 
-    const kind: 'image' | 'video' = file.type.startsWith('video/') ? 'video' : 'image';
+    const guessKind = (file: File): 'image' | 'video' | null => {
+      const t = (file.type || '').toLowerCase();
+      if (t.startsWith('image/')) return 'image';
+      if (t.startsWith('video/')) return 'video';
+      const name = (file.name || '').toLowerCase();
+      if (/\.(png|jpe?g|gif|webp|avif|bmp|svg)$/.test(name)) return 'image';
+      if (/\.(mp4|mov|m4v|webm|mkv|avi)$/.test(name)) return 'video';
+      return null;
+    };
+
+    const dropped = Array.from(e.dataTransfer.files ?? []);
+    const mediaFiles = dropped.map((f) => ({ file: f, kind: guessKind(f) })).filter((it) => it.kind !== null) as Array<{ file: File; kind: 'image' | 'video' }>;
+    if (mediaFiles.length === 0) return;
 
     setAssetUploadError(null);
-    setAssetUploadLabel(kind === 'image' ? 'Uploading image…' : 'Uploading video…');
     setAssetUploadProgress(0);
 
+    const total = mediaFiles.length;
+    const cols = Math.min(3, total);
+    const rows = Math.ceil(total / cols);
+    const offsetPx = 28;
+
+    let failures = 0;
+    let lastError: string | null = null;
+
     try {
-      const asset = await onUploadAsset(file, kind, (progress) => {
-        setAssetUploadProgress(Math.max(0, Math.min(100, Math.round(progress))));
-      });
+      for (let i = 0; i < mediaFiles.length; i++) {
+        const { file, kind } = mediaFiles[i];
 
-      const aspectRatio = asset.width && asset.height ? asset.width / asset.height : 1;
-      const baseWidth = kind === 'image' ? 0.2 : 0.25;
-      const widthNormalized = Math.min(Math.max(baseWidth, 0.05), 0.9);
-      const computedHeight = (widthNormalized / Math.max(aspectRatio, 0.01)) * (video.width / Math.max(video.height, 1));
-      const heightNormalized = Math.min(Math.max(computedHeight, 0.05), 0.9);
+        // Distribute items in a small centered grid around the drop point.
+        const row = Math.floor(i / cols);
+        const col = i % cols;
+        const dxPx = (col - (cols - 1) / 2) * offsetPx;
+        const dyPx = (row - (rows - 1) / 2) * offsetPx;
+        const nextCenter: Point = {
+          x: clamp(pos.normalized.x + dxPx / Math.max(1, renderedRect.width), 0.02, 0.98),
+          y: clamp(pos.normalized.y + dyPx / Math.max(1, renderedRect.height), 0.02, 0.98),
+        };
 
-      if (kind === 'image') {
-        const newAnnotation: Omit<ImageAnnotation, 'id' | 'videoId' | 'authorId' | 'createdAt'> = {
-          type: AnnotationTool.IMAGE,
-          frame: currentFrame,
-          src: asset.src,
-          storageKey: asset.storageKey,
-          byteSize: asset.byteSize,
-          mimeType: asset.mimeType,
-          originalWidth: asset.originalWidth,
-          originalHeight: asset.originalHeight,
-          center: pos.normalized,
-          width: widthNormalized,
-          height: heightNormalized,
-          rotation: 0,
-          color: 'transparent',
-          lineWidth: 0,
-        };
-        onAddAnnotation(newAnnotation);
-      } else {
-        const newAnnotation: Omit<VideoAnnotation, 'id' | 'videoId' | 'authorId' | 'createdAt'> = {
-          type: AnnotationTool.VIDEO,
-          frame: currentFrame,
-          src: asset.src,
-          storageKey: asset.storageKey,
-          byteSize: asset.byteSize,
-          mimeType: asset.mimeType,
-          originalWidth: asset.originalWidth,
-          originalHeight: asset.originalHeight,
-          duration: asset.duration,
-          center: pos.normalized,
-          width: widthNormalized,
-          height: heightNormalized,
-          rotation: 0,
-          color: 'transparent',
-          lineWidth: 0,
-        };
-        onAddAnnotation(newAnnotation);
+        setAssetUploadLabel(`${kind === 'image' ? 'Uploading image' : 'Uploading video'} ${i + 1}/${total}…`);
+
+        try {
+          const asset = await onUploadAsset(file, kind, (progress) => {
+            const perFile = Math.max(0, Math.min(100, Number(progress)));
+            const overall = Math.round(((i + perFile / 100) / total) * 100);
+            setAssetUploadProgress(Math.max(0, Math.min(100, overall)));
+          });
+
+          const aspectRatio = asset.width && asset.height ? asset.width / asset.height : 1;
+          const baseWidth = kind === 'image' ? 0.2 : 0.25;
+          const widthNormalized = Math.min(Math.max(baseWidth, 0.05), 0.9);
+          const computedHeight = (widthNormalized / Math.max(aspectRatio, 0.01)) * (video.width / Math.max(video.height, 1));
+          const heightNormalized = Math.min(Math.max(computedHeight, 0.05), 0.9);
+
+          if (kind === 'image') {
+            const newAnnotation: Omit<ImageAnnotation, 'id' | 'videoId' | 'authorId' | 'createdAt'> = {
+              type: AnnotationTool.IMAGE,
+              frame: currentFrame,
+              src: asset.src,
+              storageKey: asset.storageKey,
+              byteSize: asset.byteSize,
+              mimeType: asset.mimeType,
+              originalWidth: asset.originalWidth,
+              originalHeight: asset.originalHeight,
+              center: nextCenter,
+              width: widthNormalized,
+              height: heightNormalized,
+              rotation: 0,
+              color: 'transparent',
+              lineWidth: 0,
+            };
+            onAddAnnotation(newAnnotation);
+          } else {
+            const newAnnotation: Omit<VideoAnnotation, 'id' | 'videoId' | 'authorId' | 'createdAt'> = {
+              type: AnnotationTool.VIDEO,
+              frame: currentFrame,
+              src: asset.src,
+              storageKey: asset.storageKey,
+              byteSize: asset.byteSize,
+              mimeType: asset.mimeType,
+              originalWidth: asset.originalWidth,
+              originalHeight: asset.originalHeight,
+              duration: asset.duration,
+              center: nextCenter,
+              width: widthNormalized,
+              height: heightNormalized,
+              rotation: 0,
+              color: 'transparent',
+              lineWidth: 0,
+            };
+            onAddAnnotation(newAnnotation);
+          }
+        } catch (error) {
+          failures += 1;
+          const message = error instanceof Error ? error.message : 'Unable to upload media';
+          lastError = message;
+          console.error('Failed to upload annotation asset', error);
+        }
       }
-    } catch (error) {
-      console.error('Failed to upload annotation asset', error);
-      const message = error instanceof Error ? error.message : 'Unable to upload media';
-      setAssetUploadError(message);
-      setTimeout(() => setAssetUploadError(null), 5000);
     } finally {
       setAssetUploadProgress(null);
       setAssetUploadLabel(null);
+    }
+
+    if (failures > 0) {
+      setAssetUploadError(lastError ?? `Failed to upload ${failures} file(s).`);
+      setTimeout(() => setAssetUploadError(null), 5000);
     }
   };
 
   return (
     <div 
-      className="absolute top-0 left-0 w-full h-full"
+      className="absolute top-0 left-0 w-full h-full touch-none overscroll-none"
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
+      style={{ touchAction: 'none' }}
     >
       <canvas
         ref={canvasRef}
-        className="absolute top-0 left-0 w-full h-full pointer-events-auto z-0"
+        className="absolute top-0 left-0 w-full h-full pointer-events-auto z-0 touch-none select-none"
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}

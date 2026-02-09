@@ -209,27 +209,53 @@ const CommentItem: React.FC<CommentProps & { mentionOptions?: MentionOption[] }>
 
   return (
     <div 
-        className={`${isReply ? 'p-2' : 'p-3'} border-b border-white/10 transition-colors ${isActive ? 'bg-white/10' : 'hover:bg-white/5'} ${highlightRingClass}`}
+        className={`${isReply ? 'p-2' : 'p-3'} border-b ${isDark ? 'border-white/10' : 'border-gray-200/60'} transition-colors ${
+          isActive ? (isDark ? 'bg-white/10' : 'bg-gray-50') : (isDark ? 'hover:bg-white/5' : 'hover:bg-gray-50/60')
+        } ${highlightRingClass}`}
         onClick={setActive}
     >
       <div className="flex items-start gap-2.5">
-        <img src={comment.authorAvatar} alt={comment.authorName} className={`${isReply ? 'w-6 h-6' : 'w-7 h-7'} rounded-full border border-white/10`} />
+        <img
+          src={comment.authorAvatar}
+          alt={comment.authorName}
+          className={`${isReply ? 'w-6 h-6' : 'w-7 h-7'} rounded-full border ${isDark ? 'border-white/10' : 'border-gray-200'}`}
+        />
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between gap-2">
-            <span className="font-semibold text-white text-sm truncate">{comment.authorName}</span>
-            <span className="text-[11px] text-white/40 whitespace-nowrap">{timeAgo(comment.createdAt)}</span>
+            <span className={`font-semibold text-sm truncate ${isDark ? 'text-white' : 'text-gray-900'}`}>{comment.authorName}</span>
+            <span className={`text-[11px] whitespace-nowrap ${isDark ? 'text-white/40' : 'text-gray-500'}`}>{timeAgo(comment.createdAt)}</span>
           </div>
           {isEditing ? (
             <form onSubmit={handleEditSubmit} className="mt-1.5 flex flex-col gap-2">
               <textarea
                 value={editText}
                 onChange={(e) => setEditText(e.target.value)}
-                className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-white resize-none"
+                className={`w-full rounded-2xl px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 ${
+                  isDark
+                    ? 'bg-white/5 border border-white/10 text-white focus:ring-white/40'
+                    : 'bg-white border border-gray-200 text-gray-900 focus:ring-gray-900/20'
+                }`}
                 rows={2}
               />
               <div className="flex items-center gap-2">
-                <button type="submit" disabled={saving || !editText.trim()} className="px-3 py-1.5 rounded-full text-[11px] font-semibold bg-white text-black hover:bg-white/90 disabled:opacity-40">Save</button>
-                <button type="button" onClick={() => { setIsEditing(false); setEditText(comment.text); }} className="px-3 py-1.5 rounded-full text-[11px] font-semibold bg-white/10 text-white/70 hover:bg-white/20">Cancel</button>
+                <button
+                  type="submit"
+                  disabled={saving || !editText.trim()}
+                  className={`px-3 py-1.5 rounded-full text-[11px] font-semibold disabled:opacity-40 ${
+                    isDark ? 'bg-white text-black hover:bg-white/90' : 'bg-gray-900 text-white hover:bg-black'
+                  }`}
+                >
+                  Save
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setIsEditing(false); setEditText(comment.text); }}
+                  className={`px-3 py-1.5 rounded-full text-[11px] font-semibold ${
+                    isDark ? 'bg-white/10 text-white/70 hover:bg-white/20' : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
+                  }`}
+                >
+                  Cancel
+                </button>
               </div>
             </form>
           ) : (
@@ -243,7 +269,7 @@ const CommentItem: React.FC<CommentProps & { mentionOptions?: MentionOption[] }>
                     <span
                       key={`mention-${idx}`}
                       className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-xs font-semibold ${
-                        isDark ? 'bg-white/10 text-white' : 'bg-black/10 text-gray-900'
+                        isDark ? 'bg-white/10 text-white' : 'bg-gray-100 text-gray-900 border border-gray-200'
                       }`}
                       style={{ marginRight: '0.25rem' }}
                     >
@@ -275,29 +301,38 @@ const CommentItem: React.FC<CommentProps & { mentionOptions?: MentionOption[] }>
               })}
             </p>
           )}
-          <div className="flex flex-wrap items-center gap-2 text-[11px] text-white/60 mt-2">
+          <div className={`flex flex-wrap items-center gap-2 text-[11px] mt-2 ${isDark ? 'text-white/60' : 'text-gray-500'}`}>
             {!isReply && comment.frame !== undefined && (
-              <button onClick={() => onJumpToFrame(comment.frame)} className="hover:text-white">Frame {comment.frame}</button>
+              <button onClick={() => onJumpToFrame(comment.frame)} className={isDark ? 'hover:text-white' : 'hover:text-gray-900'}>
+                Frame {comment.frame}
+              </button>
             )}
             {!isReply && (
-              <button onClick={() => setShowReply((s) => !s)} className="hover:text-white">Reply</button>
+              <button onClick={() => setShowReply((s) => !s)} className={isDark ? 'hover:text-white' : 'hover:text-gray-900'}>Reply</button>
             )}
-            <button onClick={() => setIsEditing((v) => !v)} className="flex items-center gap-1 hover:text-white" title="Edit">
+            <button onClick={() => setIsEditing((v) => !v)} className={`flex items-center gap-1 ${isDark ? 'hover:text-white' : 'hover:text-gray-900'}`} title="Edit">
               <Pencil size={14} /> Edit
             </button>
             {!isReply && (
-              <button onClick={() => onToggleResolve(comment.id)} className={`flex items-center gap-1 ${comment.resolved ? 'text-white' : 'hover:text-white'}`}>
+              <button
+                onClick={() => onToggleResolve(comment.id)}
+                className={`flex items-center gap-1 ${
+                  comment.resolved
+                    ? (isDark ? 'text-white' : 'text-gray-900')
+                    : (isDark ? 'hover:text-white' : 'hover:text-gray-900')
+                }`}
+              >
                 {comment.resolved ? <CheckCircle2 size={14} /> : <Circle size={14} />}
                 {comment.resolved ? 'Resolved' : 'Resolve'}
               </button>
             )}
-            <button onClick={() => onDeleteComment(comment.id)} className="flex items-center gap-1 hover:text-red-300" title="Delete">
+            <button onClick={() => onDeleteComment(comment.id)} className={`flex items-center gap-1 ${isDark ? 'hover:text-red-300' : 'hover:text-rose-600'}`} title="Delete">
               <Trash2 size={14}/>
             </button>
           </div>
           {!isReply && replies.length > 0 && (
             <div className="mt-2">
-              <button onClick={() => setShowReplies(v => !v)} className="inline-flex items-center gap-1 text-xs text-white/60 hover:text-white">
+              <button onClick={() => setShowReplies(v => !v)} className={`inline-flex items-center gap-1 text-xs ${isDark ? 'text-white/60 hover:text-white' : 'text-gray-600 hover:text-gray-900'}`}>
                 {showReplies ? <ChevronUp size={14}/> : <ChevronDown size={14}/>} {showReplies ? 'Hide replies' : `Show replies (${replies.length})`}
               </button>
             </div>
@@ -311,10 +346,14 @@ const CommentItem: React.FC<CommentProps & { mentionOptions?: MentionOption[] }>
                 value={replyText}
                 onChange={onReplyChange}
                 placeholder="Write a reply..."
-                className="w-full bg-white/5 border border-white/10 rounded-full px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-white"
+                className={`w-full rounded-full px-3 py-2 text-sm focus:outline-none focus:ring-2 ${
+                  isDark
+                    ? 'bg-white/5 border border-white/10 text-white focus:ring-white/40'
+                    : 'bg-white border border-gray-200 text-gray-900 focus:ring-gray-900/20'
+                }`}
                 ref={inputRef}
             />
-            <button type="submit" className="bg-white text-black px-4 rounded-full text-xs font-semibold hover:bg-white/90">Send</button>
+            <button type="submit" className={`px-4 rounded-full text-xs font-semibold ${isDark ? 'bg-white text-black hover:bg-white/90' : 'bg-gray-900 text-gray-50 hover:bg-black'}`}>Send</button>
             {open && sugg.length > 0 && (
               <div className={`absolute left-0 top-10 z-10 max-h-48 w-full overflow-auto rounded-xl border shadow-2xl ${isDark ? 'border-white/10 bg-black/90 text-white' : 'border-gray-200 bg-white text-gray-900'}`}>
                 {sugg.map((s) => (
@@ -334,7 +373,7 @@ const CommentItem: React.FC<CommentProps & { mentionOptions?: MentionOption[] }>
         </form>
       )}
       {!isReply && replies.length > 0 && showReplies && (
-        <div className="ml-6 mt-4 pl-4 border-l border-white/10 space-y-3">
+        <div className={`ml-6 mt-4 pl-4 border-l space-y-3 ${isDark ? 'border-white/10' : 'border-gray-200'}`}>
           {replies.map(reply => (
             <CommentItem 
               key={reply.id} 
@@ -365,7 +404,11 @@ const CommentItem: React.FC<CommentProps & { mentionOptions?: MentionOption[] }>
                 value={quickReply}
                 onChange={onQuickChange}
                 placeholder="Write a reply..."
-                className="w-full bg-white/5 border border-white/10 rounded-full px-3 py-1.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-white"
+                className={`w-full rounded-full px-3 py-1.5 text-sm focus:outline-none focus:ring-2 ${
+                  isDark
+                    ? 'bg-white/5 border border-white/10 text-white focus:ring-white/40'
+                    : 'bg-white border border-gray-200 text-gray-900 focus:ring-gray-900/20'
+                }`}
                 ref={quickReplyInputRef}
               />
               {quickOpen && quickSuggestions.length > 0 && (
@@ -385,7 +428,7 @@ const CommentItem: React.FC<CommentProps & { mentionOptions?: MentionOption[] }>
                 </div>
               )}
             </div>
-            <button type="submit" className="bg-black text-gray-50 px-3 py-1.5 rounded-full text-xs font-semibold hover:bg-black/90">Send</button>
+            <button type="submit" className={`px-3 py-1.5 rounded-full text-xs font-semibold ${isDark ? 'bg-white text-black hover:bg-white/90' : 'bg-gray-900 text-gray-50 hover:bg-black'}`}>Send</button>
           </form>
         </div>
       )}
@@ -522,16 +565,16 @@ const CommentsPane: React.FC<CommentsPaneProps> = ({ comments, currentFrame, onA
   }, [activeCommentId]);
 
   return (
-    <div className={`relative h-full flex flex-col border-l ${isDark ? 'bg-black/60 border-white/10' : 'bg-white border-gray-200'}`}>
-      <div className="px-4 py-3 border-b border-white/10">
-        <h2 className="text-sm font-semibold text-white/50 uppercase flex items-center gap-2">
-          <MessageSquare size={18}/> Comments
+    <div className="relative h-full flex flex-col">
+      <div className={`px-4 py-4 border-b ${isDark ? 'border-white/10' : 'border-gray-200'}`}>
+        <h2 className={`text-xs font-semibold uppercase tracking-[0.2em] flex items-center gap-2 ${isDark ? 'text-white/60' : 'text-gray-500'}`}>
+          <MessageSquare size={16}/> Comments
         </h2>
-        <div className="mt-4 flex flex-wrap items-center gap-2 bg-white/5 border border-white/10 rounded-full p-1">
-            <button onClick={() => setFilter('active')} className={`px-4 py-1.5 rounded-full text-xs font-semibold ${filter === 'active' ? 'bg-white text-black' : 'text-white/60 hover:bg-white/10'}`}>Active</button>
-            <button onClick={() => setFilter('all')} className={`px-4 py-1.5 rounded-full text-xs font-semibold ${filter === 'all' ? 'bg-white text-black' : 'text-white/60 hover:bg-white/10'}`}>All</button>
-            <button onClick={() => setFilter('open')} className={`px-4 py-1.5 rounded-full text-xs font-semibold ${filter === 'open' ? 'bg-white text-black' : 'text-white/60 hover:bg-white/10'}`}>Open</button>
-            <button onClick={() => setFilter('resolved')} className={`px-4 py-1.5 rounded-full text-xs font-semibold ${filter === 'resolved' ? 'bg-white text-black' : 'text-white/60 hover:bg-white/10'}`}>Resolved</button>
+        <div className={`mt-4 inline-flex flex-wrap items-center gap-1 rounded-full border p-1 shadow-sm ${isDark ? 'bg-white/5 border-white/10' : 'bg-gray-50 border-gray-200'}`}>
+            <button onClick={() => setFilter('active')} className={`px-4 py-1.5 rounded-full text-xs font-semibold transition ${filter === 'active' ? (isDark ? 'bg-white text-black' : 'bg-white text-gray-900 shadow-sm') : (isDark ? 'text-white/60 hover:bg-white/10' : 'text-gray-600 hover:text-gray-900 hover:bg-white/70')}`}>Active</button>
+            <button onClick={() => setFilter('all')} className={`px-4 py-1.5 rounded-full text-xs font-semibold transition ${filter === 'all' ? (isDark ? 'bg-white text-black' : 'bg-white text-gray-900 shadow-sm') : (isDark ? 'text-white/60 hover:bg-white/10' : 'text-gray-600 hover:text-gray-900 hover:bg-white/70')}`}>All</button>
+            <button onClick={() => setFilter('open')} className={`px-4 py-1.5 rounded-full text-xs font-semibold transition ${filter === 'open' ? (isDark ? 'bg-white text-black' : 'bg-white text-gray-900 shadow-sm') : (isDark ? 'text-white/60 hover:bg-white/10' : 'text-gray-600 hover:text-gray-900 hover:bg-white/70')}`}>Open</button>
+            <button onClick={() => setFilter('resolved')} className={`px-4 py-1.5 rounded-full text-xs font-semibold transition ${filter === 'resolved' ? (isDark ? 'bg-white text-black' : 'bg-white text-gray-900 shadow-sm') : (isDark ? 'text-white/60 hover:bg-white/10' : 'text-gray-600 hover:text-gray-900 hover:bg-white/70')}`}>Resolved</button>
         </div>
       </div>
       <div className="flex-1 overflow-y-scroll scroll-slim pr-1 pb-28">
@@ -562,7 +605,11 @@ const CommentsPane: React.FC<CommentsPaneProps> = ({ comments, currentFrame, onA
               value={newCommentText}
               onChange={handleTextareaChange}
               placeholder={`Add comment at frame ${currentFrame}…`}
-              className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-white resize-none min-h-[104px]"
+              className={`w-full rounded-2xl px-3 py-2 text-sm resize-none min-h-[104px] focus:outline-none focus:ring-2 ${
+                isDark
+                  ? 'bg-white/5 border border-white/10 text-white focus:ring-white/40'
+                  : 'bg-white border border-gray-200 text-gray-900 focus:ring-gray-900/20'
+              }`}
               rows={2}
               ref={textareaRef}
             />
@@ -582,7 +629,7 @@ const CommentsPane: React.FC<CommentsPaneProps> = ({ comments, currentFrame, onA
             </div>
           )}
           </div>
-          <button type="submit" className="px-3 py-2 bg-white text-black font-semibold rounded-full hover:bg-white/90 text-xs">
+          <button type="submit" className={`px-3 py-2 font-semibold rounded-full hover:opacity-95 text-xs ${isDark ? 'bg-white text-black' : 'bg-gray-900 text-gray-50 hover:bg-black'}`}>
             Send
           </button>
         </form>
