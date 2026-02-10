@@ -292,6 +292,17 @@
     border: 1px dashed #e2e8f0;
     border-radius: 16px;
   }
+
+  /* Mobile: avoid "card-in-card" gutters and wasted width; keep desktop look. */
+  @media (max-width: 639px) {
+    .library-panel,
+    .library-panel-muted {
+      border-radius: 0;
+      box-shadow: none;
+      border-left-width: 0;
+      border-right-width: 0;
+    }
+  }
   .library-chip {
     background: #f1f5f9;
     border: 1px solid #e2e8f0;

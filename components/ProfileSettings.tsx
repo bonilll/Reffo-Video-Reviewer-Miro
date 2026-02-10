@@ -303,7 +303,7 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
 
   return (
     <div className="space-y-8 library-skin">
-      <header className="flex flex-wrap items-center justify-between gap-4 library-panel p-6">
+      <header className="flex flex-wrap items-center justify-between gap-4 library-panel p-4 sm:p-6">
         <div className="flex items-center gap-4">
           <button
             onClick={onBack}
@@ -494,7 +494,7 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
 
       <section className="grid gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,1.2fr)]">
         <div className="space-y-6">
-          <article className="library-panel p-6">
+          <article className="library-panel p-4 sm:p-6">
             <div className="flex items-center gap-3 text-gray-900">
               <ShieldCheck size={18} />
               <h2 className="text-lg font-semibold">Account</h2>
@@ -539,7 +539,7 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
             </div>
       </article>
 
-      <article className="library-panel p-6">
+      <article className="library-panel p-4 sm:p-6">
         <div className="flex items-center gap-3 text-gray-900">
           <ExternalLink size={18} />
           <h2 className="text-lg font-semibold">Connections</h2>
@@ -806,7 +806,7 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
           </article>
           )}
 
-          <article className="library-panel p-6">
+          <article className="library-panel p-4 sm:p-6">
             <div className="flex items-center gap-3 text-gray-900">
               <ExternalLink size={18} />
               <h2 className="text-lg font-semibold">Billing</h2>

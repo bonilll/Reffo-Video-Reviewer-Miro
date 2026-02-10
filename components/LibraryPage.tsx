@@ -1876,7 +1876,7 @@ const LibraryPage: React.FC = () => {
 
   return (
     <div className="w-full space-y-10">
-      <section className="rounded-3xl border border-gray-200 bg-white/95 p-8 shadow-sm">
+      <section className="rounded-none border-0 border-gray-200 bg-white/95 p-4 shadow-none sm:rounded-3xl sm:border sm:p-8 sm:shadow-sm">
         <div className="flex flex-col gap-6">
 	          <div className="flex items-center justify-center">
 	            <div className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-gray-50 p-1 shadow-sm">

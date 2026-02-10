@@ -1314,7 +1314,7 @@ const App: React.FC = () => {
               onNotificationClick={handleNotificationClick}
               onMarkAllNotificationsRead={handleMarkAllNotificationsRead}
             />
-	            <main className="flex-1 overflow-y-auto px-4 py-8 sm:px-6 sm:py-10 lg:px-12">
+	            <main className="flex-1 overflow-y-auto px-0 py-4 sm:px-6 sm:py-10 lg:px-12">
               {view === 'profile' ? (
                 <ProfileSettings
                   user={{
@@ -1382,8 +1382,8 @@ const App: React.FC = () => {
                 />
               )}
             </main>
-	            <footer className={`border-t ${isDark ? 'border-white/10 bg-black/40 text-white/70' : 'border-gray-200 bg-white text-gray-600'} px-4 py-4 sm:px-6 lg:px-12`}>
-              <div className="flex flex-wrap items-center justify-center gap-4 text-xs">
+	            <footer className={`border-t ${isDark ? 'border-white/10 bg-black/40 text-white/70' : 'border-gray-200 bg-white text-gray-600'} px-0 py-4 sm:px-6 lg:px-12`}>
+              <div className="flex flex-wrap items-center justify-center gap-4 px-4 text-xs sm:px-0">
                 <button onClick={() => navigate('/privacy')} className="underline underline-offset-2">
                   {consentText.footer.privacy}
                 </button>
