@@ -4,6 +4,7 @@ import * as geo from '../utils/geometry';
 import CommentPopover from './CommentPopover';
 import NewCommentPopover from './NewCommentPopover';
 import { CheckCircle2, UploadCloud, Play, Pause, Volume2, VolumeX, Repeat } from 'lucide-react';
+import getStroke from 'perfect-freehand';
 
 interface AnnotationCanvasProps {
   video: Video;
@@ -122,6 +123,10 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
   shapeFillOpacity,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
+  const lastPointerNormalizedRef = useRef<Point | null>(null);
+  const isPointerDownRef = useRef(false);
+  const activePointerIdRef = useRef<number | null>(null);
   const [isDrawing, setIsDrawing] = useState(false);
   // FIX: Add optional `start` and `end` points to the drawing shape state type to accommodate temporary drawing properties for rectangles and ellipses.
   const [drawingShape, setDrawingShape] = useState<(Partial<Annotation> & { start?: Point, end?: Point }) | null>(null);
@@ -403,17 +408,44 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
     if (!ctx) return;
     ctx.scale(dpr, dpr);
 
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    
-    const draw = (anno: Annotation | Partial<Annotation>) => {
-      if (!renderedRect) return;
-      ctx.strokeStyle = anno.color || '#000';
-      ctx.fillStyle = anno.color || '#000';
-      ctx.lineWidth = (anno.lineWidth || 1); // We don't scale line width with video size
+	    ctx.clearRect(0, 0, canvas.width, canvas.height);
+	    
+	    const drawFreehandStroke = (points: Point[] | undefined, color: string, size: number) => {
+	      if (!points || points.length === 0) return;
+	      if (!renderedRect) return;
+	      const pts = points.map((p) => {
+	        const c = geo.normalizedToCanvas(p, renderedRect);
+	        return [c.x, c.y];
+	      });
+	      const stroke = getStroke(pts, {
+	        size: Math.max(1, size),
+	        thinning: 0.5,
+	        smoothing: 0.5,
+	        streamline: 0.5,
+	        simulatePressure: true,
+	      }) as number[][];
+	      if (!stroke || stroke.length === 0) return;
+	      ctx.save();
+	      ctx.fillStyle = color || '#000';
+	      ctx.beginPath();
+	      ctx.moveTo(stroke[0][0], stroke[0][1]);
+	      for (let i = 1; i < stroke.length; i++) {
+	        ctx.lineTo(stroke[i][0], stroke[i][1]);
+	      }
+	      ctx.closePath();
+	      ctx.fill();
+	      ctx.restore();
+	    };
+
+	    const draw = (anno: Annotation | Partial<Annotation>) => {
+	      if (!renderedRect) return;
+	      ctx.strokeStyle = anno.color || '#000';
+	      ctx.fillStyle = anno.color || '#000';
+	      ctx.lineWidth = (anno.lineWidth || 1); // We don't scale line width with video size
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
 
-      switch (anno.type) {
+	      switch (anno.type) {
         case AnnotationTool.IMAGE: {
           const imgAnno = anno as ImageAnnotation;
           if (!imgAnno.src || !imgAnno.center || imgAnno.width == null || imgAnno.height == null) return;
@@ -438,18 +470,9 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
           }
           break;
         }
-        case AnnotationTool.FREEHAND:
-            if (anno.points && anno.points.length > 1) {
-            ctx.beginPath();
-            const startPoint = geo.normalizedToCanvas(anno.points[0], renderedRect);
-            ctx.moveTo(startPoint.x, startPoint.y);
-            for (const point of anno.points) {
-              const p = geo.normalizedToCanvas(point, renderedRect);
-              ctx.lineTo(p.x, p.y);
-            }
-            ctx.stroke();
-          }
-          break;
+	        case AnnotationTool.FREEHAND:
+	          drawFreehandStroke((anno as any).points, anno.color || '#000', anno.lineWidth || 1);
+	          break;
         case AnnotationTool.RECTANGLE: {
             const rectAnno = anno as RectangleAnnotation & { start?: Point, end?: Point };
             const fillStyle = resolveFillStyle(rectAnno.color, rectAnno.fillOpacity);
@@ -557,11 +580,14 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
     if (marquee && renderedRect) {
         const start = geo.normalizedToCanvas(marquee.start, renderedRect);
         const end = geo.normalizedToCanvas(marquee.end, renderedRect);
-        ctx.strokeStyle = 'rgba(255, 193, 7, 0.9)';
+        ctx.save();
+        ctx.globalCompositeOperation = 'difference';
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.95)';
         ctx.lineWidth = 1;
         ctx.setLineDash([4, 2]);
         ctx.strokeRect(start.x, start.y, end.x - start.x, end.y - start.y);
         ctx.setLineDash([]);
+        ctx.restore();
     }
 
   }, [annotationsToDraw, drawingShape, containerRect, renderedRect, activeTool, marquee, selectedAnnotations, transformedAnnotations, redrawTick]);
@@ -723,12 +749,13 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
   };
 
   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    // On touch devices, prevent page panning/scrolling while interacting with the canvas.
-    if (e.pointerType === 'touch' || e.pointerType === 'pen') {
-      e.preventDefault();
-      try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
-    }
+    // Make the stage focusable so Cmd/Ctrl+V paste events can target this component.
+    stageRef.current?.focus?.();
     if (editingText || pendingComment) return;
+    // Only treat primary/left button as an interaction on desktop.
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    // Prevent default to avoid browser text selection/drag behaviors and improve pointer consistency.
+    e.preventDefault();
     
     // If a popover is open, a click on the canvas should close it.
     // The event target check ensures we don't close it when clicking on the marker that opened it.
@@ -736,8 +763,14 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
         setActiveCommentPopoverId(null);
     }
     
+    // Capture the pointer so we keep receiving move/up even if the cursor leaves the canvas.
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
+
     const pos = getPointerPosition(e);
     if (!pos || !renderedRect) return;
+    isPointerDownRef.current = true;
+    activePointerIdRef.current = e.pointerId;
+    lastPointerNormalizedRef.current = pos.normalized;
 
     if (activeTool === AnnotationTool.SELECT) {
         const handle = selectedAnnotations.length > 0 ? geo.getHandleUnderPoint(pos.canvas, selectedAnnotations, renderedRect) : null;
@@ -793,14 +826,16 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
   };
   
   const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if ((e.pointerType === 'touch' || e.pointerType === 'pen') && (isDrawing || marquee || transform || movingCommentState)) {
+    const isActivePointer =
+      isPointerDownRef.current && activePointerIdRef.current != null && e.pointerId === activePointerIdRef.current;
+    if ((e.pointerType === 'touch' || e.pointerType === 'pen') && isActivePointer && (isDrawing || marquee || transform || movingCommentState)) {
       e.preventDefault();
     }
     if (editingText || pendingComment) {
       if (hoveredVideoId !== null) setHoveredVideoId(null);
       return;
     }
-    if (!e.buttons) {
+    if (!isActivePointer) {
       if (isDrawing || marquee || transform || movingCommentState) {
         handlePointerUp();
         if (hoveredVideoId !== null) setHoveredVideoId(null);
@@ -809,6 +844,7 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
         if (!idlePos || !renderedRect) {
           if (hoveredVideoId !== null) setHoveredVideoId(null);
         } else {
+          lastPointerNormalizedRef.current = idlePos.normalized;
           const hit = [...videoAnnotationsToRender].reverse().find(
             (anno) => geo.isPointInAnnotation(idlePos.normalized, anno, renderedRect, video.height / renderedRect.height)
           );
@@ -824,6 +860,7 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
       if (hoveredVideoId !== null) setHoveredVideoId(null);
       return;
     }
+    lastPointerNormalizedRef.current = pos.normalized;
 
     // Check if we should START a comment move (promote a potential move to a real one)
     if (movingCommentState && !transformedComment) {
@@ -1136,6 +1173,13 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
     setTransformedComment(null);
     setHoveredVideoId(null);
     setAlignmentGuides([]);
+    isPointerDownRef.current = false;
+    activePointerIdRef.current = null;
+  };
+
+  const handleCanvasPointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch {}
+    handlePointerUp();
   };
 
   const handleControlsPointerEnter = useCallback((id: string) => {
@@ -1573,21 +1617,173 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
     }
   };
 
+  const pasteImagesFromDataTransfer = useCallback(
+    async (
+      dt: DataTransfer,
+      opts?: { preventDefault?: () => void; stopPropagation?: () => void }
+    ) => {
+      if (assetUploadProgress !== null) return;
+      if (editingText || pendingComment) return;
+      if (!renderedRect) return;
+
+      const imageFiles: File[] = [];
+      const items = Array.from(dt.items ?? []);
+      for (const item of items) {
+        if (item.kind !== 'file') continue;
+        if (!item.type || !item.type.toLowerCase().startsWith('image/')) continue;
+        const f = item.getAsFile();
+        if (f) imageFiles.push(f);
+      }
+      if (imageFiles.length === 0) return;
+
+      opts?.preventDefault?.();
+      opts?.stopPropagation?.();
+
+      const base = lastPointerNormalizedRef.current ?? { x: 0.5, y: 0.5 };
+      const total = imageFiles.length;
+      const cols = Math.min(3, total);
+      const rows = Math.ceil(total / cols);
+      const offsetPx = 28;
+
+      const ensureNamed = (file: File, idx: number) => {
+        const name = (file.name || '').trim();
+        if (name) return file;
+        const mime = (file.type || 'image/png').toLowerCase();
+        const ext = mime.includes('png') ? 'png' : mime.includes('jpeg') || mime.includes('jpg') ? 'jpg' : mime.includes('webp') ? 'webp' : 'png';
+        return new File([file], `pasted-${Date.now()}-${idx}.${ext}`, { type: mime });
+      };
+
+      setAssetUploadError(null);
+      setAssetUploadProgress(0);
+
+      let failures = 0;
+      let lastError: string | null = null;
+
+      try {
+        for (let i = 0; i < imageFiles.length; i++) {
+          const row = Math.floor(i / cols);
+          const col = i % cols;
+          const dxPx = (col - (cols - 1) / 2) * offsetPx;
+          const dyPx = (row - (rows - 1) / 2) * offsetPx;
+          const nextCenter: Point = {
+            x: clamp(base.x + dxPx / Math.max(1, renderedRect.width), 0.02, 0.98),
+            y: clamp(base.y + dyPx / Math.max(1, renderedRect.height), 0.02, 0.98),
+          };
+
+          setAssetUploadLabel(`Uploading image ${i + 1}/${total}…`);
+
+          try {
+            const file = ensureNamed(imageFiles[i], i);
+            const asset = await onUploadAsset(file, 'image', (progress) => {
+              const perFile = Math.max(0, Math.min(100, Number(progress)));
+              const overall = Math.round(((i + perFile / 100) / total) * 100);
+              setAssetUploadProgress(Math.max(0, Math.min(100, overall)));
+            });
+
+            const aspectRatio = asset.width && asset.height ? asset.width / asset.height : 1;
+            const baseWidth = 0.2;
+            const widthNormalized = Math.min(Math.max(baseWidth, 0.05), 0.9);
+            const computedHeight = (widthNormalized / Math.max(aspectRatio, 0.01)) * (video.width / Math.max(video.height, 1));
+            const heightNormalized = Math.min(Math.max(computedHeight, 0.05), 0.9);
+
+            const newAnnotation: Omit<ImageAnnotation, 'id' | 'videoId' | 'authorId' | 'createdAt'> = {
+              type: AnnotationTool.IMAGE,
+              frame: currentFrame,
+              src: asset.src,
+              storageKey: asset.storageKey,
+              byteSize: asset.byteSize,
+              mimeType: asset.mimeType,
+              originalWidth: asset.originalWidth,
+              originalHeight: asset.originalHeight,
+              center: nextCenter,
+              width: widthNormalized,
+              height: heightNormalized,
+              rotation: 0,
+              color: 'transparent',
+              lineWidth: 0,
+            };
+            onAddAnnotation(newAnnotation);
+          } catch (error) {
+            failures += 1;
+            const message = error instanceof Error ? error.message : 'Unable to upload image';
+            lastError = message;
+            console.error('Failed to upload pasted image', error);
+          }
+        }
+      } finally {
+        setAssetUploadProgress(null);
+        setAssetUploadLabel(null);
+      }
+
+      if (failures > 0) {
+        setAssetUploadError(lastError ?? `Failed to upload ${failures} image(s).`);
+        setTimeout(() => setAssetUploadError(null), 5000);
+      }
+    },
+    [assetUploadProgress, currentFrame, editingText, onAddAnnotation, onUploadAsset, pendingComment, renderedRect, video.height, video.width],
+  );
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
+    if (!e.clipboardData) return;
+    void pasteImagesFromDataTransfer(e.clipboardData, {
+      preventDefault: () => e.preventDefault(),
+      stopPropagation: () => e.stopPropagation(),
+    });
+  };
+
+  useEffect(() => {
+    const onWindowPaste = (ev: ClipboardEvent) => {
+      const stage = stageRef.current;
+      if (!stage) return;
+      if (ev.defaultPrevented) return;
+
+      // If the paste is already targeted inside the stage, let the React handler deal with it.
+      if (ev.target instanceof Node && stage.contains(ev.target)) return;
+
+      // Don't hijack paste inside inputs/contenteditable.
+      const t = ev.target as HTMLElement | null;
+      if (
+        t &&
+        (t.tagName === 'INPUT' ||
+          t.tagName === 'TEXTAREA' ||
+          t.tagName === 'SELECT' ||
+          t.isContentEditable ||
+          t.closest?.('[contenteditable="true"]'))
+      ) {
+        return;
+      }
+
+      if (!ev.clipboardData) return;
+      void pasteImagesFromDataTransfer(ev.clipboardData, {
+        preventDefault: () => ev.preventDefault(),
+        stopPropagation: () => ev.stopPropagation(),
+      });
+    };
+
+    window.addEventListener('paste', onWindowPaste);
+    return () => window.removeEventListener('paste', onWindowPaste);
+  }, [pasteImagesFromDataTransfer]);
+
   return (
     <div 
-      className="absolute top-0 left-0 w-full h-full touch-none overscroll-none"
+      ref={stageRef}
+      className="absolute top-0 left-0 w-full h-full touch-none overscroll-none focus:outline-none"
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
+      onPaste={handlePaste}
       style={{ touchAction: 'none' }}
+      tabIndex={0}
     >
       <canvas
         ref={canvasRef}
         className="absolute top-0 left-0 w-full h-full pointer-events-auto z-0 touch-none select-none"
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onPointerLeave={handlePointerUp}
+        onPointerUp={handleCanvasPointerUp}
+        onPointerCancel={handleCanvasPointerUp}
+        onLostPointerCapture={handleCanvasPointerUp as any}
+        onPointerLeave={handleCanvasPointerUp}
         style={{ cursor: getCursor() }}
       />
 

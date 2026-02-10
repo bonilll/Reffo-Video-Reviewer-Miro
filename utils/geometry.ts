@@ -123,7 +123,23 @@ const getAnnotationPoints = (anno: Annotation, renderedRect: RenderedRect, video
             return [normalizedToCanvas(arrowAnno.start, renderedRect), normalizedToCanvas(arrowAnno.end, renderedRect)];
         case AnnotationTool.FREEHAND:
             const freehandAnno = anno as FreehandAnnotation;
-            return freehandAnno.points.map(p => normalizedToCanvas(p, renderedRect));
+            const points = freehandAnno.points.map(p => normalizedToCanvas(p, renderedRect));
+            if (points.length === 0) return points;
+            // Expand selection bounds to account for stroke thickness (freehand is rendered as a filled stroke).
+            const pad = Math.max(2, (freehandAnno.lineWidth || 1) / 2);
+            let minX = points[0].x, maxX = points[0].x;
+            let minY = points[0].y, maxY = points[0].y;
+            for (const p of points) {
+                minX = Math.min(minX, p.x);
+                maxX = Math.max(maxX, p.x);
+                minY = Math.min(minY, p.y);
+                maxY = Math.max(maxY, p.y);
+            }
+            points.push({ x: minX - pad, y: minY - pad });
+            points.push({ x: maxX + pad, y: minY - pad });
+            points.push({ x: maxX + pad, y: maxY + pad });
+            points.push({ x: minX - pad, y: maxY + pad });
+            return points;
         case AnnotationTool.TEXT:
             const textAnno = anno as TextAnnotation;
             const pos = normalizedToCanvas(textAnno.position, renderedRect);
@@ -184,16 +200,20 @@ export const drawSelection = (ctx: CanvasRenderingContext2D, annotations: Annota
     const box = getCombinedBoundingBox(annotations, renderedRect, videoToCanvasScaleY);
     if (!box) return;
 
-    // Draw main bounding box (amber for high contrast)
-    ctx.strokeStyle = 'rgba(255, 193, 7, 0.95)';
+    // Draw in "difference" mode so the selection inverts whatever is underneath and stays visible.
+    ctx.save();
+    ctx.globalCompositeOperation = 'difference';
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.95)';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
     ctx.lineWidth = 1;
+
+    // Main bounding box
     ctx.setLineDash([4, 2]);
     ctx.strokeRect(box.start.x, box.start.y, box.end.x - box.start.x, box.end.y - box.start.y);
     ctx.setLineDash([]);
 
-    // Draw handles
+    // Handles
     const handles = getTransformHandles(box);
-    ctx.fillStyle = 'rgba(255, 193, 7, 0.95)';
 
     // Rotation line and handle
     const rotHandle = handles['rotate'];
@@ -203,11 +223,12 @@ export const drawSelection = (ctx: CanvasRenderingContext2D, annotations: Annota
     ctx.lineTo(rotHandle.x + HANDLE_SIZE / 2, rotHandle.y + HANDLE_SIZE / 2);
     ctx.stroke();
     ctx.fillRect(rotHandle.x, rotHandle.y, rotHandle.width, rotHandle.height);
-    
+
     // Scale handles
     Object.values(handles).forEach(h => {
         if (h !== rotHandle) ctx.fillRect(h.x, h.y, h.width, h.height);
     });
+    ctx.restore();
 };
 
 const isPointInRect = (point: Point, rect: { x: number, y: number, width: number, height: number }) => {

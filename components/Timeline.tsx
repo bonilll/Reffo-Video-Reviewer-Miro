@@ -197,16 +197,45 @@ const Timeline: React.FC<TimelineProps> = ({ currentTime, duration, onSeek, vide
     onSeek(t);
   };
 
-  const noteMarkers = useMemo(() => {
-    const markerFrames = new Set<number>();
-    comments.forEach((c) => c.frame !== undefined && markerFrames.add(c.frame));
-    const totalFrames = Math.max(1, Math.floor(duration * fps));
+  type MarkerKind = 'comment' | 'sketch';
+  const timelineMarkers = useMemo(() => {
+    const commentFrames = new Set<number>();
+    const sketchFrames = new Set<number>();
 
-    return Array.from(markerFrames).map((frame) => ({
-      frame,
-      position: duration > 0 ? (frame / totalFrames) * 100 : 0,
-    }));
-  }, [comments, duration, fps]);
+    for (const c of comments) {
+      if (c.frame === undefined) continue;
+      commentFrames.add(c.frame);
+    }
+
+    for (const a of annotations) {
+      const frame = (a as any).frame;
+      if (frame === undefined || !Number.isFinite(frame)) continue;
+      if (
+        a.type === 'freehand' ||
+        a.type === 'rectangle' ||
+        a.type === 'ellipse' ||
+        a.type === 'arrow'
+      ) {
+        sketchFrames.add(frame);
+      }
+    }
+
+    const allFrames = new Set<number>();
+    commentFrames.forEach((f) => allFrames.add(f));
+    sketchFrames.forEach((f) => allFrames.add(f));
+
+    const totalFrames = Math.max(1, Math.floor(duration * fps));
+    return Array.from(allFrames)
+      .sort((a, b) => a - b)
+      .map((frame) => {
+        const kind: MarkerKind = commentFrames.has(frame) ? 'comment' : 'sketch';
+        return {
+          frame,
+          kind,
+          position: duration > 0 ? (frame / totalFrames) * 100 : 0,
+        };
+      });
+  }, [annotations, comments, duration, fps]);
 
   const currentFrameNumber = useMemo(() => Math.max(0, Math.round(displayTime * fps)), [displayTime, fps]);
   const currentFrameLabelLeftPct = useMemo(() => {
@@ -249,15 +278,20 @@ const Timeline: React.FC<TimelineProps> = ({ currentTime, duration, onSeek, vide
             className={`absolute top-0 left-0 h-full rounded-full ${isDark ? 'bg-white/30' : 'bg-gray-900/20'}`} 
             style={{ width: `${progress}%` }}
         />
-        {/* Note markers (comments) */}
-        {noteMarkers.map(({ frame, position }) => (
-          <div
-            key={`note-marker-${frame}`}
-            className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 h-2 w-2 rounded-full ${isDark ? 'bg-yellow-300' : 'bg-yellow-500'} ring-1 ring-black/40`}
-            style={{ left: `${position}%` }}
-            title={`Note at frame ${frame}`}
-          />
-        ))}
+        {/* Timeline markers (comments + sketch annotations) */}
+        {timelineMarkers.map(({ frame, position, kind }) => {
+          const colorClass = kind === 'comment' ? 'bg-black' : 'bg-neutral-500';
+          const ringClass = isDark ? 'ring-1 ring-white/50' : 'ring-1 ring-black/20';
+          const label = kind === 'comment' ? 'Comment' : 'Sketch';
+          return (
+            <div
+              key={`timeline-marker-${frame}-${kind}`}
+              className={`absolute left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 h-2 w-2 rounded-full ${colorClass} ${ringClass}`}
+              style={{ left: `${position}%` }}
+              title={`${label} at frame ${frame}`}
+            />
+          );
+        })}
 
         {/* Playhead: only the frame label (no bar, no dot) */}
         {duration > 0 && (

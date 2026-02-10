@@ -71,6 +71,7 @@ type AnnotationHistoryEntry =
   | { kind: 'update'; before: Annotation[]; after: Annotation[] };
 
 const MAX_HISTORY_ENTRIES = 100;
+const REVIEW_ANNOTATION_CLIPBOARD_PREFIX = 'videoreviewer/annotations:';
 
 const cloneAnnotation = (annotation: Annotation): Annotation =>
   JSON.parse(JSON.stringify(annotation)) as Annotation;
@@ -147,7 +148,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
   const [brushColor, setBrushColorState] = useState('#ef4444'); // red-500
   const [brushSize, setBrushSizeState] = useState(4);
   const [fontSize, setFontSize] = useState(16);
-  const [shapeFillEnabled, setShapeFillEnabled] = useState(true);
+  const [shapeFillEnabled, setShapeFillEnabled] = useState(false);
   const [shapeFillOpacity, setShapeFillOpacity] = useState(0.35);
   const undoStack = useRef<AnnotationHistoryEntry[]>([]);
   const redoStack = useRef<AnnotationHistoryEntry[]>([]);
@@ -170,6 +171,8 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
     const selectedSet = new Set(selectedAnnotationIds);
     return annotations.filter((a) => selectedSet.has(a.id));
   }, [annotations, selectedAnnotationIds]);
+  const [annotationClipboard, setAnnotationClipboard] = useState<any[] | null>(null);
+  const pasteCountRef = useRef(0);
   
   const [activeCommentId, setActiveCommentId] = useState<string | null>(null);
   const [activeCommentPopoverId, setActiveCommentPopoverId] = useState<string | null>(null);
@@ -1071,6 +1074,8 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
         });
         const real = convertAnnotationFromServer(created);
         setAnnotations(prev => prev.map(a => (a.id === tempId ? real : a)));
+        // Keep selection stable when optimistic IDs are replaced with server IDs.
+        setSelectedAnnotationIds((prev) => prev.map((id) => (id === tempId ? real.id : id)));
         if (historyRecordingRef.current) {
           pushHistory({ kind: 'create', annotations: cloneAnnotations([real]) });
         }
@@ -1080,7 +1085,60 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
         setAnnotations(prev => prev.filter(a => a.id !== tempId));
       }
     })();
+    return tempId;
   }, [createAnnotationMutation, videoId, convertAnnotationFromServer, video.id, pushHistory]);
+
+  const copySelectedAnnotations = useCallback(() => {
+    if (selectedAnnotations.length === 0) return;
+    const payloads = selectedAnnotations.map(toCreatePayload);
+    setAnnotationClipboard(payloads);
+    try {
+      if (navigator.clipboard && 'writeText' in navigator.clipboard) {
+        void navigator.clipboard.writeText(`${REVIEW_ANNOTATION_CLIPBOARD_PREFIX}${JSON.stringify(payloads)}`);
+      }
+    } catch {}
+  }, [selectedAnnotations]);
+
+  const pasteAnnotationPayloads = useCallback(
+    (payloads: any[]) => {
+      if (!payloads || payloads.length === 0) return;
+      pasteCountRef.current += 1;
+      const step = 0.02; // normalized offset per paste
+      const dx = step * pasteCountRef.current;
+      const dy = step * pasteCountRef.current;
+      const clampPoint = (p: Point): Point => ({ x: clamp01(p.x + dx), y: clamp01(p.y + dy) });
+
+      const tempIds: string[] = [];
+      for (const raw of payloads) {
+        if (!raw || typeof raw !== 'object') continue;
+        const next: any = { ...raw, frame: currentFrame };
+        switch (next.type) {
+          case AnnotationTool.FREEHAND:
+            if (Array.isArray(next.points)) next.points = next.points.map(clampPoint);
+            break;
+          case AnnotationTool.RECTANGLE:
+          case AnnotationTool.ELLIPSE:
+          case AnnotationTool.IMAGE:
+          case AnnotationTool.VIDEO:
+            if (next.center) next.center = clampPoint(next.center);
+            break;
+          case AnnotationTool.ARROW:
+            if (next.start) next.start = clampPoint(next.start);
+            if (next.end) next.end = clampPoint(next.end);
+            break;
+          case AnnotationTool.TEXT:
+            if (next.position) next.position = clampPoint(next.position);
+            break;
+        }
+        const tempId = handleAddAnnotation(next);
+        tempIds.push(tempId);
+      }
+      if (tempIds.length > 0) {
+        setSelectedAnnotationIds(tempIds);
+      }
+    },
+    [currentFrame, handleAddAnnotation],
+  );
 
   const handleUpdateAnnotations = useCallback((updatedAnnotations: Annotation[]) => {
     const shouldRecord = historyRecordingRef.current;
@@ -1635,6 +1693,19 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
         return;
       }
 
+      // Copy selected annotations
+      if (
+        (e.key === 'c' || e.key === 'C') &&
+        (e.metaKey || e.ctrlKey) &&
+        !e.altKey
+      ) {
+        if (selectedAnnotations.length > 0) {
+          e.preventDefault();
+          copySelectedAnnotations();
+        }
+        return;
+      }
+
       // Arrow keys
       if (
         (e.key === "ArrowLeft" || e.key === "ArrowRight") &&
@@ -1683,7 +1754,53 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [canUndo, canRedo, triggerRedo, triggerUndo, stepFrame, handleJump, jumpFrames.length]);
+  }, [canUndo, canRedo, triggerRedo, triggerUndo, stepFrame, handleJump, jumpFrames.length, copySelectedAnnotations, selectedAnnotations.length]);
+
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      if (e.defaultPrevented) return;
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT' ||
+          target.isContentEditable ||
+          target.closest?.('[contenteditable="true"]'))
+      ) {
+        return;
+      }
+      const dt = e.clipboardData;
+      if (!dt) return;
+      const text = dt.getData('text/plain') || '';
+      if (text.startsWith(REVIEW_ANNOTATION_CLIPBOARD_PREFIX)) {
+        e.preventDefault();
+        e.stopPropagation();
+        try {
+          const parsed = JSON.parse(text.slice(REVIEW_ANNOTATION_CLIPBOARD_PREFIX.length));
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            pasteAnnotationPayloads(parsed);
+          }
+        } catch {}
+        return;
+      }
+
+      // Fallback: if we have an internal clipboard and the user pastes with no focused input,
+      // allow paste from the internal clipboard (does not block image paste handled elsewhere).
+      if (annotationClipboard && annotationClipboard.length > 0) {
+        // Only handle when clipboard doesn't include image data.
+        const items = Array.from(dt.items ?? []);
+        const hasImage = items.some((it) => it.kind === 'file' && it.type.toLowerCase().startsWith('image/'));
+        if (!hasImage) {
+          e.preventDefault();
+          e.stopPropagation();
+          pasteAnnotationPayloads(annotationClipboard);
+        }
+      }
+    };
+    window.addEventListener('paste', onPaste);
+    return () => window.removeEventListener('paste', onPaste);
+  }, [annotationClipboard, pasteAnnotationPayloads]);
 
   const commentsBeforeFullscreenRef = useRef<boolean | null>(null);
 
@@ -1849,6 +1966,10 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
     cardSolid: isDark
       ? "border-white/10 bg-black/70 text-white"
       : "border-gray-200 bg-white text-gray-900",
+    // Background behind the video when its aspect ratio doesn't match the available space.
+    // Keep it non-black so we don't get obvious "black bars" while still respecting aspect ratio.
+    // Match the surrounding card so any letterboxing blends into the container.
+    stageBg: isDark ? "bg-black/70" : "bg-white",
     subtleText: isDark ? "text-white/50" : "text-gray-500",
     subtleLabel: isDark ? "text-white/60" : "text-gray-500",
     iconBtn: isDark
@@ -2100,11 +2221,11 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
         </div>
       )}
 	          <div ref={containerRef} className="flex-1 flex flex-col min-h-0 min-w-0 gap-4">
-            <section
-              className={`relative flex-1 min-h-0 overflow-hidden rounded-3xl border shadow-sm ${ui.cardSolid} ${
-                isFullscreen ? 'rounded-none border-0 shadow-none' : ''
-              }`}
-            >
+	            <section
+	              className={`relative flex-1 min-h-0 rounded-3xl border shadow-sm ${ui.cardSolid} p-2 sm:p-3 ${
+	                isFullscreen ? 'rounded-none border-0 shadow-none' : ''
+	              }`}
+	            >
 	              <Toolbar 
 	                activeTool={activeTool} 
 	                setActiveTool={setActiveTool}
@@ -2130,10 +2251,10 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
                 onOpenCompare={openCompareModal}
                 onOpenReplace={video.isOwnedByCurrentUser ? () => setReplaceOpen(true) : undefined}
               />
-		              <div className="w-full h-full relative overflow-hidden bg-black">
-		                <div className="absolute inset-0 flex items-center justify-center">
-		                  <div className="relative h-full w-auto max-w-full" style={{ aspectRatio: stageAspectRatio }}>
-		                    <div className="relative w-full h-full overflow-hidden">
+			              <div className={`w-full h-full relative overflow-hidden ${ui.stageBg}`}>
+			                <div className="absolute inset-0 flex items-center justify-center">
+			                  <div className="relative h-full w-auto max-w-full" style={{ aspectRatio: stageAspectRatio }}>
+			                    <div className="relative w-full h-full overflow-hidden">
 	            {compareSource && compareMode !== 'overlay' ? (
 	              <div className={`w-full h-full flex ${compareMode === 'side-by-side-vertical' ? 'flex-col' : 'flex-row'}`}>
 	                <div className="relative flex-1 min-w-0 flex items-center justify-center overflow-hidden group">
@@ -2186,10 +2307,10 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
                     mentionOptions={mentionableOptions ?? []}
 	                  />
 	                </div>
-	                <div className="relative flex-1 min-w-0 flex items-center justify-center overflow-hidden bg-black/80">
-	                  <video
-	                    key={`cmp-side-${compareMode}-${compareSource.url}`}
-	                    ref={compareVideoSideRef}
+		                <div className={`relative flex-1 min-w-0 flex items-center justify-center overflow-hidden ${ui.stageBg}`}>
+		                  <video
+		                    key={`cmp-side-${compareMode}-${compareSource.url}`}
+		                    ref={compareVideoSideRef}
                     src={compareSource.url}
                     className="w-full h-full object-contain"
                     preload="metadata"

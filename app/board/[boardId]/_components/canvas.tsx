@@ -301,6 +301,8 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
 
   // Stato per la clipboard (copia e incolla)
   const [clipboard, setClipboard] = useState<Array<any> | null>(null);
+  // Best-effort system clipboard integration (works when browser permissions allow it).
+  const BOARD_CLIPBOARD_PREFIX = "videoreviewer/board-layers:";
 
   // Stato per tracciare il tasto Shift
   const [isShiftPressed, setIsShiftPressed] = useState(false);
@@ -2834,6 +2836,13 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
       }
 
       setClipboard(copiedLayers);
+
+      // Also write into OS clipboard so paste can work across refresh/pages.
+      try {
+        if (typeof navigator !== "undefined" && navigator.clipboard && "writeText" in navigator.clipboard) {
+          void navigator.clipboard.writeText(`${BOARD_CLIPBOARD_PREFIX}${JSON.stringify(copiedLayers)}`);
+        }
+      } catch {}
       
       // Show user feedback
     },
@@ -2913,15 +2922,16 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
   );
 
   const pasteClipboardLayers = useMutation(
-    ({ storage, setMyPresence }) => {
-      if (!clipboard || clipboard.length === 0) {
+    ({ storage, setMyPresence }, layersOverride?: Array<any> | null) => {
+      const data = layersOverride ?? clipboard;
+      if (!data || data.length === 0) {
         return;
       }
 
       const liveLayers = storage.get("layers");
       const liveLayerIds = storage.get("layerIds");
 
-      if (MAX_LAYERS >= 0 && (liveLayers.size + clipboard.length > MAX_LAYERS)) {
+      if (MAX_LAYERS >= 0 && (liveLayers.size + data.length > MAX_LAYERS)) {
         return;
       }
 
@@ -2930,7 +2940,7 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
       const pasteOffset = 20; 
 
 
-      for (const clipboardLayer of clipboard) {
+      for (const clipboardLayer of data) {
         const newLayerId = nanoid();
         let newLayer;
 
@@ -3085,7 +3095,27 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
             // Paste layers from clipboard
             e.preventDefault();
             e.stopPropagation();
-            pasteClipboardLayers();
+            if (clipboard && clipboard.length > 0) {
+              pasteClipboardLayers();
+            } else {
+              void (async () => {
+                try {
+                  if (typeof navigator !== "undefined" && navigator.clipboard && "readText" in navigator.clipboard) {
+                    const text = await navigator.clipboard.readText();
+                    if (text && text.startsWith(BOARD_CLIPBOARD_PREFIX)) {
+                      const parsed = JSON.parse(text.slice(BOARD_CLIPBOARD_PREFIX.length));
+                      if (Array.isArray(parsed) && parsed.length > 0) {
+                        pasteClipboardLayers(parsed);
+                        setClipboard(parsed);
+                        return;
+                      }
+                    }
+                  }
+                } catch {}
+                // Fallback: no-op if we truly have nothing to paste.
+                pasteClipboardLayers();
+              })();
+            }
             break;
           }
           if (!e.ctrlKey && !e.metaKey && !isEditing) {
