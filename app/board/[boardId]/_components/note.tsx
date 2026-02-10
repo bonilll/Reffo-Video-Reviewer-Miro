@@ -491,6 +491,7 @@ export const Note = ({
 
   return (
     <foreignObject
+      data-layer-id={id}
       x={x}
       y={y}
       width={width}
@@ -501,7 +502,7 @@ export const Note = ({
         outlineOffset: "2px",
       }}
     >
-      <div
+      <div xmlns="http://www.w3.org/1999/xhtml"
         className={cn(
           "h-full w-full flex flex-col relative cursor-pointer",
           font.className,

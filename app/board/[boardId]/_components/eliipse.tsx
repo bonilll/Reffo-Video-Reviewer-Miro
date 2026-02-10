@@ -18,11 +18,10 @@ export const Ellipse = ({
 }: EllipseProps) => {
   return (
     <ellipse
+      data-layer-id={id}
       className={layer.shadow === false ? undefined : "drop-shadow-md"}
       onPointerDown={(e) => onPointerDown(e, id)}
-      style={{
-        transform: `translate(${layer.x}px, ${layer.y}px)`,
-      }}
+      transform={`translate(${layer.x} ${layer.y})`}
       cx={layer.width / 2}
       cy={layer.height / 2}
       rx={layer.width / 2}

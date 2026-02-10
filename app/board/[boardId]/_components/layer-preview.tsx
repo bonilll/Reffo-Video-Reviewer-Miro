@@ -470,19 +470,20 @@ export const LayerPreview = memo(
         const useImageLOD = lodBucket !== "high";
 
         return (
-          <foreignObject
-            id={id}
-            x={imageLayer.x}
-            y={imageLayer.y}
-            width={imageLayer.width}
-            height={imageLayer.height}
+	          <foreignObject
+	            id={id}
+	            data-layer-id={id}
+	            x={imageLayer.x}
+	            y={imageLayer.y}
+	            width={imageLayer.width}
+	            height={imageLayer.height}
             style={{ 
               outline: selectionColor ? `2px solid ${selectionColor}` : "none",
             }}
             className={(imageLayer as any).shadow === false ? "overflow-hidden" : "shadow-md overflow-hidden"}
             onPointerDown={handlePointerDown}
           >
-            <div 
+            <div xmlns="http://www.w3.org/1999/xhtml"
               className="relative w-full h-full"
               draggable={false}
             >
@@ -571,12 +572,13 @@ export const LayerPreview = memo(
         const useVideoLOD = lodBucket !== "high";
 
         return (
-          <foreignObject
-            id={id}
-            x={videoLayer.x}
-            y={videoLayer.y}
-            width={videoLayer.width}
-            height={videoLayer.height}
+	          <foreignObject
+	            id={id}
+	            data-layer-id={id}
+	            x={videoLayer.x}
+	            y={videoLayer.y}
+	            width={videoLayer.width}
+	            height={videoLayer.height}
             style={{ 
               outline: selectionColor ? `2px solid ${selectionColor}` : "none",
             }}
@@ -598,7 +600,7 @@ export const LayerPreview = memo(
               handlePointerDown(e);
             }}
           >
-            <div 
+            <div xmlns="http://www.w3.org/1999/xhtml"
               className="relative w-full h-full"
               draggable={false}
             >
@@ -659,22 +661,25 @@ export const LayerPreview = memo(
         );
       case LayerType.File:
         return (
-          <foreignObject
-            id={id}
-            x={(layer as FileLayer).x}
-            y={(layer as FileLayer).y}
-            width={(layer as FileLayer).width}
-            height={(layer as FileLayer).height}
+	          <foreignObject
+	            id={id}
+	            data-layer-id={id}
+	            x={(layer as FileLayer).x}
+	            y={(layer as FileLayer).y}
+	            width={(layer as FileLayer).width}
+	            height={(layer as FileLayer).height}
             style={{ 
               outline: selectionColor ? `2px solid ${selectionColor}` : "none",
             }}
           >
-            <File
-              id={id}
-              layer={layer as FileLayer}
-              onPointerDown={onLayerPointerDown}
-              selectionColor={selectionColor}
-            />
+            <div xmlns="http://www.w3.org/1999/xhtml" className="w-full h-full">
+              <File
+                id={id}
+                layer={layer as FileLayer}
+                onPointerDown={onLayerPointerDown}
+                selectionColor={selectionColor}
+              />
+            </div>
           </foreignObject>
         );
       case LayerType.Arrow:
@@ -708,12 +713,13 @@ export const LayerPreview = memo(
       case LayerType.TodoWidget:
         const todoWidgetLayer = layer as TodoWidgetLayer;
         return (
-          <foreignObject
-            id={id}
-            x={todoWidgetLayer.x}
-            y={todoWidgetLayer.y}
-            width={todoWidgetLayer.width}
-            height={todoWidgetLayer.height}
+	          <foreignObject
+	            id={id}
+	            data-layer-id={id}
+	            x={todoWidgetLayer.x}
+	            y={todoWidgetLayer.y}
+	            width={todoWidgetLayer.width}
+	            height={todoWidgetLayer.height}
             style={{ 
               outline: selectionColor ? `2px solid ${selectionColor}` : "none",
             }}
@@ -723,13 +729,15 @@ export const LayerPreview = memo(
               onLayerPointerDown(e, id);
             }}
           >
-            <TodoWidget
-              layer={todoWidgetLayer}
-              onPropsChange={handlePropsChange}
-              isSelected={isSelected}
-              onFocus={handleFocus}
-              camera={camera || { x: 0, y: 0, scale: 1 }}
-            />
+            <div xmlns="http://www.w3.org/1999/xhtml" className="w-full h-full">
+              <TodoWidget
+                layer={todoWidgetLayer}
+                onPropsChange={handlePropsChange}
+                isSelected={isSelected}
+                onFocus={handleFocus}
+                camera={camera || { x: 0, y: 0, scale: 1 }}
+              />
+            </div>
           </foreignObject>
         );
       case LayerType.Table:

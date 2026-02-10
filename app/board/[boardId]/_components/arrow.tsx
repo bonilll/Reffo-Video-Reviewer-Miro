@@ -56,6 +56,7 @@ export const Arrow = ({
 
   return (
     <foreignObject
+      data-layer-id={id}
       x={x}
       y={y}
       width={width}
@@ -67,42 +68,44 @@ export const Arrow = ({
       }}
       className={layer.shadow === false ? undefined : "drop-shadow-md"}
     >
-      <svg
-        className="h-full w-full"
-        style={{
-          overflow: 'visible'
-        }}
-      >
-        {/* Linea principale - lineare o curva */}
-        {curved && controlPoint1X && controlPoint1Y && controlPoint2X && controlPoint2Y ? (
-          <path
-            d={`M ${relativeStartX} ${relativeStartY} C ${relativeControlPoint1X} ${relativeControlPoint1Y}, ${relativeControlPoint2X} ${relativeControlPoint2Y}, ${relativeEndX} ${relativeEndY}`}
+      <div xmlns="http://www.w3.org/1999/xhtml" className="w-full h-full">
+        <svg
+          className="h-full w-full"
+          style={{
+            overflow: 'visible'
+          }}
+        >
+          {/* Linea principale - lineare o curva */}
+          {curved && controlPoint1X && controlPoint1Y && controlPoint2X && controlPoint2Y ? (
+            <path
+              d={`M ${relativeStartX} ${relativeStartY} C ${relativeControlPoint1X} ${relativeControlPoint1Y}, ${relativeControlPoint2X} ${relativeControlPoint2Y}, ${relativeEndX} ${relativeEndY}`}
+              stroke={colorToCSS(fill)}
+              strokeWidth={strokeWidth}
+              strokeLinecap="round"
+              fill="none"
+            />
+          ) : (
+            <line
+              x1={relativeStartX}
+              y1={relativeStartY}
+              x2={relativeEndX}
+              y2={relativeEndY}
+              stroke={colorToCSS(fill)}
+              strokeWidth={strokeWidth}
+              strokeLinecap="round"
+            />
+          )}
+          
+          {/* Testa della freccia */}
+          <polygon
+            points={`${relativeEndX},${relativeEndY} ${arrowHead1X},${arrowHead1Y} ${arrowHead2X},${arrowHead2Y}`}
+            fill={colorToCSS(fill)}
             stroke={colorToCSS(fill)}
-            strokeWidth={strokeWidth}
-            strokeLinecap="round"
-            fill="none"
+            strokeWidth={strokeWidth / 2}
+            strokeLinejoin="round"
           />
-        ) : (
-          <line
-            x1={relativeStartX}
-            y1={relativeStartY}
-            x2={relativeEndX}
-            y2={relativeEndY}
-            stroke={colorToCSS(fill)}
-            strokeWidth={strokeWidth}
-            strokeLinecap="round"
-          />
-        )}
-        
-        {/* Testa della freccia */}
-        <polygon
-          points={`${relativeEndX},${relativeEndY} ${arrowHead1X},${arrowHead1Y} ${arrowHead2X},${arrowHead2Y}`}
-          fill={colorToCSS(fill)}
-          stroke={colorToCSS(fill)}
-          strokeWidth={strokeWidth / 2}
-          strokeLinejoin="round"
-        />
-      </svg>
+        </svg>
+      </div>
     </foreignObject>
   );
 }; 

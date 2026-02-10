@@ -3839,6 +3839,75 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
     }
   });
 
+	  // iOS/WebKit: touch events fired from HTML inside <foreignObject> can be unreliable when handled
+	  // via React listeners on the <svg>. Register non-passive native listeners and filter to our SVG.
+	  useEffect(() => {
+	    if (!isTouchDevice) return;
+	    const svg = svgRef.current;
+	    if (!svg) return;
+	    let didStart = false;
+	    let allowSingleFingerPan = false;
+
+	    const isInteractiveTarget = (target: EventTarget | null) => {
+	      const el = target as Element | null;
+	      if (!el) return false;
+	      return Boolean(
+	        el.closest(
+	          'input, textarea, select, button, a, [contenteditable="true"], [data-no-board-gestures="true"]'
+	        )
+	      );
+	    };
+
+	    const isLayerTarget = (target: EventTarget | null) => {
+	      const el = target as Element | null;
+	      if (!el) return false;
+	      return Boolean(el.closest('[data-layer-id], foreignObject'));
+	    };
+
+	    const onStart = (e: TouchEvent) => {
+	      if (!svg.contains(e.target as Node)) return;
+	      if (isInteractiveTarget(e.target)) return;
+	      if (e.touches.length === 1 && isLayerTarget(e.target)) {
+	        didStart = false;
+	        allowSingleFingerPan = false;
+	        return;
+	      }
+	      didStart = true;
+	      // Only allow one-finger camera pan when starting on the canvas background.
+	      allowSingleFingerPan = e.touches.length === 1 && !isLayerTarget(e.target);
+	      (handleTouchStart as any)(e);
+	    };
+	    const onMove = (e: TouchEvent) => {
+	      if (!svg.contains(e.target as Node)) return;
+	      if (isInteractiveTarget(e.target)) return;
+	      if (!didStart) return;
+	      if (e.touches.length === 1 && !allowSingleFingerPan) return;
+	      (handleTouchMove as any)(e);
+	    };
+	    const onEnd = (e: TouchEvent) => {
+	      if (!svg.contains(e.target as Node)) return;
+	      if (isInteractiveTarget(e.target)) return;
+	      if (!didStart) return;
+	      if (e.touches.length === 0) {
+	        didStart = false;
+	        allowSingleFingerPan = false;
+	      }
+	      (handleTouchEnd as any)(e);
+	    };
+
+    window.addEventListener("touchstart", onStart, { passive: false });
+    window.addEventListener("touchmove", onMove, { passive: false });
+    window.addEventListener("touchend", onEnd, { passive: false });
+    window.addEventListener("touchcancel", onEnd, { passive: false });
+
+    return () => {
+      window.removeEventListener("touchstart", onStart);
+      window.removeEventListener("touchmove", onMove);
+      window.removeEventListener("touchend", onEnd);
+      window.removeEventListener("touchcancel", onEnd);
+    };
+  }, [isTouchDevice, handleTouchEnd, handleTouchMove, handleTouchStart]);
+
   const onContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
   }, []);
@@ -4076,29 +4145,23 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
         userRole={userRole}
       />
 
-      <svg
-        ref={svgRef}
-        className="h-[100vh] w-[100vw] select-none"
-        onWheel={onWheel}
-        onPointerMove={onPointerMove}
-        onPointerLeave={onPointerLeave}
-        onPointerDown={onPointerDown}
-        onPointerUp={onPointerUp}
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
-        onContextMenu={onContextMenu}
-        style={{ 
-          touchAction: 'none',
-          userSelect: 'none',
+	      <svg
+	        ref={svgRef}
+	        className="h-[100vh] w-[100vw] select-none"
+	        onWheel={onWheel}
+	        onPointerMove={onPointerMove}
+	        onPointerLeave={onPointerLeave}
+	        onPointerDown={onPointerDown}
+	        onPointerUp={onPointerUp}
+	        onContextMenu={onContextMenu}
+	        style={{ 
+	          touchAction: 'none',
+	          userSelect: 'none',
           WebkitUserSelect: 'none'
         }}
       >
-        <g
-          style={{
-            transform: `translate(${camera.x}px, ${camera.y}px) scale(${camera.scale})`,
-          }}
-        >
+        {/* Use SVG transform attribute (not CSS transform) for iOS/WebKit correctness. */}
+        <g transform={`translate(${camera.x} ${camera.y}) scale(${camera.scale})`}>
           {/* Grid background - primo elemento per apparire dietro tutto */}
           {gridConfig.enabled && <GridRenderer camera={camera} config={gridConfig} />}
           

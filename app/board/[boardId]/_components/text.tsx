@@ -401,6 +401,7 @@ export const Text: React.FC<TextProps> = ({
 
   return (
     <foreignObject
+      data-layer-id={id}
       x={x}
       y={y}
       width={width}
@@ -416,7 +417,7 @@ export const Text: React.FC<TextProps> = ({
         borderRadius: isEditing ? "4px" : "0px"
       }}
     >
-      <div
+      <div xmlns="http://www.w3.org/1999/xhtml"
         className={cn(
           "w-full h-full flex",
           verticalAlign === "top" ? "items-start" : 

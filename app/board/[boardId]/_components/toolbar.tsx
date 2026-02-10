@@ -1,6 +1,7 @@
 import React from "react";
 import {
   Circle,
+  Image as ImageIcon,
   MousePointer2,
   Pencil,
   Redo2,
@@ -27,6 +28,7 @@ import {
   Grid3X3,
   FileText,
   MessageSquare,
+  Video as VideoIcon,
   Frame,
   Paintbrush,
   Calendar,
@@ -57,7 +59,7 @@ import { useSelection } from "@/hooks/useSelection";
 
 import { ToolButton } from "./tool-button";
 import { useSelectionBounds } from "@/hooks/use-selection-bounds";
-import { useSelf, useStorage, useMutation } from "@/liveblocks.config";
+import { useSelf, useStorage, useMutation, useUpdateMyPresence } from "@/liveblocks.config";
 import { SelectionTools } from "./selection-tools";
 import { LibraryButton } from "./library-button";
 import { TodoButton } from "@/app/components/TodoButton";
@@ -260,6 +262,97 @@ const MobileToolbar = ({
   isViewer?: boolean;
 }) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isLayersOpen, setIsLayersOpen] = useState(false);
+  const updateMyPresence = useUpdateMyPresence();
+  const layerIds = useStorage((root) => root.layerIds);
+  const layers = useStorage((root) => root.layers);
+  const selection = useSelf((me) => me.presence.selection);
+
+  const getLayerValue = (layer: any, key: string) =>
+    layer?.get ? layer.get(key) : layer?.[key];
+
+  const focusLayer = (layer: any) => {
+    if (!layer) return;
+    const x = getLayerValue(layer, "x");
+    const y = getLayerValue(layer, "y");
+    const width = getLayerValue(layer, "width");
+    const height = getLayerValue(layer, "height");
+    if (
+      typeof x !== "number" ||
+      typeof y !== "number" ||
+      typeof width !== "number" ||
+      typeof height !== "number"
+    ) {
+      return;
+    }
+
+    const centerX = x + width / 2;
+    const centerY = y + height / 2;
+    const scale = camera.scale || 1;
+
+    // Keep the focused layer above the bottom toolbar on mobile.
+    const bottomUiPad = 140;
+    const screenX = window.innerWidth / 2;
+    const screenY = (window.innerHeight - bottomUiPad) / 2;
+
+    const next = {
+      x: screenX - centerX * scale,
+      y: screenY - centerY * scale,
+      scale,
+    };
+    if (smoothZoom) smoothZoom(next);
+    else setCamera(next);
+  };
+
+  const layerItems = React.useMemo(() => {
+    if (!layerIds || !layers) return [];
+    const ids = Array.from(layerIds as any as Iterable<string>).slice().reverse();
+    return ids
+      .map((id) => {
+        const layer = (layers as any).get?.(id);
+        if (!layer) return null;
+        const type = getLayerValue(layer, "type") as string | undefined;
+        const title = (getLayerValue(layer, "title") as string | undefined) ?? "";
+        const fileName = (getLayerValue(layer, "fileName") as string | undefined) ?? "";
+        const value = (getLayerValue(layer, "value") as string | undefined) ?? "";
+        const label =
+          (title || fileName || value || type || "Layer").toString().trim() ||
+          "Layer";
+        return { id, layer, type, label };
+      })
+      .filter(Boolean) as Array<{ id: string; layer: any; type?: string; label: string }>;
+  }, [layerIds, layers]);
+
+  const iconForType = (type?: string) => {
+    switch (type) {
+      case LayerType.Note:
+        return PostIt;
+      case LayerType.Text:
+        return Type;
+      case LayerType.Image:
+        return ImageIcon;
+      case LayerType.Video:
+        return VideoIcon;
+      case LayerType.File:
+        return FileText;
+      case LayerType.Frame:
+        return Frame;
+      case LayerType.Rectangle:
+        return Square;
+      case LayerType.Ellipse:
+        return Circle;
+      case LayerType.Arrow:
+        return ArrowUpRight;
+      case LayerType.Line:
+        return Minus;
+      case LayerType.Path:
+        return Paintbrush;
+      case LayerType.Table:
+        return TableIcon;
+      default:
+        return Layers;
+    }
+  };
 
   const setShapeTool = (layerType: LayerType.Rectangle | LayerType.Ellipse | LayerType.Arrow | LayerType.Line) => {
     setCanvasState({
@@ -403,35 +496,54 @@ const MobileToolbar = ({
 
               <DropdownMenuSeparator className="my-4" />
 
-              {/* Actions Section */}
-              <div className="space-y-3">
-                <h3 className="text-sm font-semibold text-gray-700 px-2">Actions</h3>
-                
-                <div className="flex items-center gap-2">
-                  <DropdownMenuItem
-                    onClick={() => {
-                      undo();
-                      setIsMenuOpen(false);
-                    }}
-                    disabled={!canUndo}
-                    className="flex items-center gap-3 rounded-xl px-3 py-2 hover:bg-slate-100/80 cursor-pointer flex-1"
-                  >
-                    <RotateCcw className="h-4 w-4" />
-                    <span className="text-sm">Undo</span>
-                  </DropdownMenuItem>
-                  
-                  <DropdownMenuItem
-                    onClick={() => {
-                      redo();
-                      setIsMenuOpen(false);
-                    }}
-                    disabled={!canRedo}
-                    className="flex items-center gap-3 rounded-xl px-3 py-2 hover:bg-slate-100/80 cursor-pointer flex-1"
-                  >
-                    <RotateCw className="h-4 w-4" />
-                    <span className="text-sm">Redo</span>
-                  </DropdownMenuItem>
-                </div>
+	              {/* Actions Section */}
+	              <div className="space-y-3">
+	                <h3 className="text-sm font-semibold text-gray-700 px-2">Actions</h3>
+	                
+	                <div className="grid grid-cols-2 gap-2">
+	                  <DropdownMenuItem
+	                    onClick={() => {
+	                      setIsLayersOpen(true);
+	                      setIsMenuOpen(false);
+	                    }}
+	                    className="flex items-center gap-3 rounded-xl px-3 py-2 hover:bg-slate-100/80 cursor-pointer"
+	                  >
+	                    <Layers className="h-4 w-4" />
+	                    <span className="text-sm">Layers</span>
+	                  </DropdownMenuItem>
+	                  <DropdownMenuItem
+	                    onClick={() => {
+	                      centerOnLayers?.();
+	                      setIsMenuOpen(false);
+	                    }}
+	                    className="flex items-center gap-3 rounded-xl px-3 py-2 hover:bg-slate-100/80 cursor-pointer"
+	                  >
+	                    <Focus className="h-4 w-4" />
+	                    <span className="text-sm">Fit</span>
+	                  </DropdownMenuItem>
+		                  <DropdownMenuItem
+		                    onClick={() => {
+		                      undo();
+		                      setIsMenuOpen(false);
+		                    }}
+		                    disabled={!canUndo}
+		                    className="flex items-center gap-3 rounded-xl px-3 py-2 hover:bg-slate-100/80 cursor-pointer"
+		                  >
+		                    <RotateCcw className="h-4 w-4" />
+		                    <span className="text-sm">Undo</span>
+		                  </DropdownMenuItem>
+	                  <DropdownMenuItem
+	                    onClick={() => {
+	                      redo();
+	                      setIsMenuOpen(false);
+		                    }}
+		                    disabled={!canRedo}
+		                    className="flex items-center gap-3 rounded-xl px-3 py-2 hover:bg-slate-100/80 cursor-pointer"
+		                  >
+		                    <RotateCw className="h-4 w-4" />
+		                    <span className="text-sm">Redo</span>
+		                  </DropdownMenuItem>
+	                </div>
 
                 {/* Zoom Controls */}
                 <div>
@@ -516,8 +628,90 @@ const MobileToolbar = ({
               </div>
             </DropdownMenuContent>
           </DropdownMenu>
+	        </div>
+	      </div>
+
+      {isLayersOpen && (
+        <div
+          className="fixed inset-0 z-[60]"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Layers"
+        >
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/30"
+            onClick={() => setIsLayersOpen(false)}
+            aria-label="Close layers"
+          />
+          <div className="absolute bottom-0 left-0 right-0 max-h-[78vh] rounded-t-3xl border border-slate-200/80 bg-white shadow-2xl">
+            <div className="flex items-center justify-between px-4 py-3">
+              <div className="text-sm font-semibold text-slate-900">Layers</div>
+              <button
+                type="button"
+                onClick={() => setIsLayersOpen(false)}
+                className="h-9 w-9 rounded-full border border-slate-200 bg-white text-slate-700"
+                aria-label="Close"
+              >
+                <X className="mx-auto h-4 w-4" />
+              </button>
+            </div>
+            <div className="h-px w-full bg-slate-200/80" />
+            <div className="max-h-[calc(78vh-52px)] overflow-y-auto px-3 py-3 pb-[calc(env(safe-area-inset-bottom)+12px)]">
+              {layerItems.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
+                  No layers yet.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {layerItems.map((item) => {
+                    const Icon = iconForType(item.type);
+                    const isSelected = (selection ?? []).includes(item.id);
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => {
+                          updateMyPresence({ selection: [item.id] });
+                          focusLayer(item.layer);
+                          setIsLayersOpen(false);
+                        }}
+                        className={[
+                          "w-full rounded-2xl border px-3 py-3 text-left transition",
+                          isSelected
+                            ? "border-slate-900 bg-slate-900 text-white"
+                            : "border-slate-200 bg-white text-slate-900 hover:bg-slate-50",
+                        ].join(" ")}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div
+                            className={[
+                              "flex h-9 w-9 items-center justify-center rounded-xl border",
+                              isSelected
+                                ? "border-white/20 bg-white/10"
+                                : "border-slate-200 bg-slate-50",
+                            ].join(" ")}
+                          >
+                            <Icon className={isSelected ? "h-4 w-4 text-white" : "h-4 w-4 text-slate-600"} />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate text-sm font-semibold">
+                              {item.label}
+                            </div>
+                            <div className={isSelected ? "text-xs text-white/70" : "text-xs text-slate-500"}>
+                              {(item.type || "layer").toString()}
+                            </div>
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };

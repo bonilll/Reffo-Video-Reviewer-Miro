@@ -20,11 +20,10 @@ export const Rectangle = ({
 
   return (
     <rect
+      data-layer-id={id}
       className={layer.shadow === false ? undefined : "drop-shadow-md"}
       onPointerDown={(e) => onPointerDown(e, id)}
-      style={{
-        transform: `translate(${x}px, ${y}px)`,
-      }}
+      transform={`translate(${x} ${y})`}
       x={0}
       y={0}
       width={width}

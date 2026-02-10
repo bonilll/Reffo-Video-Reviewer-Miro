@@ -182,9 +182,7 @@ export const SelectionBox = memo(
       <>
         <rect
           className="fill-transparent stroke-blue-500 stroke-1 pointer-events-none"
-          style={{
-            transform: `translate(${typedBounds.x + offsetX}px, ${typedBounds.y + offsetY}px)`,
-          }}
+          transform={`translate(${typedBounds.x + offsetX} ${typedBounds.y + offsetY})`}
           x={0}
           y={0}
           width={typedBounds.width}
@@ -195,9 +193,7 @@ export const SelectionBox = memo(
             {isShiftKeyPressed && (
               <rect
                 className="fill-blue-500/10 stroke-blue-500 stroke-1 pointer-events-none"
-                style={{
-                  transform: `translate(${typedBounds.x + offsetX}px, ${typedBounds.y + offsetY}px)`,
-                }}
+                transform={`translate(${typedBounds.x + offsetX} ${typedBounds.y + offsetY})`}
                 x={0}
                 y={0}
                 width={typedBounds.width}

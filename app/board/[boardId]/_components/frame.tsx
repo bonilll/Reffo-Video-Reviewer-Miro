@@ -111,14 +111,13 @@ export const Frame = memo(({ id, layer, onPointerDown, onContextMenu, selectionC
 
   return (
     <g
+      data-layer-id={id}
       onPointerDown={(e) => onPointerDown(e, id)}
       onContextMenu={(e) => {
         e.preventDefault();
         onContextMenu?.(e, id);
       }}
-      style={{
-        transform: `translate(${x}px, ${y}px)`,
-      }}
+      transform={`translate(${x} ${y})`}
     >
       {/* Shadow/Elevation layer */}
       <rect

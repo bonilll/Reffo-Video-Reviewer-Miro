@@ -24,6 +24,7 @@ export const Line = ({
 
   return (
     <foreignObject
+      data-layer-id={id}
       x={x}
       y={y}
       width={width}
@@ -35,22 +36,24 @@ export const Line = ({
       }}
       className={layer.shadow === false ? undefined : "drop-shadow-md"}
     >
-      <svg
-        className="h-full w-full"
-        style={{
-          overflow: 'visible'
-        }}
-      >
-        <line
-          x1={relativeStartX}
-          y1={relativeStartY}
-          x2={relativeEndX}
-          y2={relativeEndY}
-          stroke={colorToCSS(fill)}
-          strokeWidth={strokeWidth}
-          strokeLinecap="round"
-        />
-      </svg>
+      <div xmlns="http://www.w3.org/1999/xhtml" className="w-full h-full">
+        <svg
+          className="h-full w-full"
+          style={{
+            overflow: 'visible'
+          }}
+        >
+          <line
+            x1={relativeStartX}
+            y1={relativeStartY}
+            x2={relativeEndX}
+            y2={relativeEndY}
+            stroke={colorToCSS(fill)}
+            strokeWidth={strokeWidth}
+            strokeLinecap="round"
+          />
+        </svg>
+      </div>
     </foreignObject>
   );
 }; 

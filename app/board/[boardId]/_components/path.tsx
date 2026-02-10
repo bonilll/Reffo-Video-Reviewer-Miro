@@ -33,9 +33,7 @@ export const Path = ({
           streamline: 0.5,
         }),
       )}
-      style={{
-        transform: `translate(${x}px, ${y}px)`,
-      }}
+      transform={`translate(${x} ${y})`}
       x={0}
       y={0}
       fill={fill}
