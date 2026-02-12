@@ -4,6 +4,7 @@ import React, { memo, useState, useCallback, useEffect } from "react";
 
 import { colorToCSS } from "@/lib/utils";
 import { useStorage, useSelf, useMutation } from "@/liveblocks.config";
+import { isIOSSafari } from "@/utils/platform";
 import {
   LayerType, 
   RectangleLayer, 
@@ -67,17 +68,18 @@ type LayerPreviewProps = {
   onCommentClick?: (point: Point) => void;
 };
 
-export const LayerPreview = memo(
-  ({ id, onLayerPointerDown, onLayerContextMenu, selectionColor, lastUsedColor, camera, cameraRef, lodBucket = "high", canvasState, boardId, backgroundColor = "#f5f5f5", onDrawingStart, onDrawingContinue, onDrawingEnd, onDrawingModeStart, onDrawingModeMove, onDrawingModeEnd, onCommentClick }: LayerPreviewProps) => {
-    const layer = useStorage((root) => root.layers.get(id));
-    const selection = useSelf((me) => me.presence.selection);
-    const [isDraggingOverTable, setIsDraggingOverTable] = useState(false);
-    const [isDragActive, setIsDragActive] = useState(false);
-    const [dragStarted, setDragStarted] = useState(false);
-    const [imageHiResReady, setImageHiResReady] = useState(false);
-    
-    // Determina se questo layer è selezionato
-    const isSelected = selection.includes(id);
+	export const LayerPreview = memo(
+	  ({ id, onLayerPointerDown, onLayerContextMenu, selectionColor, lastUsedColor, camera, cameraRef, lodBucket = "high", canvasState, boardId, backgroundColor = "#f5f5f5", onDrawingStart, onDrawingContinue, onDrawingEnd, onDrawingModeStart, onDrawingModeMove, onDrawingModeEnd, onCommentClick }: LayerPreviewProps) => {
+	    const layer = useStorage((root) => root.layers.get(id));
+	    const selection = useSelf((me) => me.presence.selection);
+	    const [isDraggingOverTable, setIsDraggingOverTable] = useState(false);
+	    const [isDragActive, setIsDragActive] = useState(false);
+	    const [dragStarted, setDragStarted] = useState(false);
+	    const [imageHiResReady, setImageHiResReady] = useState(false);
+	    const iosSafari = isIOSSafari();
+	    
+	    // Determina se questo layer è selezionato
+	    const isSelected = selection.includes(id);
 
     // Query sessioni di review per l'asset corrente (sempre chiamata per rispettare le regole degli hook)
     const reviewSessions = useQuery(
@@ -469,20 +471,20 @@ export const LayerPreview = memo(
         const imageLayer = layer as ImageLayer;
         const useImageLOD = lodBucket !== "high";
 
-        return (
-	          <foreignObject
-	            id={id}
-	            data-layer-id={id}
-	            x={imageLayer.x}
-	            y={imageLayer.y}
-	            width={imageLayer.width}
-	            height={imageLayer.height}
-            style={{ 
-              outline: selectionColor ? `2px solid ${selectionColor}` : "none",
-            }}
-            className={(imageLayer as any).shadow === false ? "overflow-hidden" : "shadow-md overflow-hidden"}
-            onPointerDown={handlePointerDown}
-          >
+	        return (
+		          <foreignObject
+		            id={id}
+		            data-layer-id={id}
+		            x={imageLayer.x}
+		            y={imageLayer.y}
+		            width={imageLayer.width}
+		            height={imageLayer.height}
+	            style={{ 
+	              outline: (selectionColor && !(iosSafari && isSelected)) ? `2px solid ${selectionColor}` : "none",
+	            }}
+	            className={(imageLayer as any).shadow === false ? "overflow-hidden" : "shadow-md overflow-hidden"}
+	            onPointerDown={handlePointerDown}
+	          >
             <div xmlns="http://www.w3.org/1999/xhtml"
               className="relative w-full h-full"
               draggable={false}
@@ -571,19 +573,19 @@ export const LayerPreview = memo(
         const videoLayer = layer as VideoLayer;
         const useVideoLOD = lodBucket !== "high";
 
-        return (
-	          <foreignObject
-	            id={id}
-	            data-layer-id={id}
-	            x={videoLayer.x}
-	            y={videoLayer.y}
-	            width={videoLayer.width}
-	            height={videoLayer.height}
-            style={{ 
-              outline: selectionColor ? `2px solid ${selectionColor}` : "none",
-            }}
-            className={(videoLayer as any).shadow === false ? "overflow-hidden" : "shadow-md overflow-hidden"}
-            onPointerDown={(e) => {
+	        return (
+		          <foreignObject
+		            id={id}
+		            data-layer-id={id}
+		            x={videoLayer.x}
+		            y={videoLayer.y}
+		            width={videoLayer.width}
+		            height={videoLayer.height}
+	            style={{ 
+	              outline: (selectionColor && !(iosSafari && isSelected)) ? `2px solid ${selectionColor}` : "none",
+	            }}
+	            className={(videoLayer as any).shadow === false ? "overflow-hidden" : "shadow-md overflow-hidden"}
+	            onPointerDown={(e) => {
               // Gestione speciale per i controlli video
               const target = e.target as HTMLElement;
               if (target.tagName === 'VIDEO') {
@@ -660,18 +662,18 @@ export const LayerPreview = memo(
           </foreignObject>
         );
       case LayerType.File:
-        return (
-	          <foreignObject
-	            id={id}
-	            data-layer-id={id}
-	            x={(layer as FileLayer).x}
-	            y={(layer as FileLayer).y}
-	            width={(layer as FileLayer).width}
-	            height={(layer as FileLayer).height}
-            style={{ 
-              outline: selectionColor ? `2px solid ${selectionColor}` : "none",
-            }}
-          >
+	        return (
+		          <foreignObject
+		            id={id}
+		            data-layer-id={id}
+		            x={(layer as FileLayer).x}
+		            y={(layer as FileLayer).y}
+		            width={(layer as FileLayer).width}
+		            height={(layer as FileLayer).height}
+	            style={{ 
+	              outline: (selectionColor && !(iosSafari && isSelected)) ? `2px solid ${selectionColor}` : "none",
+	            }}
+	          >
             <div xmlns="http://www.w3.org/1999/xhtml" className="w-full h-full">
               <File
                 id={id}
@@ -712,23 +714,23 @@ export const LayerPreview = memo(
         );
       case LayerType.TodoWidget:
         const todoWidgetLayer = layer as TodoWidgetLayer;
-        return (
-	          <foreignObject
-	            id={id}
-	            data-layer-id={id}
-	            x={todoWidgetLayer.x}
-	            y={todoWidgetLayer.y}
-	            width={todoWidgetLayer.width}
-	            height={todoWidgetLayer.height}
-            style={{ 
-              outline: selectionColor ? `2px solid ${selectionColor}` : "none",
-            }}
-            className="overflow-hidden"
-            onPointerDown={(e) => {
-              // Gestisci il trascinamento direttamente sul foreignObject
-              onLayerPointerDown(e, id);
-            }}
-          >
+	        return (
+		          <foreignObject
+		            id={id}
+		            data-layer-id={id}
+		            x={todoWidgetLayer.x}
+		            y={todoWidgetLayer.y}
+		            width={todoWidgetLayer.width}
+		            height={todoWidgetLayer.height}
+	            style={{ 
+	              outline: (selectionColor && !(iosSafari && isSelected)) ? `2px solid ${selectionColor}` : "none",
+	            }}
+	            className="overflow-hidden"
+	            onPointerDown={(e) => {
+	              // Gestisci il trascinamento direttamente sul foreignObject
+	              onLayerPointerDown(e, id);
+	            }}
+	          >
             <div xmlns="http://www.w3.org/1999/xhtml" className="w-full h-full">
               <TodoWidget
                 layer={todoWidgetLayer}

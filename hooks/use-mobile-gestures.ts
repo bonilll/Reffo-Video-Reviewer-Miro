@@ -177,19 +177,24 @@ export const useMobileGestures = ({
       const center = getTouchCenter(touch1, touch2);
       
       if (state.lastDistance && state.lastCenter) {
-        // Calculate zoom factor
+        // Use the camera at pinch-start as the stable reference.
         const zoomFactor = distance / state.lastDistance;
         let newScale = state.startCamera.scale * zoomFactor;
         
         // Clamp zoom between 0.1x and 5x
         newScale = Math.max(0.1, Math.min(5, newScale));
         
-        // Calculate new camera position to zoom toward touch center
-        const zoomPoint = screenToCanvas(state.lastCenter);
+        // Keep the world point under the initial pinch center anchored under the current center.
+        // This makes pinch also support panning (moving both fingers together).
+        const startCenter = state.lastCenter;
+        const worldPoint = {
+          x: (startCenter.x - state.startCamera.x) / state.startCamera.scale,
+          y: (startCenter.y - state.startCamera.y) / state.startCamera.scale,
+        };
         
         const newCamera = {
-          x: center.x - zoomPoint.x * newScale,
-          y: center.y - zoomPoint.y * newScale,
+          x: center.x - worldPoint.x * newScale,
+          y: center.y - worldPoint.y * newScale,
           scale: newScale
         };
         

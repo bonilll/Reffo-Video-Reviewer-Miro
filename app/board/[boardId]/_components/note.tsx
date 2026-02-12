@@ -8,6 +8,7 @@ import { enUS } from "date-fns/locale";
 import { cn, colorToCSS, getContrastingTextColor } from "@/lib/utils";
 import { useMutation, useSelf } from "@/liveblocks.config";
 import type { NoteLayer } from "@/types/canvas";
+import { isIOSSafari } from "@/utils/platform";
 
 
 const font = Libre_Franklin({
@@ -155,6 +156,9 @@ export const Note = ({
   const backgroundColor = fill ? colorToCSS(fill) : colorToCSS(STICKY_COLORS[0].value);
   const textColor = getContrastingTextColor(fill);
   const shadowColor = `${backgroundColor}40`; // 25% opacity
+  const iosSafari = isIOSSafari();
+  const showSelectionOutline = !!selectionColor && !(iosSafari && isSelected);
+  const shouldElevate = isSelected && !iosSafari;
   
   // Font size ora viene dal layer stesso (fontSize prop)
   
@@ -498,7 +502,7 @@ export const Note = ({
       height={height}
       onPointerDown={handleNotePointerDown}
       style={{
-        outline: selectionColor ? `2px solid ${selectionColor}` : "none",
+        outline: showSelectionOutline ? `2px solid ${selectionColor}` : "none",
         outlineOffset: "2px",
       }}
     >
@@ -514,10 +518,10 @@ export const Note = ({
           borderRadius: "8px", // Bordi arrotondati per aspetto più friendly
           padding: "16px",
           border: `1px solid rgba(0, 0, 0, 0.08)`,
-          transform: isSelected ? 'translateY(-2px)' : 'translateY(0)',
-          transition: 'all 0.2s ease-out',
+          transform: shouldElevate ? 'translateY(-2px)' : 'translateY(0)',
+          transition: iosSafari ? "none" : 'all 0.2s ease-out',
           overflow: 'hidden',
-          boxShadow: isSelected 
+          boxShadow: shouldElevate 
             ? '0 8px 25px rgba(0, 0, 0, 0.15), 0 4px 10px rgba(0, 0, 0, 0.1)'
             : '0 4px 15px rgba(0, 0, 0, 0.1)',
         }}

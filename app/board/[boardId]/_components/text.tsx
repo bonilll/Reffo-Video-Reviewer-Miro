@@ -2,6 +2,7 @@ import React, { useRef, useState, useEffect, useCallback } from "react";
 import { useMutation, useStorage } from "@/liveblocks.config";
 import { cn, colorToCSS } from "@/lib/utils";
 import type { TextLayer } from "@/types/canvas";
+import { isIOSSafari } from "@/utils/platform";
 
 // Configurazione per il testo
 const TEXT_CONFIG = {
@@ -143,6 +144,7 @@ export const Text: React.FC<TextProps> = ({
   
   // Colore del testo: usa fill del layer se presente, altrimenti calcola contrario del background
   const textColor = fill ? colorToCSS(fill) : getContrastingTextColor(backgroundColorHint);
+  const iosSafari = isIOSSafari();
   
   // Refs
   const textRef = useRef<HTMLTextAreaElement>(null);
@@ -410,7 +412,7 @@ export const Text: React.FC<TextProps> = ({
       style={{
         outline: isEditing 
           ? "2px solid #3b82f6" 
-          : selectionColor 
+          : (selectionColor && !iosSafari)
             ? `1px solid ${selectionColor}` 
             : "none",
         outlineOffset: isEditing ? "2px" : "0px",
