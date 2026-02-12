@@ -66,10 +66,11 @@ type LayerPreviewProps = {
   onDrawingModeMove?: (point: Point) => void;
   onDrawingModeEnd?: (point: Point) => void;
   onCommentClick?: (point: Point) => void;
+  runtimeMode?: "desktop" | "mobile";
 };
 
 	export const LayerPreview = memo(
-	  ({ id, onLayerPointerDown, onLayerContextMenu, selectionColor, lastUsedColor, camera, cameraRef, lodBucket = "high", canvasState, boardId, backgroundColor = "#f5f5f5", onDrawingStart, onDrawingContinue, onDrawingEnd, onDrawingModeStart, onDrawingModeMove, onDrawingModeEnd, onCommentClick }: LayerPreviewProps) => {
+	  ({ id, onLayerPointerDown, onLayerContextMenu, selectionColor, lastUsedColor, camera, cameraRef, lodBucket = "high", canvasState, boardId, backgroundColor = "#f5f5f5", onDrawingStart, onDrawingContinue, onDrawingEnd, onDrawingModeStart, onDrawingModeMove, onDrawingModeEnd, onCommentClick, runtimeMode = "desktop" }: LayerPreviewProps) => {
 	    const layer = useStorage((root) => root.layers.get(id));
 	    const selection = useSelf((me) => me.presence.selection);
 	    const [isDraggingOverTable, setIsDraggingOverTable] = useState(false);
@@ -448,6 +449,7 @@ type LayerPreviewProps = {
             selectionColor={selectionColor}
             isSelected={isSelected}
             lastUsedColor={lastUsedColor}
+            mobileSafeRendering={runtimeMode === "mobile"}
           />
         );
       case LayerType.Rectangle:

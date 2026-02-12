@@ -4454,6 +4454,7 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
                   onDrawingModeStart={handleDrawingModeStart}
                   onDrawingModeMove={handleDrawingModeMove}
                   onDrawingModeEnd={handleDrawingModeEnd}
+                  runtimeMode={runtimeMode}
                 />
               );
 
@@ -4498,6 +4499,7 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
                   onDrawingModeStart={handleDrawingModeStart}
                   onDrawingModeMove={handleDrawingModeMove}
                   onDrawingModeEnd={handleDrawingModeEnd}
+                  runtimeMode={runtimeMode}
                 />
               );
 

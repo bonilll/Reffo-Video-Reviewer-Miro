@@ -1,6 +1,6 @@
 import { Libre_Franklin } from "next/font/google";
 import ContentEditable, { ContentEditableEvent } from "react-contenteditable";
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { Clock, User } from "lucide-react";
 import { format } from "date-fns";
 import { enUS } from "date-fns/locale";
@@ -75,6 +75,49 @@ const calculateRequiredSize = (text: string, currentSize: number, fontSize: numb
   return Math.min(Math.ceil(requiredSize / 20) * 20, MAX_SIZE);
 };
 
+const wrapTextToLines = (
+  text: string,
+  maxCharsPerLine: number,
+  maxLines: number,
+): string[] => {
+  const rows: string[] = [];
+  const safeText = text || "";
+  const paragraphs = safeText.split("\n");
+
+  for (const paragraph of paragraphs) {
+    const words = paragraph.split(/\s+/).filter(Boolean);
+
+    if (words.length === 0) {
+      rows.push("");
+    } else {
+      let line = "";
+      for (const word of words) {
+        const candidate = line ? `${line} ${word}` : word;
+        if (candidate.length <= maxCharsPerLine) {
+          line = candidate;
+          continue;
+        }
+        if (line) rows.push(line);
+        if (word.length > maxCharsPerLine) {
+          rows.push(word.slice(0, maxCharsPerLine));
+          line = word.slice(maxCharsPerLine);
+        } else {
+          line = word;
+        }
+      }
+      if (line) rows.push(line);
+    }
+
+    if (rows.length >= maxLines) break;
+  }
+
+  if (rows.length > maxLines) {
+    return rows.slice(0, maxLines);
+  }
+
+  return rows;
+};
+
 interface NoteProps {
   id: string;
   layer: NoteLayer;
@@ -82,6 +125,7 @@ interface NoteProps {
   selectionColor?: string;
   isSelected?: boolean;
   lastUsedColor?: { r: number; g: number; b: number };
+  mobileSafeRendering?: boolean;
 }
 
 export const Note = ({
@@ -91,6 +135,7 @@ export const Note = ({
   selectionColor,
   isSelected = false,
   lastUsedColor = { r: 255, g: 235, b: 59 },
+  mobileSafeRendering = false,
 }: NoteProps) => {
   const { 
     x, y, width, height, fill, value, 
@@ -492,6 +537,135 @@ export const Note = ({
   
   // Autore da visualizzare
   const displayAuthor = lastModifiedBy || "User";
+
+  const plainDisplayText = useMemo(() => {
+    const html = content || value || "";
+    const normalizedHtml = html.replace(/<br\s*\/?>/gi, "\n");
+    return cleanTextContent(normalizedHtml);
+  }, [content, value]);
+
+  const lineHeight = fontSize * 1.35;
+  const contentPadding = 16;
+  const textAreaWidth = Math.max(40, width - contentPadding * 2);
+  const textAreaHeight = Math.max(
+    40,
+    height - contentPadding * 2 - (showMetadata && !isEditing ? 18 : 0),
+  );
+  const maxCharsPerLine = Math.max(
+    8,
+    Math.floor(textAreaWidth / Math.max(6, fontSize * 0.58)),
+  );
+  const maxLines = Math.max(1, Math.floor(textAreaHeight / lineHeight));
+  const textLines = useMemo(
+    () => wrapTextToLines(plainDisplayText, maxCharsPerLine, maxLines),
+    [plainDisplayText, maxCharsPerLine, maxLines],
+  );
+
+  if (mobileSafeRendering) {
+    const textAnchor =
+      textAlign === "center" ? "middle" : textAlign === "right" ? "end" : "start";
+    const textX =
+      textAlign === "center" ? width / 2 : textAlign === "right" ? width - contentPadding : contentPadding;
+    const firstTextY = contentPadding + fontSize;
+
+    return (
+      <g
+        data-layer-id={id}
+        transform={`translate(${x} ${y})`}
+        onPointerDown={handleNotePointerDown}
+        style={{ cursor: "pointer" }}
+      >
+        <rect
+          data-layer-id={id}
+          x={0}
+          y={0}
+          width={width}
+          height={height}
+          rx={8}
+          ry={8}
+          fill={backgroundColor}
+          stroke="rgba(0, 0, 0, 0.08)"
+          strokeWidth={1}
+        />
+        {showSelectionOutline && (
+          <rect
+            data-layer-id={id}
+            x={1}
+            y={1}
+            width={Math.max(0, width - 2)}
+            height={Math.max(0, height - 2)}
+            rx={8}
+            ry={8}
+            fill="none"
+            stroke={selectionColor}
+            strokeWidth={2}
+          />
+        )}
+        <text
+          data-layer-id={id}
+          x={textX}
+          y={firstTextY}
+          fill={textColor}
+          fontSize={fontSize}
+          fontWeight={fontWeight}
+          fontStyle={fontStyle}
+          textDecoration={textDecoration}
+          textAnchor={textAnchor}
+          style={{
+            pointerEvents: "none",
+            userSelect: "none",
+            fontFamily,
+          }}
+        >
+          {textLines.map((line, index) => (
+            <tspan
+              key={`${id}-mobile-line-${index}`}
+              x={textX}
+              dy={index === 0 ? 0 : lineHeight}
+            >
+              {line || " "}
+            </tspan>
+          ))}
+        </text>
+        {showMetadata && !isEditing && (
+          <>
+            <line
+              data-layer-id={id}
+              x1={contentPadding}
+              x2={Math.max(contentPadding, width - contentPadding)}
+              y1={height - 20}
+              y2={height - 20}
+              stroke={`${textColor}20`}
+              strokeWidth={1}
+            />
+            <text
+              data-layer-id={id}
+              x={contentPadding}
+              y={height - 8}
+              fill={textColor}
+              fontSize={9}
+              opacity={0.65}
+              style={{ pointerEvents: "none", userSelect: "none", fontFamily }}
+            >
+              {displayAuthor}
+            </text>
+            <text
+              data-layer-id={id}
+              x={Math.max(contentPadding, width - contentPadding)}
+              y={height - 8}
+              fill={textColor}
+              fontSize={9}
+              opacity={0.65}
+              textAnchor="end"
+              style={{ pointerEvents: "none", userSelect: "none", fontFamily }}
+            >
+              {timeString}
+            </text>
+          </>
+        )}
+      </g>
+    );
+  }
 
   return (
     <foreignObject
