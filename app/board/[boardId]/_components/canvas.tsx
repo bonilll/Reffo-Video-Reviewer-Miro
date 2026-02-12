@@ -43,7 +43,6 @@ import { useMobileGestures } from "@/hooks/use-mobile-gestures";
 import { useResourcePermissions } from "@/hooks/use-resource-permissions";
 import { Id } from "@/convex/_generated/dataModel";
 import { api } from "@/convex/_generated/api";
-import { isIOSSafari } from "@/utils/platform";
 
 import { Info } from "./info";
 import { Participants } from "./participants";
@@ -316,7 +315,6 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
 
   // Mobile device detection
   const [isTouchDevice, setIsTouchDevice] = useState(false);
-  const isIOSSafariDevice = useMemo(() => isIOSSafari(), []);
 
   // Stato per la creazione del widget todo
   const [showTodoListSelector, setShowTodoListSelector] = useState(false);
@@ -2449,7 +2447,6 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
   const svgRef = useRef<SVGSVGElement>(null);
   const dragPreviewRaf = useRef<number | null>(null);
   const pendingDragOffset = useRef<Point | null>(null);
-  const touchGestureActiveRef = useRef(false);
 
   const scheduleDragPreview = useCallback((offset: Point) => {
     pendingDragOffset.current = offset;
@@ -2485,11 +2482,7 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
   const onPointerMove = useMutation(
     ({ setMyPresence }, e: React.PointerEvent) => {
       const nativePointerType = (e as any).pointerType ?? (e as any).nativeEvent?.pointerType;
-      if (
-        isIOSSafariDevice &&
-        nativePointerType !== "mouse" &&
-        !(e as any).__fromTouchFallback
-      ) {
+      if (isTouchDevice && nativePointerType !== "mouse") {
         return;
       }
       e.preventDefault();
@@ -2561,7 +2554,7 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
       isResizingArrowLine,
       updateArrowLinePoint,
       isShiftPressed,
-      isIOSSafariDevice,
+      isTouchDevice,
     ],
   );
 
@@ -3021,6 +3014,9 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
 
   const handleMobileTap = useMutation(
     ({ storage, setMyPresence }, point: Point) => {
+      if (isTouchDevice) {
+        return;
+      }
       if (canvasState.mode === CanvasMode.None) {
         const liveLayers = storage.get("layers");
         let hitLayer = null;
@@ -3047,7 +3043,7 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
         }
       }
     },
-    [canvasState.mode]
+    [canvasState.mode, isTouchDevice]
   );
 
   useEffect(() => {
@@ -3428,11 +3424,8 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
   const onPointerDown = useCallback(
     (e: React.PointerEvent) => {
       const nativePointerType = (e as any).pointerType ?? (e as any).nativeEvent?.pointerType;
-      if (
-        isIOSSafariDevice &&
-        nativePointerType !== "mouse" &&
-        !(e as any).__fromTouchFallback
-      ) {
+      if (isTouchDevice && nativePointerType !== "mouse") {
+        e.preventDefault();
         return;
       }
       const point = pointerEventToCanvasPoint(e, camera);
@@ -3477,17 +3470,14 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
 
       setCanvasState({ origin: point, mode: CanvasMode.Pressing });
     },
-    [camera, canvasState.mode, setCanvasState, startDrawing, isViewer, isShiftPressed, isIOSSafariDevice],
+    [camera, canvasState.mode, setCanvasState, startDrawing, isViewer, isShiftPressed, isTouchDevice],
   );
 
   const onPointerUp = useCallback(
     (e: React.PointerEvent) => {
       const nativePointerType = (e as any).pointerType ?? (e as any).nativeEvent?.pointerType;
-      if (
-        isIOSSafariDevice &&
-        nativePointerType !== "mouse" &&
-        !(e as any).__fromTouchFallback
-      ) {
+      if (isTouchDevice && nativePointerType !== "mouse") {
+        e.preventDefault();
         return;
       }
       const point = pointerEventToCanvasPoint(e, camera);
@@ -3685,7 +3675,7 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
       mySelection,
       isShiftPressed,
       translateSelectedLayers,
-      isIOSSafariDevice,
+      isTouchDevice,
     ],
   );
 
@@ -3696,11 +3686,8 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
   const onLayerPointerDown = useMutation(
     ({ self, setMyPresence }, e: React.PointerEvent, layerId: string) => {
       const nativePointerType = (e as any).pointerType ?? (e as any).nativeEvent?.pointerType;
-      if (
-        isIOSSafariDevice &&
-        nativePointerType !== "mouse" &&
-        !(e as any).__fromTouchFallback
-      ) {
+      if (isTouchDevice && nativePointerType !== "mouse") {
+        e.preventDefault();
         return;
       }
       // 🛡️ SECURITY: Block layer interactions for viewers
@@ -3777,7 +3764,7 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
       setCanvasState({ mode: CanvasMode.Translating, current: point });
       beginDragPreview(point);
     },
-    [setCanvasState, camera, history, canvasState.mode, isViewer, isAltPressed, isShiftPressed, duplicateSelectedLayers, onPointerDown, beginDragPreview, isIOSSafariDevice],
+    [setCanvasState, camera, history, canvasState.mode, isViewer, isAltPressed, isShiftPressed, duplicateSelectedLayers, onPointerDown, beginDragPreview, isTouchDevice],
   );
 
   const onLayerContextMenu = useCallback(
@@ -3864,36 +3851,28 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
     smoothZoom(newCamera);
   }, [allLayers, smoothZoom]);
 
-  // Mobile gesture handling
-  const { handleTouchStart, handleTouchMove, handleTouchEnd } = useMobileGestures({
-    camera,
-    setCamera,
-    onTap: (point) => {
-      handleMobileTap(point);
-    },
-    onLongPress: (point) => {
-      // Handle long press - could show context menu
-    }
-  });
+	  // Mobile gesture handling
+	  const { handleTouchStart, handleTouchMove, handleTouchEnd } = useMobileGestures({
+	    camera,
+	    setCamera,
+	    onTap: (point) => {
+	      handleMobileTap(point);
+	    },
+	    onLongPress: (point) => {
+	      // Handle long press - could show context menu
+	    }
+	  });
 
-  // iOS/WebKit: touch events on SVG/foreignObject can be unreliable.
-  // Keep native touch listeners as a robust path for camera gestures and layer drag fallback.
+  // Mobile stability mode: touch gestures control camera only (pan/zoom).
   useEffect(() => {
     if (!isTouchDevice) return;
     const svg = svgRef.current;
     if (!svg) return;
 
     let didStart = false;
-    let allowSingleFingerPan = false;
-    let touchMode: "camera" | "layer-drag" | null = null;
-    let activeLayerId: string | null = null;
 
     const resetTouchState = () => {
       didStart = false;
-      allowSingleFingerPan = false;
-      touchMode = null;
-      activeLayerId = null;
-      touchGestureActiveRef.current = false;
     };
 
     const getPrimaryTouch = (event: TouchEvent): Touch | null =>
@@ -3920,71 +3899,12 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
       );
     };
 
-    const findLayerIdFromTouch = (target: EventTarget | null, touch: Touch | null): string | null => {
-      const asElement = target as Element | null;
-      const directMatch = asElement?.closest?.("[data-layer-id]") as HTMLElement | null;
-      const directLayerId = directMatch?.getAttribute("data-layer-id");
-      if (directLayerId) return directLayerId;
-
-      if (touch) {
-        const elAtPoint = document.elementFromPoint(touch.clientX, touch.clientY);
-        const pointMatch = elAtPoint?.closest?.("[data-layer-id]") as HTMLElement | null;
-        const pointLayerId = pointMatch?.getAttribute("data-layer-id");
-        if (pointLayerId) return pointLayerId;
-      }
-
-      return null;
-    };
-
-    const toSyntheticPointerEvent = (touch: Touch, sourceEvent: TouchEvent): React.PointerEvent =>
-      ({
-        clientX: touch.clientX,
-        clientY: touch.clientY,
-        pressure: touch.force && touch.force > 0 ? touch.force : 0.5,
-        pointerType: "touch",
-        shiftKey: sourceEvent.shiftKey,
-        altKey: sourceEvent.altKey,
-        metaKey: sourceEvent.metaKey,
-        ctrlKey: sourceEvent.ctrlKey,
-        button: 0,
-        buttons: 1,
-        target: sourceEvent.target,
-        currentTarget: sourceEvent.target,
-        preventDefault: () => sourceEvent.preventDefault(),
-        stopPropagation: () => sourceEvent.stopPropagation(),
-        __fromTouchFallback: true,
-      } as unknown as React.PointerEvent);
-
     const onStart = (e: TouchEvent) => {
       if (isInteractiveTarget(e.target)) return;
       const touch = getPrimaryTouch(e);
       if (!isTouchInsideSvg(touch)) return;
       e.preventDefault();
-
-      const layerId = e.touches.length === 1 ? findLayerIdFromTouch(e.target, touch) : null;
-
-      // iOS Safari fallback: drag/select layers via touch when pointer events on foreignObject are flaky.
-      if (isIOSSafariDevice && layerId && touch) {
-        e.preventDefault();
-        touchGestureActiveRef.current = true;
-        didStart = true;
-        allowSingleFingerPan = false;
-        touchMode = "layer-drag";
-        activeLayerId = layerId;
-        onLayerPointerDown(toSyntheticPointerEvent(touch, e), layerId);
-        return;
-      }
-
-      // Non-iOS behavior: one-finger touch on layers should not move camera.
-      if (!isIOSSafariDevice && e.touches.length === 1 && layerId) {
-        resetTouchState();
-        return;
-      }
-
-      touchGestureActiveRef.current = true;
       didStart = true;
-      allowSingleFingerPan = e.touches.length === 1 && !layerId;
-      touchMode = "camera";
       (handleTouchStart as any)(e);
     };
 
@@ -3995,13 +3915,6 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
       if (!didStart && !isTouchInsideSvg(touch)) return;
       if (!didStart) return;
       e.preventDefault();
-
-      if (touchMode === "layer-drag" && isIOSSafariDevice && activeLayerId && e.touches.length === 1) {
-        onPointerMove(toSyntheticPointerEvent(touch, e));
-        return;
-      }
-
-      if (e.touches.length === 1 && !allowSingleFingerPan) return;
       (handleTouchMove as any)(e);
     };
 
@@ -4009,16 +3922,6 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
       if (isInteractiveTarget(e.target)) return;
       if (!didStart) return;
       e.preventDefault();
-      const touch = getPrimaryTouch(e);
-
-      if (touchMode === "layer-drag" && isIOSSafariDevice && activeLayerId && touch) {
-        onPointerUp(toSyntheticPointerEvent(touch, e));
-        if (e.touches.length === 0) {
-          resetTouchState();
-        }
-        return;
-      }
-
       (handleTouchEnd as any)(e);
       if (e.touches.length === 0) {
         resetTouchState();
@@ -4042,10 +3945,6 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
     handleTouchEnd,
     handleTouchMove,
     handleTouchStart,
-    isIOSSafariDevice,
-    onLayerPointerDown,
-    onPointerMove,
-    onPointerUp,
   ]);
 
   const onContextMenu = useCallback((e: React.MouseEvent) => {
