@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Canvas } from "./_components/canvas";
+import { BoardRuntimeSwitch } from "./_components/board-runtime-switch";
 import { Room } from "@/components/room";
 import { Loading } from "./_components/loading";
 import { UploadOverlay } from "@/components/UploadOverlay";
@@ -95,7 +95,7 @@ export default function BoardIdPage({ params }: BoardIdPageProps) {
               boardId={finalBoardId}
               onShowUpgradePrompt={showUpgradePrompt}
             >
-              <Canvas
+              <BoardRuntimeSwitch
                 boardId={finalBoardId}
                 userRole={userRole}
                 onOpenShare={() => setIsShareModalOpen(true)}

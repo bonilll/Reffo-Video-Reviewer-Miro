@@ -58,6 +58,12 @@ import { NoteConnectionPoints } from "./note-connection-points";
 import { ArrowSnapIndicators } from "./arrow-snap-indicators";
 import { TodoListSelectorModal } from "./todo-list-selector-modal";
 import { SnapGuidelines } from "./snap-guidelines";
+import {
+  createMobileInputState,
+  isCameraMode,
+  isLayerMode,
+  reduceMobileInputState,
+} from "./mobile-input-engine";
 
 import { 
   colorToCSS, 
@@ -105,10 +111,11 @@ const MAX_ZOOM = 5;
 
 const debugLog = (..._args: unknown[]) => {};
 
-type CanvasProps = {
+export type CanvasProps = {
   boardId: string;
   userRole?: string;
   onOpenShare?: () => void;
+  runtimeMode?: "desktop" | "mobile";
 };
 
 // Componente SelectionNet semplice
@@ -124,7 +131,8 @@ const SelectionNet = ({ origin, current }: { origin: Point; current: Point }) =>
   );
 };
 
-export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
+export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop" }: CanvasProps) => {
+  const isMobileRuntime = runtimeMode === "mobile";
   const layerIds = useStorage((root) => root.layerIds);
   const pencilDraft = useSelf((me) => me.presence.pencilDraft);
   const updateMyPresence = useUpdateMyPresence();
@@ -219,8 +227,13 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
   const [lastUsedFontWeight, setLastUsedFontWeight] = useState<string>("normal");
 
   // Sistema camera semplificato - stato locale per performance
-  const [camera, setCamera] = useState<Camera>({ x: 0, y: 0, scale: 1 });
+  const [camera, setCameraState] = useState<Camera>({ x: 0, y: 0, scale: 1 });
   const cameraRef = useRef(camera);
+
+  const setCamera = useCallback((nextCamera: Camera) => {
+    cameraRef.current = nextCamera;
+    setCameraState(nextCamera);
+  }, []);
   
   useEffect(() => {
     cameraRef.current = camera;
@@ -228,6 +241,11 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
 
   const [dragPreviewOffset, setDragPreviewOffset] = useState<Point | null>(null);
   const dragPreviewStartRef = useRef<Point | null>(null);
+
+  const cameraTransform = useMemo(
+    () => `translate(${camera.x} ${camera.y}) scale(${camera.scale})`,
+    [camera.x, camera.y, camera.scale],
+  );
 
   useEffect(() => {
     if (canvasState.mode !== CanvasMode.Translating) {
@@ -2482,7 +2500,13 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
   const onPointerMove = useMutation(
     ({ setMyPresence }, e: React.PointerEvent) => {
       const nativePointerType = (e as any).pointerType ?? (e as any).nativeEvent?.pointerType;
-      if (isTouchDevice && nativePointerType !== "mouse") {
+      const isMobileSynthetic = Boolean((e as any).__fromMobileInputEngine);
+      if (
+        isMobileRuntime &&
+        isTouchDevice &&
+        nativePointerType !== "mouse" &&
+        !isMobileSynthetic
+      ) {
         return;
       }
       e.preventDefault();
@@ -2491,7 +2515,11 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
         return;
       }
 
-      const current = pointerEventToCanvasPoint(e, camera);
+      const activeCamera =
+        isMobileRuntime && isTouchDevice && isMobileSynthetic
+          ? cameraRef.current
+          : camera;
+      const current = pointerEventToCanvasPoint(e, activeCamera);
       
       // Aggiorna la posizione corrente del mouse per gli snap indicators
       setCurrentMousePosition(current);
@@ -2555,6 +2583,8 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
       updateArrowLinePoint,
       isShiftPressed,
       isTouchDevice,
+      isMobileRuntime,
+      cameraRef,
     ],
   );
 
@@ -3014,7 +3044,7 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
 
   const handleMobileTap = useMutation(
     ({ storage, setMyPresence }, point: Point) => {
-      if (isTouchDevice) {
+      if (isMobileRuntime && isTouchDevice) {
         return;
       }
       if (canvasState.mode === CanvasMode.None) {
@@ -3043,7 +3073,7 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
         }
       }
     },
-    [canvasState.mode, isTouchDevice]
+    [canvasState.mode, isTouchDevice, isMobileRuntime]
   );
 
   useEffect(() => {
@@ -3424,11 +3454,21 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
   const onPointerDown = useCallback(
     (e: React.PointerEvent) => {
       const nativePointerType = (e as any).pointerType ?? (e as any).nativeEvent?.pointerType;
-      if (isTouchDevice && nativePointerType !== "mouse") {
+      const isMobileSynthetic = Boolean((e as any).__fromMobileInputEngine);
+      if (
+        isMobileRuntime &&
+        isTouchDevice &&
+        nativePointerType !== "mouse" &&
+        !isMobileSynthetic
+      ) {
         e.preventDefault();
         return;
       }
-      const point = pointerEventToCanvasPoint(e, camera);
+      const activeCamera =
+        isMobileRuntime && isTouchDevice && isMobileSynthetic
+          ? cameraRef.current
+          : camera;
+      const point = pointerEventToCanvasPoint(e, activeCamera);
 
       // 🛡️ SECURITY: Block editing interactions for viewers
       if (isViewer) {
@@ -3470,17 +3510,27 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
 
       setCanvasState({ origin: point, mode: CanvasMode.Pressing });
     },
-    [camera, canvasState.mode, setCanvasState, startDrawing, isViewer, isShiftPressed, isTouchDevice],
+    [camera, canvasState.mode, setCanvasState, startDrawing, isViewer, isShiftPressed, isTouchDevice, isMobileRuntime, cameraRef],
   );
 
   const onPointerUp = useCallback(
     (e: React.PointerEvent) => {
       const nativePointerType = (e as any).pointerType ?? (e as any).nativeEvent?.pointerType;
-      if (isTouchDevice && nativePointerType !== "mouse") {
+      const isMobileSynthetic = Boolean((e as any).__fromMobileInputEngine);
+      if (
+        isMobileRuntime &&
+        isTouchDevice &&
+        nativePointerType !== "mouse" &&
+        !isMobileSynthetic
+      ) {
         e.preventDefault();
         return;
       }
-      const point = pointerEventToCanvasPoint(e, camera);
+      const activeCamera =
+        isMobileRuntime && isTouchDevice && isMobileSynthetic
+          ? cameraRef.current
+          : camera;
+      const point = pointerEventToCanvasPoint(e, activeCamera);
 
       if (
         canvasState.mode === CanvasMode.None ||
@@ -3676,6 +3726,8 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
       isShiftPressed,
       translateSelectedLayers,
       isTouchDevice,
+      isMobileRuntime,
+      cameraRef,
     ],
   );
 
@@ -3686,7 +3738,13 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
   const onLayerPointerDown = useMutation(
     ({ self, setMyPresence }, e: React.PointerEvent, layerId: string) => {
       const nativePointerType = (e as any).pointerType ?? (e as any).nativeEvent?.pointerType;
-      if (isTouchDevice && nativePointerType !== "mouse") {
+      const isMobileSynthetic = Boolean((e as any).__fromMobileInputEngine);
+      if (
+        isMobileRuntime &&
+        isTouchDevice &&
+        nativePointerType !== "mouse" &&
+        !isMobileSynthetic
+      ) {
         e.preventDefault();
         return;
       }
@@ -3710,7 +3768,11 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
       history.pause();
       e.stopPropagation();
 
-      const point = pointerEventToCanvasPoint(e, camera);
+      const activeCamera =
+        isMobileRuntime && isTouchDevice && isMobileSynthetic
+          ? cameraRef.current
+          : camera;
+      const point = pointerEventToCanvasPoint(e, activeCamera);
 
       // Se Alt è premuto, duplica i layer selezionati
       if (isAltPressed && !isShiftPressed) {
@@ -3764,7 +3826,7 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
       setCanvasState({ mode: CanvasMode.Translating, current: point });
       beginDragPreview(point);
     },
-    [setCanvasState, camera, history, canvasState.mode, isViewer, isAltPressed, isShiftPressed, duplicateSelectedLayers, onPointerDown, beginDragPreview, isTouchDevice],
+    [setCanvasState, camera, history, canvasState.mode, isViewer, isAltPressed, isShiftPressed, duplicateSelectedLayers, onPointerDown, beginDragPreview, isTouchDevice, isMobileRuntime, cameraRef],
   );
 
   const onLayerContextMenu = useCallback(
@@ -3863,20 +3925,57 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
 	    }
 	  });
 
-  // Mobile stability mode: touch gestures control camera only (pan/zoom).
+  // Keep touch/pointer handlers stable for native listeners to avoid teardown/reset on each render.
+  const handleTouchStartRef = useRef(handleTouchStart);
+  const handleTouchMoveRef = useRef(handleTouchMove);
+  const handleTouchEndRef = useRef(handleTouchEnd);
+  const onLayerPointerDownRef = useRef(onLayerPointerDown);
+  const onPointerMoveRef = useRef(onPointerMove);
+  const onPointerUpRef = useRef(onPointerUp);
+
   useEffect(() => {
-    if (!isTouchDevice) return;
+    handleTouchStartRef.current = handleTouchStart;
+  }, [handleTouchStart]);
+
+  useEffect(() => {
+    handleTouchMoveRef.current = handleTouchMove;
+  }, [handleTouchMove]);
+
+  useEffect(() => {
+    handleTouchEndRef.current = handleTouchEnd;
+  }, [handleTouchEnd]);
+
+  useEffect(() => {
+    onLayerPointerDownRef.current = onLayerPointerDown;
+  }, [onLayerPointerDown]);
+
+  useEffect(() => {
+    onPointerMoveRef.current = onPointerMove;
+  }, [onPointerMove]);
+
+  useEffect(() => {
+    onPointerUpRef.current = onPointerUp;
+  }, [onPointerUp]);
+
+  // Mobile V2 input engine: explicit arbitration between camera and layer interactions.
+  useEffect(() => {
+    if (!isMobileRuntime || !isTouchDevice) return;
     const svg = svgRef.current;
     if (!svg) return;
 
-    let didStart = false;
+    let inputState = createMobileInputState();
+    let activeLayerId: string | null = null;
 
     const resetTouchState = () => {
-      didStart = false;
+      inputState = reduceMobileInputState(inputState, { type: "RESET" });
+      activeLayerId = null;
     };
 
     const getPrimaryTouch = (event: TouchEvent): Touch | null =>
       event.touches[0] ?? event.changedTouches[0] ?? null;
+
+    const toPoint = (touch: Touch | null) =>
+      touch ? { x: touch.clientX, y: touch.clientY } : null;
 
     const isTouchInsideSvg = (touch: Touch | null) => {
       if (!touch) return false;
@@ -3899,30 +3998,146 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
       );
     };
 
+    const findLayerIdFromTouch = (
+      target: EventTarget | null,
+      touch: Touch | null,
+    ): string | null => {
+      const asElement = target as Element | null;
+      const directMatch = asElement?.closest?.("[data-layer-id]") as HTMLElement | null;
+      const directLayerId = directMatch?.getAttribute("data-layer-id");
+      if (directLayerId) return directLayerId;
+
+      if (touch) {
+        const elAtPoint = document.elementFromPoint(touch.clientX, touch.clientY);
+        const pointMatch = elAtPoint?.closest?.("[data-layer-id]") as HTMLElement | null;
+        const pointLayerId = pointMatch?.getAttribute("data-layer-id");
+        if (pointLayerId) return pointLayerId;
+      }
+
+      return null;
+    };
+
+    const toSyntheticPointerEvent = (touch: Touch, sourceEvent: TouchEvent): React.PointerEvent =>
+      ({
+        clientX: touch.clientX,
+        clientY: touch.clientY,
+        pressure: touch.force && touch.force > 0 ? touch.force : 0.5,
+        pointerType: "touch",
+        shiftKey: sourceEvent.shiftKey,
+        altKey: sourceEvent.altKey,
+        metaKey: sourceEvent.metaKey,
+        ctrlKey: sourceEvent.ctrlKey,
+        button: 0,
+        buttons: 1,
+        target: sourceEvent.target,
+        currentTarget: sourceEvent.target,
+        preventDefault: () => sourceEvent.preventDefault(),
+        stopPropagation: () => sourceEvent.stopPropagation(),
+        __fromMobileInputEngine: true,
+      } as unknown as React.PointerEvent);
+
     const onStart = (e: TouchEvent) => {
       if (isInteractiveTarget(e.target)) return;
       const touch = getPrimaryTouch(e);
       if (!isTouchInsideSvg(touch)) return;
       e.preventDefault();
-      didStart = true;
-      (handleTouchStart as any)(e);
+
+      const point = toPoint(touch);
+      const layerId =
+        e.touches.length === 1 ? findLayerIdFromTouch(e.target, touch) : null;
+
+      inputState = reduceMobileInputState(inputState, {
+        type: "TOUCH_START",
+        touchCount: e.touches.length,
+        point,
+        targetLayerId: layerId,
+      });
+      activeLayerId = inputState.targetLayerId;
+
+      if (isCameraMode(inputState.mode)) {
+        (handleTouchStartRef.current as any)(e);
+        return;
+      }
+
+      if (inputState.mode === "layer_select" && activeLayerId && touch) {
+        onLayerPointerDownRef.current(toSyntheticPointerEvent(touch, e), activeLayerId);
+      }
     };
 
     const onMove = (e: TouchEvent) => {
       if (isInteractiveTarget(e.target)) return;
       const touch = getPrimaryTouch(e);
       if (!touch) return;
-      if (!didStart && !isTouchInsideSvg(touch)) return;
-      if (!didStart) return;
+      if (inputState.mode === "idle" && !isTouchInsideSvg(touch)) return;
+      if (inputState.mode === "idle") return;
       e.preventDefault();
-      (handleTouchMove as any)(e);
+
+      const previousMode = inputState.mode;
+      inputState = reduceMobileInputState(inputState, {
+        type: "TOUCH_MOVE",
+        touchCount: e.touches.length,
+        point: toPoint(touch),
+      });
+
+      // Transition from layer interaction to camera gesture:
+      // finalize the layer pointer flow first, then initialize camera gesture state.
+      if (
+        previousMode !== inputState.mode &&
+        isLayerMode(previousMode) &&
+        isCameraMode(inputState.mode)
+      ) {
+        if (activeLayerId) {
+          onPointerUpRef.current(toSyntheticPointerEvent(touch, e));
+        }
+        activeLayerId = null;
+        (handleTouchStartRef.current as any)(e);
+        return;
+      }
+
+      // Entering camera mode from any non-camera state must seed gesture internals.
+      if (
+        previousMode !== inputState.mode &&
+        !isCameraMode(previousMode) &&
+        isCameraMode(inputState.mode)
+      ) {
+        (handleTouchStartRef.current as any)(e);
+        return;
+      }
+
+      if (isCameraMode(inputState.mode)) {
+        (handleTouchMoveRef.current as any)(e);
+        return;
+      }
+
+      if (inputState.mode === "layer_drag" && activeLayerId) {
+        onPointerMoveRef.current(toSyntheticPointerEvent(touch, e));
+      }
     };
 
     const onEnd = (e: TouchEvent) => {
       if (isInteractiveTarget(e.target)) return;
-      if (!didStart) return;
+      const previousMode = inputState.mode;
+      if (previousMode === "idle") return;
       e.preventDefault();
-      (handleTouchEnd as any)(e);
+      const touch = getPrimaryTouch(e);
+
+      inputState = reduceMobileInputState(inputState, {
+        type: "TOUCH_END",
+        touchCount: e.touches.length,
+      });
+
+      if (isCameraMode(previousMode)) {
+        (handleTouchEndRef.current as any)(e);
+      }
+
+      if (
+        (previousMode === "layer_select" || previousMode === "layer_drag") &&
+        activeLayerId &&
+        touch
+      ) {
+        onPointerUpRef.current(toSyntheticPointerEvent(touch, e));
+      }
+
       if (e.touches.length === 0) {
         resetTouchState();
       }
@@ -3941,10 +4156,8 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
       resetTouchState();
     };
   }, [
+    isMobileRuntime,
     isTouchDevice,
-    handleTouchEnd,
-    handleTouchMove,
-    handleTouchStart,
   ]);
 
   const onContextMenu = useCallback((e: React.MouseEvent) => {
@@ -4200,7 +4413,7 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
         }}
       >
         {/* Use SVG transform attribute (not CSS transform) for iOS/WebKit correctness. */}
-        <g transform={`translate(${camera.x} ${camera.y}) scale(${camera.scale})`}>
+	        <g transform={cameraTransform}>
           {/* Grid background - primo elemento per apparire dietro tutto */}
           {gridConfig.enabled && <GridRenderer camera={camera} config={gridConfig} />}
           
