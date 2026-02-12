@@ -419,6 +419,7 @@ type LayerPreviewProps = {
         return (
           <Path
             key={id}
+            id={id}
             points={(layer as PathLayer).points}
             onPointerDown={(e) => onLayerPointerDown(e, id)}
             x={(layer as PathLayer).x}
