@@ -2484,10 +2484,10 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
   // Gestione del movimento del puntatore
   const onPointerMove = useMutation(
     ({ setMyPresence }, e: React.PointerEvent) => {
+      const nativePointerType = (e as any).pointerType ?? (e as any).nativeEvent?.pointerType;
       if (
         isIOSSafariDevice &&
-        touchGestureActiveRef.current &&
-        (e as any).pointerType === "touch" &&
+        nativePointerType !== "mouse" &&
         !(e as any).__fromTouchFallback
       ) {
         return;
@@ -3427,10 +3427,10 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
 
   const onPointerDown = useCallback(
     (e: React.PointerEvent) => {
+      const nativePointerType = (e as any).pointerType ?? (e as any).nativeEvent?.pointerType;
       if (
         isIOSSafariDevice &&
-        touchGestureActiveRef.current &&
-        (e as any).pointerType === "touch" &&
+        nativePointerType !== "mouse" &&
         !(e as any).__fromTouchFallback
       ) {
         return;
@@ -3482,10 +3482,10 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
 
   const onPointerUp = useCallback(
     (e: React.PointerEvent) => {
+      const nativePointerType = (e as any).pointerType ?? (e as any).nativeEvent?.pointerType;
       if (
         isIOSSafariDevice &&
-        touchGestureActiveRef.current &&
-        (e as any).pointerType === "touch" &&
+        nativePointerType !== "mouse" &&
         !(e as any).__fromTouchFallback
       ) {
         return;
@@ -3670,7 +3670,6 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
           });
         }
       }, 50);
-      touchGestureActiveRef.current = false;
     },
     [
       setCanvasState,
@@ -3696,10 +3695,10 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
 
   const onLayerPointerDown = useMutation(
     ({ self, setMyPresence }, e: React.PointerEvent, layerId: string) => {
+      const nativePointerType = (e as any).pointerType ?? (e as any).nativeEvent?.pointerType;
       if (
         isIOSSafariDevice &&
-        touchGestureActiveRef.current &&
-        (e as any).pointerType === "touch" &&
+        nativePointerType !== "mouse" &&
         !(e as any).__fromTouchFallback
       ) {
         return;
@@ -3960,6 +3959,7 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
       if (isInteractiveTarget(e.target)) return;
       const touch = getPrimaryTouch(e);
       if (!isTouchInsideSvg(touch)) return;
+      e.preventDefault();
 
       const layerId = e.touches.length === 1 ? findLayerIdFromTouch(e.target, touch) : null;
 
@@ -3994,9 +3994,9 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
       if (!touch) return;
       if (!didStart && !isTouchInsideSvg(touch)) return;
       if (!didStart) return;
+      e.preventDefault();
 
       if (touchMode === "layer-drag" && isIOSSafariDevice && activeLayerId && e.touches.length === 1) {
-        e.preventDefault();
         onPointerMove(toSyntheticPointerEvent(touch, e));
         return;
       }
@@ -4008,10 +4008,10 @@ export const Canvas = ({ boardId, userRole, onOpenShare }: CanvasProps) => {
     const onEnd = (e: TouchEvent) => {
       if (isInteractiveTarget(e.target)) return;
       if (!didStart) return;
+      e.preventDefault();
       const touch = getPrimaryTouch(e);
 
       if (touchMode === "layer-drag" && isIOSSafariDevice && activeLayerId && touch) {
-        e.preventDefault();
         onPointerUp(toSyntheticPointerEvent(touch, e));
         if (e.touches.length === 0) {
           resetTouchState();
