@@ -110,6 +110,14 @@ const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 5;
 
 const debugLog = (..._args: unknown[]) => {};
+const isLikelyTouchPointer = (event: React.PointerEvent | any) => {
+  const nativePointerType = event?.pointerType ?? event?.nativeEvent?.pointerType;
+  if (typeof nativePointerType === "string") {
+    return nativePointerType !== "mouse";
+  }
+  // On some iOS paths pointerType can be missing; on mobile runtime treat it as touch-like.
+  return true;
+};
 
 export type CanvasProps = {
   boardId: string;
@@ -1509,6 +1517,10 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
     }
   }, []);
 
+  const selectLayerById = useMutation(({ setMyPresence }, layerId: string) => {
+    setMyPresence({ selection: [layerId] }, { addToHistory: true });
+  }, []);
+
   const updateSelectionNet = useMutation(
     ({ storage, setMyPresence }, current: Point, origin: Point) => {
       const layers = storage.get("layers").toImmutable();
@@ -2499,12 +2511,11 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
   // Gestione del movimento del puntatore
   const onPointerMove = useMutation(
     ({ setMyPresence }, e: React.PointerEvent) => {
-      const nativePointerType = (e as any).pointerType ?? (e as any).nativeEvent?.pointerType;
       const isMobileSynthetic = Boolean((e as any).__fromMobileInputEngine);
       if (
         isMobileRuntime &&
         isTouchDevice &&
-        nativePointerType !== "mouse" &&
+        isLikelyTouchPointer(e) &&
         !isMobileSynthetic
       ) {
         return;
@@ -3453,12 +3464,11 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
 
   const onPointerDown = useCallback(
     (e: React.PointerEvent) => {
-      const nativePointerType = (e as any).pointerType ?? (e as any).nativeEvent?.pointerType;
       const isMobileSynthetic = Boolean((e as any).__fromMobileInputEngine);
       if (
         isMobileRuntime &&
         isTouchDevice &&
-        nativePointerType !== "mouse" &&
+        isLikelyTouchPointer(e) &&
         !isMobileSynthetic
       ) {
         e.preventDefault();
@@ -3515,12 +3525,11 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
 
   const onPointerUp = useCallback(
     (e: React.PointerEvent) => {
-      const nativePointerType = (e as any).pointerType ?? (e as any).nativeEvent?.pointerType;
       const isMobileSynthetic = Boolean((e as any).__fromMobileInputEngine);
       if (
         isMobileRuntime &&
         isTouchDevice &&
-        nativePointerType !== "mouse" &&
+        isLikelyTouchPointer(e) &&
         !isMobileSynthetic
       ) {
         e.preventDefault();
@@ -3737,12 +3746,11 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
 
   const onLayerPointerDown = useMutation(
     ({ self, setMyPresence }, e: React.PointerEvent, layerId: string) => {
-      const nativePointerType = (e as any).pointerType ?? (e as any).nativeEvent?.pointerType;
       const isMobileSynthetic = Boolean((e as any).__fromMobileInputEngine);
       if (
         isMobileRuntime &&
         isTouchDevice &&
-        nativePointerType !== "mouse" &&
+        isLikelyTouchPointer(e) &&
         !isMobileSynthetic
       ) {
         e.preventDefault();
@@ -3932,6 +3940,7 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
   const onLayerPointerDownRef = useRef(onLayerPointerDown);
   const onPointerMoveRef = useRef(onPointerMove);
   const onPointerUpRef = useRef(onPointerUp);
+  const selectLayerByIdRef = useRef(selectLayerById);
 
   useEffect(() => {
     handleTouchStartRef.current = handleTouchStart;
@@ -3957,6 +3966,10 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
     onPointerUpRef.current = onPointerUp;
   }, [onPointerUp]);
 
+  useEffect(() => {
+    selectLayerByIdRef.current = selectLayerById;
+  }, [selectLayerById]);
+
   // Mobile V2 input engine: explicit arbitration between camera and layer interactions.
   useEffect(() => {
     if (!isMobileRuntime || !isTouchDevice) return;
@@ -3965,10 +3978,12 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
 
     let inputState = createMobileInputState();
     let activeLayerId: string | null = null;
+    let didStartLayerDrag = false;
 
     const resetTouchState = () => {
       inputState = reduceMobileInputState(inputState, { type: "RESET" });
       activeLayerId = null;
+      didStartLayerDrag = false;
     };
 
     const getPrimaryTouch = (event: TouchEvent): Touch | null =>
@@ -4053,14 +4068,11 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
         targetLayerId: layerId,
       });
       activeLayerId = inputState.targetLayerId;
+      didStartLayerDrag = false;
 
       if (isCameraMode(inputState.mode)) {
         (handleTouchStartRef.current as any)(e);
         return;
-      }
-
-      if (inputState.mode === "layer_select" && activeLayerId && touch) {
-        onLayerPointerDownRef.current(toSyntheticPointerEvent(touch, e), activeLayerId);
       }
     };
 
@@ -4086,10 +4098,11 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
         isLayerMode(previousMode) &&
         isCameraMode(inputState.mode)
       ) {
-        if (activeLayerId) {
+        if (activeLayerId && didStartLayerDrag) {
           onPointerUpRef.current(toSyntheticPointerEvent(touch, e));
         }
         activeLayerId = null;
+        didStartLayerDrag = false;
         (handleTouchStartRef.current as any)(e);
         return;
       }
@@ -4110,6 +4123,11 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
       }
 
       if (inputState.mode === "layer_drag" && activeLayerId) {
+        if (!didStartLayerDrag) {
+          onLayerPointerDownRef.current(toSyntheticPointerEvent(touch, e), activeLayerId);
+          didStartLayerDrag = true;
+          return;
+        }
         onPointerMoveRef.current(toSyntheticPointerEvent(touch, e));
       }
     };
@@ -4131,7 +4149,16 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
       }
 
       if (
-        (previousMode === "layer_select" || previousMode === "layer_drag") &&
+        previousMode === "layer_select" &&
+        activeLayerId &&
+        !didStartLayerDrag
+      ) {
+        // Tap-to-select on mobile without forcing drag start.
+        selectLayerByIdRef.current(activeLayerId);
+      }
+
+      if (
+        (previousMode === "layer_drag" || didStartLayerDrag) &&
         activeLayerId &&
         touch
       ) {

@@ -474,6 +474,36 @@ type LayerPreviewProps = {
         const imageLayer = layer as ImageLayer;
         const useImageLOD = lodBucket !== "high";
 
+        if (runtimeMode === "mobile") {
+          const imageHref = imageLayer.previewUrl || imageLayer.url;
+          return (
+            <g data-layer-id={id} onPointerDown={handlePointerDown} style={{ cursor: "pointer" }}>
+              <image
+                data-layer-id={id}
+                href={imageHref}
+                x={imageLayer.x}
+                y={imageLayer.y}
+                width={imageLayer.width}
+                height={imageLayer.height}
+                preserveAspectRatio="xMidYMid slice"
+                style={{ pointerEvents: "auto" }}
+              />
+              {(selectionColor && !(iosSafari && isSelected)) && (
+                <rect
+                  data-layer-id={id}
+                  x={imageLayer.x}
+                  y={imageLayer.y}
+                  width={imageLayer.width}
+                  height={imageLayer.height}
+                  fill="none"
+                  stroke={selectionColor}
+                  strokeWidth={2}
+                />
+              )}
+            </g>
+          );
+        }
+
 	        return (
 		          <foreignObject
 		            id={id}
@@ -575,6 +605,73 @@ type LayerPreviewProps = {
       case LayerType.Video:
         const videoLayer = layer as VideoLayer;
         const useVideoLOD = lodBucket !== "high";
+        const videoPreviewUrl = (videoLayer as any).previewUrl as string | undefined;
+
+        if (runtimeMode === "mobile") {
+          return (
+            <g data-layer-id={id} onPointerDown={handlePointerDown} style={{ cursor: "pointer" }}>
+              {videoPreviewUrl ? (
+                <image
+                  data-layer-id={id}
+                  href={videoPreviewUrl}
+                  x={videoLayer.x}
+                  y={videoLayer.y}
+                  width={videoLayer.width}
+                  height={videoLayer.height}
+                  preserveAspectRatio="xMidYMid slice"
+                  style={{ pointerEvents: "auto" }}
+                />
+              ) : (
+                <rect
+                  data-layer-id={id}
+                  x={videoLayer.x}
+                  y={videoLayer.y}
+                  width={videoLayer.width}
+                  height={videoLayer.height}
+                  fill="#0f172a"
+                  stroke="#1e293b"
+                  strokeWidth={1}
+                  rx={8}
+                  ry={8}
+                />
+              )}
+              <g data-layer-id={id} transform={`translate(${videoLayer.x + 12} ${videoLayer.y + 26})`}>
+                <text
+                  data-layer-id={id}
+                  fill="#e2e8f0"
+                  fontSize={12}
+                  fontWeight={600}
+                  style={{ pointerEvents: "none", userSelect: "none" }}
+                >
+                  Video
+                </text>
+                {videoLayer.title && (
+                  <text
+                    data-layer-id={id}
+                    y={16}
+                    fill="#94a3b8"
+                    fontSize={10}
+                    style={{ pointerEvents: "none", userSelect: "none" }}
+                  >
+                    {videoLayer.title}
+                  </text>
+                )}
+              </g>
+              {(selectionColor && !(iosSafari && isSelected)) && (
+                <rect
+                  data-layer-id={id}
+                  x={videoLayer.x}
+                  y={videoLayer.y}
+                  width={videoLayer.width}
+                  height={videoLayer.height}
+                  fill="none"
+                  stroke={selectionColor}
+                  strokeWidth={2}
+                />
+              )}
+            </g>
+          );
+        }
 
 	        return (
 		          <foreignObject
