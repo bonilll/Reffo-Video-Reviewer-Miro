@@ -1,6 +1,14 @@
 import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { SignedIn, SignedOut, useUser, useClerk, useSignIn, useSignUp } from '@clerk/clerk-react';
+import {
+  SignedIn,
+  SignedOut,
+  useUser,
+  useClerk,
+  useSignIn,
+  useSignUp,
+  AuthenticateWithRedirectCallback,
+} from '@clerk/clerk-react';
 import { useQuery, useMutation, useAction } from 'convex/react';
 import { api } from './convex/_generated/api';
 import VideoReviewer from './components/VideoReviewer';
@@ -49,6 +57,7 @@ type Route =
   | { name: 'workspaces' }
   | { name: 'library' }
   | { name: 'profile' }
+  | { name: 'ssoCallback' }
   | { name: 'project'; id: string }
   | { name: 'review'; id: string }
   | { name: 'board'; id: string }
@@ -105,6 +114,7 @@ function parseRoute(pathname: string): Route {
   if (pathname === '/workspaces') return { name: 'workspaces' };
   // Legacy path
   if (pathname === '/dashboard') return { name: 'workspaces' };
+  if (pathname === '/sso-callback') return { name: 'ssoCallback' };
   if (pathname === '/library') return { name: 'library' };
   if (pathname === '/profile') return { name: 'profile' };
   if (pathname === '/privacy' || pathname === '/privacy-policy') return { name: 'legal', page: 'privacy' };
@@ -557,17 +567,34 @@ const App: React.FC = () => {
   // Removed popup-based OAuth; rely on standard redirect flows.
 
   const handleGoogleSignIn = useCallback(async () => {
-    if (!isSignInLoaded || !signIn) return;
+    const oauthParams = {
+      strategy: 'oauth_google' as const,
+      redirectUrl: '/sso-callback',
+      redirectUrlComplete: '/workspaces',
+    };
+
+    const shouldUseSignUpFlow = authMode === 'signup';
+    if (shouldUseSignUpFlow && (!isSignUpLoaded || !signUp)) return;
+    if (!shouldUseSignUpFlow && (!isSignInLoaded || !signIn)) return;
+
     try {
-      await signIn.authenticateWithRedirect({
-        strategy: 'oauth_google',
-        redirectUrl: window.location.href,
-        redirectUrlComplete: '/workspaces',
-      });
+      setAuthError(null);
+      setAuthLoading(true);
+
+      // When user is on sign-up mode, start from signUp resource.
+      // This makes the "register with Google" intent explicit.
+      if (shouldUseSignUpFlow) {
+        await signUp.authenticateWithRedirect(oauthParams);
+        return;
+      }
+
+      await signIn.authenticateWithRedirect(oauthParams);
     } catch (err) {
-      console.error('Google sign-in redirect failed', err);
+      console.error('Google auth redirect failed', err);
+      setAuthError(getClerkErrorMessage(err));
+      setAuthLoading(false);
     }
-  }, [isSignInLoaded, signIn]);
+  }, [authMode, isSignInLoaded, signIn, isSignUpLoaded, signUp]);
 
   const handleSwitchAuthMode = useCallback((mode: 'signin' | 'signup') => {
     setAuthMode(mode);
@@ -883,6 +910,25 @@ const App: React.FC = () => {
     );
   };
 
+  if (route.name === 'ssoCallback') {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 px-6 py-12">
+        <div className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-6 shadow-2xl">
+          <div className="space-y-3 text-center">
+            <h1 className="text-xl font-semibold text-gray-900">Completing sign-in</h1>
+            <p className="text-sm text-gray-600">One moment while we finish your Google authentication.</p>
+          </div>
+          <AuthenticateWithRedirectCallback
+            signInFallbackRedirectUrl="/workspaces"
+            signInForceRedirectUrl="/workspaces"
+            signUpFallbackRedirectUrl="/workspaces"
+            signUpForceRedirectUrl="/workspaces"
+          />
+        </div>
+      </div>
+    );
+  }
+
   if (view === 'legal') {
     return renderLegalPage();
   }
@@ -982,6 +1028,11 @@ const App: React.FC = () => {
     }
     if (route.name === 'profile') {
       setView('profile');
+      setActiveProjectId(null);
+      return;
+    }
+    if (route.name === 'ssoCallback') {
+      setView('workspaces');
       setActiveProjectId(null);
       return;
     }
