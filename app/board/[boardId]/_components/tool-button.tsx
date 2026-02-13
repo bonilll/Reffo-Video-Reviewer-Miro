@@ -39,6 +39,7 @@ export const ToolButton = ({
 
   return (
     <button
+      data-no-board-gestures="true"
       disabled={isDisabled}
       aria-disabled={isDisabled}
       onClick={onClick}

@@ -168,7 +168,10 @@ const MobileSelectionBar = ({
   }
 
   return (
-    <div className="fixed bottom-20 left-4 right-4 z-40 mobile-selection-bar">
+    <div
+      className="fixed bottom-20 left-4 right-4 z-40 mobile-selection-bar"
+      data-no-board-gestures="true"
+    >
       <div className="border border-slate-200/80 bg-white/95 backdrop-blur-md rounded-2xl shadow-xl shadow-slate-200/40">
         {/* Prima riga - Controlli essenziali sempre visibili */}
         <div className="p-3">
@@ -263,6 +266,9 @@ const MobileToolbar = ({
 }) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isLayersOpen, setIsLayersOpen] = useState(false);
+  const stopBoardGesturePropagation = (e: React.TouchEvent) => {
+    e.stopPropagation();
+  };
   const updateMyPresence = useUpdateMyPresence();
   const layerIds = useStorage((root) => root.layerIds);
   const layers = useStorage((root) => root.layers);
@@ -390,8 +396,17 @@ const MobileToolbar = ({
   ];
 
   return (
-    <div className="fixed bottom-4 left-4 right-4 z-50">
-      <div className="border border-slate-200/80 bg-white/95 backdrop-blur-md rounded-2xl shadow-xl shadow-slate-200/40 p-3">
+    <div
+      className="fixed bottom-4 left-4 right-4 z-50"
+      data-no-board-gestures="true"
+      onTouchStartCapture={stopBoardGesturePropagation}
+      onTouchMoveCapture={stopBoardGesturePropagation}
+      onTouchEndCapture={stopBoardGesturePropagation}
+    >
+      <div
+        className="border border-slate-200/80 bg-white/95 backdrop-blur-md rounded-2xl shadow-xl shadow-slate-200/40 p-3"
+        data-no-board-gestures="true"
+      >
         <div className="flex items-center justify-between">
           {/* Primary Tools */}
           <div className="flex items-center gap-2">
@@ -429,6 +444,10 @@ const MobileToolbar = ({
               align="end" 
               className="w-72 border border-slate-200/80 bg-white/98 shadow-xl shadow-slate-200/40 rounded-2xl p-4 mb-2"
               sideOffset={8}
+              data-no-board-gestures="true"
+              onTouchStartCapture={stopBoardGesturePropagation}
+              onTouchMoveCapture={stopBoardGesturePropagation}
+              onTouchEndCapture={stopBoardGesturePropagation}
             >
               {/* Tools Section */}
               <div className="space-y-3">
@@ -637,6 +656,10 @@ const MobileToolbar = ({
           role="dialog"
           aria-modal="true"
           aria-label="Layers"
+          data-no-board-gestures="true"
+          onTouchStartCapture={stopBoardGesturePropagation}
+          onTouchMoveCapture={stopBoardGesturePropagation}
+          onTouchEndCapture={stopBoardGesturePropagation}
         >
           <button
             type="button"

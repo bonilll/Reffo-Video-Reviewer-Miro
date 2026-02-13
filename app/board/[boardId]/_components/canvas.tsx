@@ -154,10 +154,11 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
     updateMyPresence({ profile: { name: meName, picture: mePicture } });
   }, [me?._id, meName, mePicture, updateMyPresence]);
 
+  const isRoleViewer = userRole === "viewer";
   // Read-only mode can be enabled only for mobile runtime via feature flag.
   const isMobileReadOnly = isMobileRuntime && isMobileBoardReadOnlyEnabled();
-  // 🛡️ SECURITY: Viewer restrictions - disable editing for viewers
-  const isViewer = userRole === "viewer" || isMobileReadOnly;
+  // Editing is disabled for true viewers and for mobile-readonly mode.
+  const isViewer = isRoleViewer || isMobileReadOnly;
   
   // Get board permissions and project info for todo list selector
   const { projectId } = useResourcePermissions("board", boardId as Id<"boards">);
@@ -1521,9 +1522,8 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
   }, []);
 
   const selectLayerById = useMutation(({ setMyPresence }, layerId: string) => {
-    if (isViewer) return;
     setMyPresence({ selection: [layerId] }, { addToHistory: true });
-  }, [isViewer]);
+  }, []);
 
   const updateSelectionNet = useMutation(
     ({ storage, setMyPresence }, current: Point, origin: Point) => {
@@ -3760,8 +3760,41 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
         e.preventDefault();
         return;
       }
+
+      if (isMobileSynthetic) {
+        const activeCamera =
+          isMobileRuntime && isTouchDevice
+            ? cameraRef.current
+            : camera;
+        const point = pointerEventToCanvasPoint(e, activeCamera);
+
+        // Read-only/viewer mobile: allow selection only.
+        if (isViewer) {
+          if (!self.presence.selection.includes(layerId)) {
+            setMyPresence({ selection: [layerId] }, { addToHistory: true });
+          }
+          return;
+        }
+
+        history.pause();
+        e.stopPropagation();
+
+        // If tapping an unselected layer, select it first. Keep multi-selection if already included.
+        if (!self.presence.selection.includes(layerId)) {
+          setMyPresence({ selection: [layerId] }, { addToHistory: true });
+        }
+
+        setCanvasState({ mode: CanvasMode.Translating, current: point });
+        beginDragPreview(point);
+        return;
+      }
+
       // 🛡️ SECURITY: Block layer interactions for viewers
       if (isViewer) {
+        // Keep selection available in readonly/viewer mode, but prevent drag/edit mutations.
+        if (!self.presence.selection.includes(layerId)) {
+          setMyPresence({ selection: [layerId] }, { addToHistory: true });
+        }
         return;
       }
       
@@ -4012,14 +4045,33 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
       );
     };
 
-    const isInteractiveTarget = (target: EventTarget | null) => {
-      const el = target as Element | null;
-      if (!el) return false;
-      return Boolean(
-        el.closest(
-          'input, textarea, select, button, a, [role="button"], [role="menu"], [role="menuitem"], [role="dialog"], [contenteditable="true"], [data-no-board-gestures="true"], [data-radix-popper-content-wrapper], [data-radix-dropdown-menu-content], [data-radix-dropdown-menu-trigger], .toolbar-container, .mobile-selection-bar'
-        )
-      );
+    const isInteractiveTarget = (target: EventTarget | null, event?: Event) => {
+      const interactiveSelector =
+        'input, textarea, select, button, a, [role="button"], [role="menu"], [role="menuitem"], [role="dialog"], [contenteditable="true"], [data-no-board-gestures="true"], [data-radix-popper-content-wrapper], [data-radix-dropdown-menu-content], [data-radix-dropdown-menu-trigger], .toolbar-container, .mobile-selection-bar';
+
+      const resolveElement = (value: EventTarget | null): Element | null => {
+        if (!value) return null;
+        if (value instanceof Element) return value;
+        if ((value as Node).nodeType === Node.TEXT_NODE) {
+          return (value as Node).parentElement;
+        }
+        return null;
+      };
+
+      const directEl = resolveElement(target);
+      if (directEl?.closest(interactiveSelector)) {
+        return true;
+      }
+
+      const path = event?.composedPath?.() ?? [];
+      for (const entry of path) {
+        const pathEl = resolveElement(entry as EventTarget);
+        if (pathEl?.closest(interactiveSelector)) {
+          return true;
+        }
+      }
+
+      return false;
     };
 
     const findLayerIdFromTouch = (
@@ -4064,14 +4116,14 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
       } as unknown as React.PointerEvent);
 
     const onStart = (e: TouchEvent) => {
-      if (isInteractiveTarget(e.target)) return;
+      if (isInteractiveTarget(e.target, e)) return;
       const touch = getPrimaryTouch(e);
       if (!isTouchInsideSvg(touch)) return;
       e.preventDefault();
 
       const point = toPoint(touch);
       const layerId =
-        !isViewer && e.touches.length === 1 ? findLayerIdFromTouch(e.target, touch) : null;
+        e.touches.length === 1 ? findLayerIdFromTouch(e.target, touch) : null;
 
       inputState = reduceMobileInputState(inputState, {
         type: "TOUCH_START",
@@ -4089,7 +4141,7 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
     };
 
     const onMove = (e: TouchEvent) => {
-      if (isInteractiveTarget(e.target)) return;
+      if (isInteractiveTarget(e.target, e)) return;
       const touch = getPrimaryTouch(e);
       if (!touch) return;
       if (inputState.mode === "idle" && !isTouchInsideSvg(touch)) return;
@@ -4149,7 +4201,7 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
     };
 
     const onEnd = (e: TouchEvent) => {
-      if (isInteractiveTarget(e.target)) return;
+      if (isInteractiveTarget(e.target, e)) return;
       const previousMode = inputState.mode;
       if (previousMode === "idle") return;
       e.preventDefault();
@@ -4173,7 +4225,7 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
         selectLayerByIdRef.current(activeLayerId);
       }
 
-      if (previousMode === "camera_pan" && !activeLayerId && !isViewer) {
+      if (previousMode === "camera_pan" && !activeLayerId) {
         const start = inputState.startPoint;
         const last = inputState.lastPoint ?? start;
         if (start && last) {
