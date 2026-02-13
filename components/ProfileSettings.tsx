@@ -939,7 +939,7 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
                 setDeleteDialogOpen(true);
               }}
             >
-              Open deletion dialog
+              Delete account
             </button>
           </article>
         </aside>
