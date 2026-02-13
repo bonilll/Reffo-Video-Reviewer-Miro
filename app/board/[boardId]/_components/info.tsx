@@ -12,9 +12,10 @@ import { useRenameModal } from "@/store/use-rename-modal";
 type InfoProps = {
   boardId: string;
   projectId?: string | null;
+  compactMobile?: boolean;
 };
 
-export const Info = ({ boardId, projectId }: InfoProps) => {
+export const Info = ({ boardId, projectId, compactMobile = false }: InfoProps) => {
   const { onOpen } = useRenameModal();
   const data = useQuery(api.board.get, {
     id: boardId as Id<"boards">,
@@ -23,6 +24,29 @@ export const Info = ({ boardId, projectId }: InfoProps) => {
   if (!data) return <InfoSkeleton />;
 
   const projectHref = projectId ? `/project/${projectId}` : "/workspaces";
+
+  if (compactMobile) {
+    return (
+      <div className="absolute top-3 left-3 right-3 z-40">
+        <div className="flex items-center gap-2 rounded-xl border border-slate-200/70 bg-white/95 px-2.5 py-2 shadow-lg shadow-slate-200/40 backdrop-blur-md">
+          <Link
+            href={projectHref}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200/70 bg-slate-50/80 text-slate-700 transition-colors hover:bg-white"
+            aria-label="Back to project"
+            data-no-board-gestures="true"
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </Link>
+          <div className="relative h-5 w-5 shrink-0">
+            <Image src="/logo.svg" alt="Reffo Logo" fill className="object-contain" />
+          </div>
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold text-slate-900">{data.title}</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="absolute top-4 left-4 z-40 flex items-center gap-2 rounded-2xl border border-slate-200/70 bg-white/90 px-3 py-2 shadow-xl shadow-slate-200/40 backdrop-blur-md">

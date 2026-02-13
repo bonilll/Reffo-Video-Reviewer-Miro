@@ -4463,6 +4463,8 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
     };
   }, []);
 
+  const isMobileBoardUI = isMobileRuntime && isTouchDevice;
+
   return (
     <main className="board-container">
       <div 
@@ -4471,43 +4473,54 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
         } ${isTouchDevice ? 'mobile-canvas' : ''}`}
         style={{ backgroundColor: gridConfig.backgroundColor }}
       >
-      <Info boardId={boardId} projectId={projectId} />
-      <Participants boardId={boardId} onOpenShare={onOpenShare} />
-      <SecureToolbar
-        canvasState={canvasState}
-        setCanvasState={setCanvasState}
-        undo={history.undo}
-        redo={history.redo}
-        canUndo={canUndo}
-        canRedo={canRedo}
-        camera={camera}
-        setCamera={setCamera}
-        smoothZoom={smoothZoom}
-        setLastUsedColor={setLastUsedColor}
-        centerOnLayers={centerOnLayers}
-        boardId={boardId}
-        gridConfig={gridConfig}
-        onGridConfigChange={updateGridConfig}
-        autoSaveToLibrary={autoSaveToLibrary}
-        onAutoSaveToLibraryChange={updateAutoSaveToLibrary}
-        canEnableAutoSave={canEnableAutoSave}
-        pencilStrokeWidth={pencilStrokeWidth}
-        setPencilStrokeWidth={setPencilStrokeWidth}
-        lastUsedColor={lastUsedColor}
-        setLastUsedFontSize={setLastUsedFontSize}
-        setLastUsedFontWeight={setLastUsedFontWeight}
-        onToggleFrameAutoResize={handleToggleAutoResize}
-        onManualFrameResize={handleManualResize}
-        isTouchDevice={isTouchDevice}
-        onShareBoard={permissions.canShare ? handleShareBoard : undefined}
-        onDownloadBoard={handleDownloadBoard}
-        onDeleteBoard={permissions.canDelete ? handleDeleteBoard : undefined}
-        onBoardSettings={permissions.canAdmin ? handleBoardSettings : undefined}
-        onCreateTodoWidget={handleCreateTodoWidget}
-        onCreateTable={handleCreateTable}
-        showPermissionInfo={false}
-        userRole={isViewer ? "viewer" : userRole}
-      />
+      <Info boardId={boardId} projectId={projectId} compactMobile={isMobileBoardUI} />
+      {!isMobileBoardUI && (
+        <Participants boardId={boardId} onOpenShare={onOpenShare} />
+      )}
+      {!isMobileBoardUI && (
+        <SecureToolbar
+          canvasState={canvasState}
+          setCanvasState={setCanvasState}
+          undo={history.undo}
+          redo={history.redo}
+          canUndo={canUndo}
+          canRedo={canRedo}
+          camera={camera}
+          setCamera={setCamera}
+          smoothZoom={smoothZoom}
+          setLastUsedColor={setLastUsedColor}
+          centerOnLayers={centerOnLayers}
+          boardId={boardId}
+          gridConfig={gridConfig}
+          onGridConfigChange={updateGridConfig}
+          autoSaveToLibrary={autoSaveToLibrary}
+          onAutoSaveToLibraryChange={updateAutoSaveToLibrary}
+          canEnableAutoSave={canEnableAutoSave}
+          pencilStrokeWidth={pencilStrokeWidth}
+          setPencilStrokeWidth={setPencilStrokeWidth}
+          lastUsedColor={lastUsedColor}
+          setLastUsedFontSize={setLastUsedFontSize}
+          setLastUsedFontWeight={setLastUsedFontWeight}
+          onToggleFrameAutoResize={handleToggleAutoResize}
+          onManualFrameResize={handleManualResize}
+          isTouchDevice={isTouchDevice}
+          onShareBoard={permissions.canShare ? handleShareBoard : undefined}
+          onDownloadBoard={handleDownloadBoard}
+          onDeleteBoard={permissions.canDelete ? handleDeleteBoard : undefined}
+          onBoardSettings={permissions.canAdmin ? handleBoardSettings : undefined}
+          onCreateTodoWidget={handleCreateTodoWidget}
+          onCreateTable={handleCreateTable}
+          showPermissionInfo={false}
+          userRole={isViewer ? "viewer" : userRole}
+        />
+      )}
+      {isMobileBoardUI && (
+        <div className="absolute top-3 right-3 z-40" data-no-board-gestures="true">
+          <span className="inline-flex items-center rounded-lg border border-slate-200/80 bg-white/95 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600 shadow-md backdrop-blur-md">
+            View only
+          </span>
+        </div>
+      )}
 
 	      <svg
 	        ref={svgRef}
