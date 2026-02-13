@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useUser } from '@clerk/clerk-react';
+import { useClerk, useUser } from '@clerk/clerk-react';
 import { useAction, useMutation, useQuery } from 'convex/react';
 import { api } from '../convex/_generated/api';
 import { Project, ShareGroup, UserSettings } from '../types';
@@ -13,6 +13,7 @@ import {
   ShieldCheck,
   Users,
   Loader2,
+  AlertTriangle,
 } from 'lucide-react';
 import { useThemePreference } from '../useTheme';
 import lottieLoaderRaw from '../assets/animations/Loader.json?raw';
@@ -36,6 +37,7 @@ interface ProfileSettingsProps {
 }
 
 const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBack }) => {
+  const { signOut } = useClerk();
   const { user: clerkUser } = useUser();
   const settingsDoc = useQuery(api.settings.getOrNull, {});
   const shareGroups = useQuery(api.shareGroups.list, {});
@@ -52,6 +54,7 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
   const friends = useQuery(api.friends.list, {});
   const addFriend = useMutation(api.friends.add);
   const removeFriend = useMutation(api.friends.remove);
+  const deleteAccount = useMutation(api.users.deleteAccount);
 
   const [displayName, setDisplayName] = useState(user.name ?? '');
   const [avatarUrl, setAvatarUrl] = useState(user.avatar ?? '');
@@ -64,6 +67,10 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
   const [localSettings, setLocalSettings] = useState<UserSettings | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [profileSaving, setProfileSaving] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deletingAccount, setDeletingAccount] = useState(false);
 
   useEffect(() => {
     if (uploadingAvatar) return;
@@ -232,6 +239,44 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
     });
     setIsSaving(false);
   };
+
+  const handleDeleteAccount = useCallback(async () => {
+    if (deletingAccount) return;
+    if (deleteConfirmText.trim().toUpperCase() !== 'DELETE') {
+      setDeleteError('Type DELETE to confirm account removal.');
+      return;
+    }
+
+    setDeletingAccount(true);
+    setDeleteError(null);
+
+    try {
+      await deleteAccount({ confirm: true });
+
+      try {
+        const deleteClerkUser = (clerkUser as any)?.delete;
+        if (typeof deleteClerkUser === 'function') {
+          await deleteClerkUser.call(clerkUser);
+        }
+      } catch (error) {
+        console.warn('Failed to delete Clerk user, continuing with sign-out.', error);
+      }
+
+      try {
+        await signOut({ redirectUrl: '/' } as any);
+        return;
+      } catch {
+        window.location.assign('/');
+      }
+    } catch (error) {
+      console.error('Failed to delete account', error);
+      setDeleteError(
+        'Unable to delete your account right now. Please try again in a few moments.',
+      );
+    } finally {
+      setDeletingAccount(false);
+    }
+  }, [clerkUser, deleteAccount, deleteConfirmText, deletingAccount, signOut]);
 
   const clerkAvatarUrl = clerkUser?.imageUrl ?? null;
   const authAvatarUrl = user.authAvatar ?? clerkAvatarUrl ?? null;
@@ -488,6 +533,65 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
                 {uploadingAvatar ? 'Uploading…' : 'Upload custom'}
               </button>
             </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={deleteDialogOpen}
+        onOpenChange={(open) => {
+          if (deletingAccount) return;
+          setDeleteDialogOpen(open);
+          if (!open) {
+            setDeleteConfirmText('');
+            setDeleteError(null);
+          }
+        }}
+      >
+        <DialogContent className="bg-white text-gray-900 sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Delete account permanently</DialogTitle>
+            <DialogDescription>
+              This action immediately removes your account data. Shared content ownership will be reassigned to an account already involved in sharing.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            <label className="block text-xs font-semibold uppercase text-gray-500">
+              Type DELETE to confirm
+            </label>
+            <input
+              value={deleteConfirmText}
+              onChange={(event) => {
+                setDeleteConfirmText(event.target.value);
+                setDeleteError(null);
+              }}
+              placeholder="DELETE"
+              className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-300"
+            />
+            {deleteError ? (
+              <p className="text-xs font-medium text-red-600">{deleteError}</p>
+            ) : null}
+          </div>
+
+          <DialogFooter className="flex flex-row items-center justify-end gap-2">
+            <button
+              type="button"
+              disabled={deletingAccount}
+              className="rounded-full border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-gray-700 hover:text-gray-900 disabled:opacity-40"
+              onClick={() => setDeleteDialogOpen(false)}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={deletingAccount || deleteConfirmText.trim().toUpperCase() !== 'DELETE'}
+              className="inline-flex items-center gap-2 rounded-full bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-40"
+              onClick={() => void handleDeleteAccount()}
+            >
+              {deletingAccount ? <Loader2 size={14} className="animate-spin" /> : null}
+              Delete account
+            </button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -816,6 +920,27 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
               <p className="mt-1">Reffo is currently in beta testing and free to use.</p>
               <p className="mt-1">Pricing will be announced later, and you’ll be notified well in advance.</p>
             </div>
+          </article>
+
+          <article className="library-panel border border-red-200 p-4 sm:p-6">
+            <div className="flex items-center gap-3 text-red-700">
+              <AlertTriangle size={18} />
+              <h2 className="text-lg font-semibold">Delete account</h2>
+            </div>
+            <p className="mt-2 text-sm text-gray-600">
+              Permanently delete your account and related data. Shared resources are reassigned to an account already included in your sharing setup.
+            </p>
+            <button
+              type="button"
+              className="mt-4 rounded-full border border-red-300 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-100"
+              onClick={() => {
+                setDeleteConfirmText('');
+                setDeleteError(null);
+                setDeleteDialogOpen(true);
+              }}
+            >
+              Open deletion dialog
+            </button>
           </article>
         </aside>
       </section>
