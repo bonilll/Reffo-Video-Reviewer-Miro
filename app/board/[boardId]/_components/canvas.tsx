@@ -64,6 +64,7 @@ import {
   isLayerMode,
   reduceMobileInputState,
 } from "./mobile-input-engine";
+import { isMobileBoardReadOnlyEnabled } from "@/lib/feature-flags";
 
 import { 
   colorToCSS, 
@@ -153,8 +154,10 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
     updateMyPresence({ profile: { name: meName, picture: mePicture } });
   }, [me?._id, meName, mePicture, updateMyPresence]);
 
+  // Read-only mode can be enabled only for mobile runtime via feature flag.
+  const isMobileReadOnly = isMobileRuntime && isMobileBoardReadOnlyEnabled();
   // 🛡️ SECURITY: Viewer restrictions - disable editing for viewers
-  const isViewer = userRole === "viewer";
+  const isViewer = userRole === "viewer" || isMobileReadOnly;
   
   // Get board permissions and project info for todo list selector
   const { projectId } = useResourcePermissions("board", boardId as Id<"boards">);
@@ -1518,8 +1521,9 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
   }, []);
 
   const selectLayerById = useMutation(({ setMyPresence }, layerId: string) => {
+    if (isViewer) return;
     setMyPresence({ selection: [layerId] }, { addToHistory: true });
-  }, []);
+  }, [isViewer]);
 
   const updateSelectionNet = useMutation(
     ({ storage, setMyPresence }, current: Point, origin: Point) => {
@@ -4059,7 +4063,7 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
 
       const point = toPoint(touch);
       const layerId =
-        e.touches.length === 1 ? findLayerIdFromTouch(e.target, touch) : null;
+        !isViewer && e.touches.length === 1 ? findLayerIdFromTouch(e.target, touch) : null;
 
       inputState = reduceMobileInputState(inputState, {
         type: "TOUCH_START",
@@ -4185,6 +4189,7 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
   }, [
     isMobileRuntime,
     isTouchDevice,
+    isViewer,
   ]);
 
   const onContextMenu = useCallback((e: React.MouseEvent) => {
@@ -4421,7 +4426,7 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
         onCreateTodoWidget={handleCreateTodoWidget}
         onCreateTable={handleCreateTable}
         showPermissionInfo={false}
-        userRole={userRole}
+        userRole={isViewer ? "viewer" : userRole}
       />
 
 	      <svg
