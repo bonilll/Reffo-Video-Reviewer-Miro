@@ -3945,6 +3945,7 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
   const onPointerMoveRef = useRef(onPointerMove);
   const onPointerUpRef = useRef(onPointerUp);
   const selectLayerByIdRef = useRef(selectLayerById);
+  const unselectLayersRef = useRef(unselectLayers);
 
   useEffect(() => {
     handleTouchStartRef.current = handleTouchStart;
@@ -3973,6 +3974,10 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
   useEffect(() => {
     selectLayerByIdRef.current = selectLayerById;
   }, [selectLayerById]);
+
+  useEffect(() => {
+    unselectLayersRef.current = unselectLayers;
+  }, [unselectLayers]);
 
   // Mobile V2 input engine: explicit arbitration between camera and layer interactions.
   useEffect(() => {
@@ -4012,7 +4017,7 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
       if (!el) return false;
       return Boolean(
         el.closest(
-          'input, textarea, select, button, a, [contenteditable="true"], [data-no-board-gestures="true"]'
+          'input, textarea, select, button, a, [role="button"], [role="menu"], [role="menuitem"], [role="dialog"], [contenteditable="true"], [data-no-board-gestures="true"], [data-radix-popper-content-wrapper], [data-radix-dropdown-menu-content], [data-radix-dropdown-menu-trigger], .toolbar-container, .mobile-selection-bar'
         )
       );
     };
@@ -4036,11 +4041,14 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
       return null;
     };
 
-    const toSyntheticPointerEvent = (touch: Touch, sourceEvent: TouchEvent): React.PointerEvent =>
+    const toSyntheticPointerEvent = (
+      point: { x: number; y: number },
+      sourceEvent: TouchEvent,
+    ): React.PointerEvent =>
       ({
-        clientX: touch.clientX,
-        clientY: touch.clientY,
-        pressure: touch.force && touch.force > 0 ? touch.force : 0.5,
+        clientX: point.x,
+        clientY: point.y,
+        pressure: 0.5,
         pointerType: "touch",
         shiftKey: sourceEvent.shiftKey,
         altKey: sourceEvent.altKey,
@@ -4103,7 +4111,9 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
         isCameraMode(inputState.mode)
       ) {
         if (activeLayerId && didStartLayerDrag) {
-          onPointerUpRef.current(toSyntheticPointerEvent(touch, e));
+          onPointerUpRef.current(
+            toSyntheticPointerEvent({ x: touch.clientX, y: touch.clientY }, e),
+          );
         }
         activeLayerId = null;
         didStartLayerDrag = false;
@@ -4128,11 +4138,13 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
 
       if (inputState.mode === "layer_drag" && activeLayerId) {
         if (!didStartLayerDrag) {
-          onLayerPointerDownRef.current(toSyntheticPointerEvent(touch, e), activeLayerId);
+          const dragStartPoint = inputState.startPoint ?? { x: touch.clientX, y: touch.clientY };
+          onLayerPointerDownRef.current(toSyntheticPointerEvent(dragStartPoint, e), activeLayerId);
           didStartLayerDrag = true;
-          return;
         }
-        onPointerMoveRef.current(toSyntheticPointerEvent(touch, e));
+        onPointerMoveRef.current(
+          toSyntheticPointerEvent({ x: touch.clientX, y: touch.clientY }, e),
+        );
       }
     };
 
@@ -4161,12 +4173,28 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
         selectLayerByIdRef.current(activeLayerId);
       }
 
+      if (previousMode === "camera_pan" && !activeLayerId && !isViewer) {
+        const start = inputState.startPoint;
+        const last = inputState.lastPoint ?? start;
+        if (start && last) {
+          const dx = last.x - start.x;
+          const dy = last.y - start.y;
+          const movement = Math.hypot(dx, dy);
+          if (movement < 6) {
+            // Empty tap should clear selection.
+            unselectLayersRef.current();
+          }
+        }
+      }
+
       if (
         (previousMode === "layer_drag" || didStartLayerDrag) &&
         activeLayerId &&
         touch
       ) {
-        onPointerUpRef.current(toSyntheticPointerEvent(touch, e));
+        onPointerUpRef.current(
+          toSyntheticPointerEvent({ x: touch.clientX, y: touch.clientY }, e),
+        );
       }
 
       if (e.touches.length === 0) {
