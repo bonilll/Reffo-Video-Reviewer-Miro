@@ -1,6 +1,6 @@
 import React from 'react';
 import { Annotation, AnnotationTool } from '../types';
-import { MousePointer2, Pen, Square, Circle, MoveUpRight, MessageSquare, Undo, Redo, SquareStack, SlidersHorizontal, Droplet, MoreHorizontal, X, Trash2 } from 'lucide-react';
+import { MousePointer2, Pen, Square, Circle, MoveUpRight, MessageSquare, Undo, Redo, SquareStack, Droplet, MoreHorizontal, X, Trash2 } from 'lucide-react';
 
 interface ToolbarProps {
   activeTool: AnnotationTool;
@@ -65,21 +65,13 @@ const Toolbar: React.FC<ToolbarProps> = ({
   onOpenReplace,
 }) => {
   
-  const isDrawingTool = [AnnotationTool.FREEHAND, AnnotationTool.RECTANGLE, AnnotationTool.ELLIPSE, AnnotationTool.ARROW].includes(activeTool);
   const isTextTool = activeTool === AnnotationTool.TEXT;
-  const supportsFill = [AnnotationTool.RECTANGLE, AnnotationTool.ELLIPSE].includes(activeTool);
-  const selectionHasDrawing =
-    selectedAnnotations.some((a) =>
-      a.type === AnnotationTool.FREEHAND ||
-      a.type === AnnotationTool.RECTANGLE ||
-      a.type === AnnotationTool.ELLIPSE ||
-      a.type === AnnotationTool.ARROW,
-    );
   const selectionHasText = selectedAnnotations.some((a) => a.type === AnnotationTool.TEXT);
-  const selectionSupportsFill = selectedAnnotations.some((a) => a.type === AnnotationTool.RECTANGLE || a.type === AnnotationTool.ELLIPSE);
-  const showStrokeControls = isDrawingTool || selectionHasDrawing;
+  const showStrokeControls = true;
   const showFontControls = isTextTool || selectionHasText;
-  const showFillControls = supportsFill || selectionSupportsFill;
+  const showFillControls = true;
+  const showShapePanelControls = showFillControls || showStrokeControls;
+  const shapePanelTitle = showFillControls && showStrokeControls ? 'Fill & Stroke' : showFillControls ? 'Fill' : 'Stroke';
   const [openPanel, setOpenPanel] = React.useState<null | 'style' | 'fill' | 'more'>(null);
   const [mobileOpen, setMobileOpen] = React.useState(false);
   const rootRef = React.useRef<HTMLDivElement>(null);
@@ -163,11 +155,14 @@ const Toolbar: React.FC<ToolbarProps> = ({
             onClick={() => setOpenPanel(openPanel === 'style' ? null : 'style')}
             className={`h-8 w-8 inline-flex items-center justify-center rounded-full ${isDark ? 'hover:bg-white/10' : 'hover:bg-gray-100'}`}
           >
-            <SlidersHorizontal size={16} />
+            <span
+              className={`h-4 w-4 rounded-full border ${isDark ? 'border-white/40' : 'border-gray-400'}`}
+              style={{ backgroundColor: brushColor }}
+            />
           </button>
-          {showFillControls && (
+          {showShapePanelControls && (
             <button
-              title="Fill"
+              title={shapePanelTitle}
               onClick={() => setOpenPanel(openPanel === 'fill' ? null : 'fill')}
               className={`h-8 w-8 inline-flex items-center justify-center rounded-full ${isDark ? 'hover:bg-white/10' : 'hover:bg-gray-100'}`}
             >
@@ -294,11 +289,14 @@ const Toolbar: React.FC<ToolbarProps> = ({
                   onClick={() => setOpenPanel(openPanel === 'style' ? null : 'style')}
                   className={`h-10 w-10 inline-flex items-center justify-center rounded-full ${isDark ? 'hover:bg-white/10' : 'hover:bg-gray-100'}`}
                 >
-                  <SlidersHorizontal size={18} />
+                  <span
+                    className={`h-5 w-5 rounded-full border ${isDark ? 'border-white/40' : 'border-gray-400'}`}
+                    style={{ backgroundColor: brushColor }}
+                  />
                 </button>
-                {showFillControls && (
+                {showShapePanelControls && (
                   <button
-                    title="Fill"
+                    title={shapePanelTitle}
                     onClick={() => setOpenPanel(openPanel === 'fill' ? null : 'fill')}
                     className={`h-10 w-10 inline-flex items-center justify-center rounded-full ${isDark ? 'hover:bg-white/10' : 'hover:bg-gray-100'}`}
                   >
@@ -341,20 +339,6 @@ const Toolbar: React.FC<ToolbarProps> = ({
                 />
               ))}
             </div>
-            {showStrokeControls && (
-              <div className="flex items-center gap-3">
-                <span className="text-[11px] uppercase opacity-70">Stroke</span>
-                <input
-                  type="range"
-                  min={1}
-                  max={24}
-                  value={brushSize}
-                  onChange={(e) => setBrushSize(Number(e.target.value))}
-                  className={`w-40 h-1 ${isDark ? 'accent-white' : 'accent-black'}`}
-                />
-                <span className="text-xs opacity-70 w-8 tabular-nums">{brushSize}</span>
-              </div>
-            )}
             {showFontControls && (
               <div className="flex items-center gap-3">
                 <span className="text-[11px] uppercase opacity-70">Font</span>
@@ -373,39 +357,57 @@ const Toolbar: React.FC<ToolbarProps> = ({
         </div>
       )}
 
-      {openPanel === 'fill' && showFillControls && (
+      {openPanel === 'fill' && showShapePanelControls && (
         <div
           className={`absolute bottom-full mb-3 left-1/2 -translate-x-1/2 rounded-3xl border shadow-2xl backdrop-blur-md overflow-hidden max-h-[60vh] ${
             isDark ? 'bg-black/85 border-white/10 text-white' : 'bg-white/95 border-gray-200 text-gray-900'
           }`}
         >
           <div className={`px-4 py-3 flex items-center justify-between ${isDark ? 'bg-white/5 border-b border-white/10' : 'bg-gray-50 border-b border-gray-200'}`}>
-            <span className="text-xs font-semibold uppercase tracking-[0.2em] opacity-70">Fill</span>
+            <span className="text-xs font-semibold uppercase tracking-[0.2em] opacity-70">{shapePanelTitle}</span>
             <button className={`p-1 rounded-full ${isDark ? 'hover:bg-white/10' : 'hover:bg-gray-100'}`} onClick={closePanels}><X size={14} /></button>
           </div>
           <div className="p-4 flex flex-col gap-4 min-w-[260px] overflow-y-auto">
-            <div className="flex items-center justify-between">
-              <span className="text-sm">Enable</span>
-              <button
-                onClick={() => onToggleShapeFill(!shapeFillEnabled)}
-                className={`${shapeFillEnabled ? (isDark ? 'bg-white text-black' : 'bg-black text-gray-50') : (isDark ? 'bg-white/10 text-white/80' : 'bg-black/5 text-gray-800')} px-3 py-1 rounded-full text-xs font-semibold`}
-              >
-                {shapeFillEnabled ? 'On' : 'Off'}
-              </button>
-            </div>
-            <div className="flex items-center gap-3">
-              <span className="text-[11px] uppercase opacity-70">Opacity</span>
-              <input
-                type="range"
-                min={5}
-                max={100}
-                value={Math.round(Math.max(0, Math.min(1, shapeFillOpacity)) * 100)}
-                onChange={(e) => onChangeShapeFillOpacity(Number(e.target.value) / 100)}
-                className={`w-40 h-1 ${isDark ? 'accent-white' : 'accent-black'}`}
-                disabled={!shapeFillEnabled}
-              />
-              <span className="text-xs opacity-70 w-10 tabular-nums">{Math.round(shapeFillOpacity * 100)}%</span>
-            </div>
+            {showStrokeControls && (
+              <div className="flex items-center gap-3">
+                <span className="text-[11px] uppercase opacity-70">Stroke</span>
+                <input
+                  type="range"
+                  min={1}
+                  max={24}
+                  value={brushSize}
+                  onChange={(e) => setBrushSize(Number(e.target.value))}
+                  className={`w-40 h-1 ${isDark ? 'accent-white' : 'accent-black'}`}
+                />
+                <span className="text-xs opacity-70 w-8 tabular-nums">{brushSize}</span>
+              </div>
+            )}
+            {showFillControls && (
+              <>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm">Enable</span>
+                  <button
+                    onClick={() => onToggleShapeFill(!shapeFillEnabled)}
+                    className={`${shapeFillEnabled ? (isDark ? 'bg-white text-black' : 'bg-black text-gray-50') : (isDark ? 'bg-white/10 text-white/80' : 'bg-black/5 text-gray-800')} px-3 py-1 rounded-full text-xs font-semibold`}
+                  >
+                    {shapeFillEnabled ? 'On' : 'Off'}
+                  </button>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-[11px] uppercase opacity-70">Opacity</span>
+                  <input
+                    type="range"
+                    min={5}
+                    max={100}
+                    value={Math.round(Math.max(0, Math.min(1, shapeFillOpacity)) * 100)}
+                    onChange={(e) => onChangeShapeFillOpacity(Number(e.target.value) / 100)}
+                    className={`w-40 h-1 ${isDark ? 'accent-white' : 'accent-black'}`}
+                    disabled={!shapeFillEnabled}
+                  />
+                  <span className="text-xs opacity-70 w-10 tabular-nums">{Math.round(shapeFillOpacity * 100)}%</span>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

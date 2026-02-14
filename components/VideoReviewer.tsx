@@ -14,7 +14,7 @@ import VideoPlayer from './VideoPlayer';
 import AnnotationCanvas from './AnnotationCanvas';
 import CommentsPane from './CommentsPane';
 import Toolbar from './Toolbar';
-import { ChevronLeft, Eye, EyeOff, Play, Pause, Volume2, VolumeX, SkipBack, SkipForward, StepBack, StepForward, Maximize, Minimize, Share2, PanelRightOpen, PanelRightClose } from 'lucide-react';
+import { ChevronLeft, ChevronDown, ChevronUp, Eye, EyeOff, Play, Pause, Volume2, VolumeX, SkipBack, SkipForward, StepBack, StepForward, Maximize, Minimize, Share2, PanelRightOpen, PanelRightClose } from 'lucide-react';
 import Timeline from './Timeline';
 import { useQuery, useMutation, useAction } from 'convex/react';
 import { api } from '../convex/_generated/api';
@@ -55,6 +55,15 @@ const loadCommentSeenMap = (videoId: string): Record<string, number> => {
 };
 
 const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
+const IMAGE_EXT_RE = /\.(png|jpe?g|gif|webp|avif|bmp|svg)(?:[\?#].*)?$/i;
+const isImageLikePath = (value?: string | null) => {
+  if (!value) return false;
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  if (trimmed.startsWith('data:image/')) return true;
+  const path = trimmed.split('?')[0].split('#')[0];
+  return IMAGE_EXT_RE.test(path);
+};
 
 type NotificationRecord = {
   id: string;
@@ -149,7 +158,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
   const [brushSize, setBrushSizeState] = useState(4);
   const [fontSize, setFontSize] = useState(16);
   const [shapeFillEnabled, setShapeFillEnabled] = useState(false);
-  const [shapeFillOpacity, setShapeFillOpacity] = useState(0.35);
+  const [shapeFillOpacity, setShapeFillOpacity] = useState(1);
   const undoStack = useRef<AnnotationHistoryEntry[]>([]);
   const redoStack = useRef<AnnotationHistoryEntry[]>([]);
   const historyRecordingRef = useRef(true);
@@ -357,6 +366,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
   const [compareSource, setCompareSource] = useState<{ url: string; name: string; objectUrl?: boolean } | null>(null);
   const [compareMode, setCompareMode] = useState<CompareMode>('overlay');
   const [compareOpacity, setCompareOpacity] = useState(0.6);
+  const [comparePanelCollapsed, setComparePanelCollapsed] = useState(false);
   const [compareDraft, setCompareDraft] = useState<{ url: string | null; name: string | null; objectUrl?: boolean; mode: CompareMode; opacity: number; offsetFrames: number }>({ url: null, name: null, objectUrl: false, mode: 'overlay', opacity: 0.6, offsetFrames: 0 });
   const compareVideoOverlayRef = useRef<HTMLVideoElement>(null);
   const compareVideoSideRef = useRef<HTMLVideoElement>(null);
@@ -649,6 +659,11 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
   }, [compareSource]);
 
   useEffect(() => {
+    if (!compareSource) return;
+    setComparePanelCollapsed(false);
+  }, [compareSource]);
+
+  useEffect(() => {
     return () => {
       if (prevCompareUrlRef.current && prevCompareUrlRef.current.startsWith('blob:')) {
         URL.revokeObjectURL(prevCompareUrlRef.current);
@@ -679,6 +694,19 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
     setup();
     return () => { cancelled = true; };
   }, [video.id, video.storageKey, video.src, sourceUrl, getDownloadUrlAction]);
+
+  const isImageReview = useMemo(() => {
+    if (
+      isImageLikePath(playbackUrl) ||
+      isImageLikePath(sourceUrl) ||
+      isImageLikePath(video.src)
+    ) {
+      return true;
+    }
+    const hasStaticTiming = Number(video.duration) <= 0.001;
+    const hasStaticFps = Number(video.fps) <= 1.5;
+    return hasStaticTiming && hasStaticFps;
+  }, [playbackUrl, sourceUrl, video.duration, video.fps, video.src]);
 
   // Fallback if the main video fails to become playable
   useEffect(() => {
@@ -719,6 +747,21 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
       if (timer) window.clearTimeout(timer);
     };
   }, [playbackUrl, playbackKind, playbackAttempt, video.storageKey, video.src, getDownloadUrlAction]);
+
+  useEffect(() => {
+    if (!isImageReview) return;
+    setIsPlaying(false);
+    setCurrentTime(0);
+    setCurrentFrame(0);
+    setDuration(0);
+    setLoopEnabled(false);
+    setAbLoopEnabled(false);
+    setAbA(null);
+    setAbB(null);
+    setCompareSource(null);
+    setCompareModalOpen(false);
+    setComparePanelCollapsed(false);
+  }, [isImageReview]);
 
   const compareElements = useCallback(() => {
     const els: HTMLVideoElement[] = [];
@@ -761,6 +804,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
   }, [compareOffsetFrames, video.fps, isPlaying]);
 
   useEffect(() => {
+    if (isImageReview) return;
     const els = compareElements();
     els.forEach((el) => {
       if (!compareSource) {
@@ -782,9 +826,10 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
       }
     });
     // Also resync when layout/mode or offset changes so newly mounted element plays in sync
-  }, [compareSource, compareMode, compareOffsetFrames, video.fps, loopEnabled, isPlaying, compareElements, syncCompareElement]);
+  }, [isImageReview, compareSource, compareMode, compareOffsetFrames, video.fps, loopEnabled, isPlaying, compareElements, syncCompareElement]);
 
   useEffect(() => {
+    if (isImageReview) return;
     const els = compareElements();
     els.forEach((el) => {
       if (!compareSource) return;
@@ -792,7 +837,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
       if (!Number.isNaN(mainTime)) syncCompareElement(el, mainTime);
     });
     // Ensure play/pause and minor drift corrections when switching between overlay/side-by-side
-  }, [isPlaying, compareSource, compareMode, compareElements, syncCompareElement]);
+  }, [isImageReview, isPlaying, compareSource, compareMode, compareElements, syncCompareElement]);
 
   const convertAnnotationFromServer = useCallback((doc: any): Annotation => {
     const { id, videoId: docVideoId, authorId, createdAt, ...rest } = doc;
@@ -806,6 +851,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
   }, []);
 
   const openCompareModal = useCallback(() => {
+    if (isImageReview) return;
     if (draftUrlRef.current && draftUrlRef.current.startsWith('blob:')) {
       URL.revokeObjectURL(draftUrlRef.current);
       draftUrlRef.current = null;
@@ -819,7 +865,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
       offsetFrames: compareOffsetFrames,
     });
     setCompareModalOpen(true);
-  }, [compareSource, compareMode, compareOpacity, compareOffsetFrames]);
+  }, [isImageReview, compareSource, compareMode, compareOpacity, compareOffsetFrames]);
 
   const closeCompareModal = useCallback(() => {
     if (draftUrlRef.current && draftUrlRef.current.startsWith('blob:')) {
@@ -953,6 +999,11 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
   }, [video.id]);
 
 	  const handleTimeUpdate = (time: number, frame: number) => {
+      if (isImageReview) {
+        if (currentTime !== 0) setCurrentTime(0);
+        if (currentFrame !== 0) setCurrentFrame(0);
+        return;
+      }
 	    // Keep React updates bounded; the <video> paints itself, so UI can update slower than the decode rate.
 	    const now = performance.now();
 	    pendingTimeRef.current = time;
@@ -979,7 +1030,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
         return;
       }
     }
-    if (compareSource) {
+    if (!isImageReview && compareSource) {
       const els = compareElements();
       for (const el of els) syncCompareElement(el, time);
     }
@@ -995,6 +1046,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
 	  
 	  const applySeek = useCallback(
 	    (time: number) => {
+        if (isImageReview) return;
 	      const el = videoRef.current;
 	      if (!el) return;
 	      const clamped = Math.max(0, Math.min(duration > 0 ? duration : Number.POSITIVE_INFINITY, time));
@@ -1029,7 +1081,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
 	        });
 	      }
 	    },
-	    [compareElements, compareSource, duration, video.fps],
+	    [isImageReview, compareElements, compareSource, duration, video.fps],
 	  );
 
 	  const handleSeek = useCallback(
@@ -1057,9 +1109,22 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
 	  }, []);
 
   const handleAddAnnotation = useCallback((newAnnotation: Omit<Annotation, 'id' | 'videoId' | 'authorId' | 'createdAt'>) => {
+    const frameAnnotations = annotations.filter((annotation) => annotation.frame === newAnnotation.frame);
+    const maxLayer = frameAnnotations.reduce((max, annotation, index) => {
+      const rawLayer = (annotation as any).zIndex;
+      const layer = Number.isFinite(rawLayer) ? Number(rawLayer) : index;
+      return Math.max(max, layer);
+    }, -1);
+    const requestedLayer = (newAnnotation as any).zIndex;
+    const normalizedLayer = Number.isFinite(requestedLayer) ? Math.round(Number(requestedLayer)) : maxLayer + 1;
+    const annotationPayload = {
+      ...(newAnnotation as any),
+      zIndex: normalizedLayer,
+    } as Omit<Annotation, 'id' | 'videoId' | 'authorId' | 'createdAt'>;
+
     const tempId = `client-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const temp: Annotation = {
-      ...(newAnnotation as any),
+      ...(annotationPayload as any),
       id: tempId,
       videoId: video.id,
       authorId: 'me',
@@ -1070,7 +1135,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
       try {
         const created = await createAnnotationMutation({
           videoId,
-          annotation: newAnnotation as any,
+          annotation: annotationPayload as any,
         });
         const real = convertAnnotationFromServer(created);
         setAnnotations(prev => prev.map(a => (a.id === tempId ? real : a)));
@@ -1086,7 +1151,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
       }
     })();
     return tempId;
-  }, [createAnnotationMutation, videoId, convertAnnotationFromServer, video.id, pushHistory]);
+  }, [annotations, createAnnotationMutation, videoId, convertAnnotationFromServer, video.id, pushHistory]);
 
   const copySelectedAnnotations = useCallback(() => {
     if (selectedAnnotations.length === 0) return;
@@ -1112,6 +1177,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
       for (const raw of payloads) {
         if (!raw || typeof raw !== 'object') continue;
         const next: any = { ...raw, frame: currentFrame };
+        delete next.zIndex; // New paste goes above existing layers on the current frame.
         switch (next.type) {
           case AnnotationTool.FREEHAND:
             if (Array.isArray(next.points)) next.points = next.points.map(clampPoint);
@@ -1353,9 +1419,9 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
     (enabled: boolean) => {
       setShapeFillEnabled(enabled);
       let targetOpacity = shapeFillOpacity;
-      if (enabled && targetOpacity <= 0) {
-        targetOpacity = 0.35;
-        setShapeFillOpacity(0.35);
+      if (enabled) {
+        targetOpacity = 1;
+        setShapeFillOpacity(1);
       }
       if (!enabled) {
         targetOpacity = 0;
@@ -1395,6 +1461,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
   );
 
   useEffect(() => {
+    if (activeTool !== AnnotationTool.SELECT) return;
     if (selectedAnnotationIds.length === 0) return;
     const selectedSet = new Set(selectedAnnotationIds);
     const shapes = annotations.filter(
@@ -1410,10 +1477,11 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
       const average = opacities.reduce((sum, value) => sum + value, 0) / opacities.length;
       setShapeFillOpacity(clamp01(average));
     }
-  }, [annotations, selectedAnnotationIds, setShapeFillEnabled, setShapeFillOpacity]);
+  }, [activeTool, annotations, selectedAnnotationIds, setShapeFillEnabled, setShapeFillOpacity]);
 
   // Keep style controls in sync with selected annotations (so you can edit while the Select tool is active).
   useEffect(() => {
+    if (activeTool !== AnnotationTool.SELECT) return;
     if (selectedAnnotations.length === 0) return;
 
     // Color: only auto-sync when selection is uniform.
@@ -1447,7 +1515,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
         setFontSize(Math.max(10, Math.min(48, avg)));
       }
     }
-  }, [selectedAnnotations, setBrushColorState, setBrushSizeState, setFontSize]);
+  }, [activeTool, selectedAnnotations, setBrushColorState, setBrushSizeState, setFontSize]);
 
   const handleAddComment = useCallback((text: string, parentId?: string) => {
     const pendingPosition = pendingComment?.position;
@@ -1544,6 +1612,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
   }, []);
 
   const jumpToFrame = (frame: number | undefined) => {
+    if (isImageReview) return;
     if (frame !== undefined) {
       handleSeek(frame / video.fps);
     }
@@ -1617,7 +1686,10 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
       initialFocus.frame ??
       (targetComment && typeof targetComment.frame === 'number' ? targetComment.frame : undefined);
 
-    if (typeof resolvedFrame === 'number' && Number.isFinite(video.fps) && video.fps > 0) {
+    if (isImageReview) {
+      setCurrentTime(0);
+      setCurrentFrame(0);
+    } else if (typeof resolvedFrame === 'number' && Number.isFinite(video.fps) && video.fps > 0) {
       const time = resolvedFrame / video.fps;
       if (videoRef.current) {
         try {
@@ -1641,6 +1713,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
     initialFocus,
     comments,
     video.id,
+    isImageReview,
     effectiveFps,
     compareSource,
     compareElements,
@@ -1650,10 +1723,11 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
 
   // Derived helpers for external controls
   const stepFrame = useCallback((deltaFrames: number) => {
+    if (isImageReview) return;
     const fps = Math.max(1, Math.floor(video.fps || 24));
     const newTime = Math.max(0, Math.min(duration, (currentFrame + deltaFrames) / fps));
     handleSeek(newTime);
-  }, [currentFrame, duration, video.fps, handleSeek]);
+  }, [isImageReview, currentFrame, duration, video.fps, handleSeek]);
 
   const jumpFrames = useMemo(() => {
     const frames = new Set<number>();
@@ -1664,6 +1738,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
   const hasJumpMarks = jumpFrames.length > 0;
 
   const handleJump = useCallback((direction: 'prev' | 'next') => {
+    if (isImageReview) return;
     let targetFrame: number | undefined;
     if (direction === 'next') {
       targetFrame = jumpFrames.find(f => f > currentFrame);
@@ -1674,7 +1749,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
       if (targetFrame === undefined && jumpFrames.length) targetFrame = jumpFrames[jumpFrames.length - 1];
     }
     if (targetFrame !== undefined) handleSeek(targetFrame / Math.max(1, Math.floor(video.fps || 24)));
-  }, [jumpFrames, currentFrame, handleSeek, video.fps]);
+  }, [isImageReview, jumpFrames, currentFrame, handleSeek, video.fps]);
 
   // Keyboard shortcuts:
   // - Space: play/pause
@@ -1713,6 +1788,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
         !e.ctrlKey &&
         !e.altKey
       ) {
+        if (isImageReview) return;
         e.preventDefault();
         if (e.shiftKey) {
           if (jumpFrames.length > 0) {
@@ -1732,6 +1808,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
         !e.ctrlKey &&
         !e.altKey
       ) {
+        if (isImageReview) return;
         e.preventDefault();
         setIsPlaying((p) => !p);
         return;
@@ -1754,7 +1831,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [canUndo, canRedo, triggerRedo, triggerUndo, stepFrame, handleJump, jumpFrames.length, copySelectedAnnotations, selectedAnnotations.length]);
+  }, [isImageReview, canUndo, canRedo, triggerRedo, triggerUndo, stepFrame, handleJump, jumpFrames.length, copySelectedAnnotations, selectedAnnotations.length]);
 
   useEffect(() => {
     const onPaste = (e: ClipboardEvent) => {
@@ -1896,6 +1973,9 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
   }, []);
   
   const headerDuration = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : (duration || 0);
+  const headerMeta = isImageReview
+    ? `${video.width}×${video.height} • Image`
+    : `${video.width}×${video.height} • ${fpsDetected ? `${effectiveFps} fps` : '... fps'} • ${formatClock(headerDuration)}`;
 
   useEffect(() => {
     if (insertEditOpen) {
@@ -1936,7 +2016,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
 
   const handleAttachEditedClip = useCallback(async () => {
     if (!selectedExportId) {
-      setAttachError('Seleziona prima un export.');
+      setAttachError('Select an export first.');
       return;
     }
     setAttachError(null);
@@ -1949,7 +2029,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
       });
       setInsertEditOpen(false);
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Impossibile inserire la clip.';
+      const message = err instanceof Error ? err.message : 'Unable to insert the clip.';
       setAttachError(message);
     } finally {
       setAttachLoading(false);
@@ -2062,7 +2142,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
 	                      {video.title}
 	                    </h1>
 	                    <div className={`${ui.subtleText} text-[11px]`}>
-	                      {video.width}×{video.height} • {fpsDetected ? `${effectiveFps} fps` : '... fps'} • {formatClock(headerDuration)}
+	                      {headerMeta}
 	                    </div>
 	                  </div>
 	                  <div className="justify-self-end" />
@@ -2248,14 +2328,56 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
                 canUndo={canUndo}
                 canRedo={canRedo}
                 isDark={isDark}
-                onOpenCompare={openCompareModal}
-                onOpenReplace={video.isOwnedByCurrentUser ? () => setReplaceOpen(true) : undefined}
+                onOpenCompare={isImageReview ? undefined : openCompareModal}
+                onOpenReplace={!isImageReview && video.isOwnedByCurrentUser ? () => setReplaceOpen(true) : undefined}
               />
 			              <div className={`w-full h-full relative overflow-hidden ${ui.stageBg}`}>
 			                <div className="absolute inset-0 flex items-center justify-center">
 			                  <div className="relative h-full w-auto max-w-full" style={{ aspectRatio: stageAspectRatio }}>
 			                    <div className="relative w-full h-full overflow-hidden">
-	            {compareSource && compareMode !== 'overlay' ? (
+	            {isImageReview ? (
+                <div className="relative w-full h-full flex items-center justify-center overflow-hidden group">
+                  <img
+                    src={playbackUrl ?? sourceUrl ?? video.src}
+                    alt={video.title}
+                    className="w-full h-full object-contain select-none pointer-events-none"
+                    draggable={false}
+                  />
+                  <AnnotationCanvas
+                    video={video}
+                    videoElement={null}
+                    currentFrame={0}
+                    annotations={showAnnotations ? annotations : []}
+                    onAddAnnotation={handleAddAnnotation}
+                    onUpdateAnnotations={handleUpdateAnnotations}
+                    onDeleteAnnotations={handleDeleteAnnotations}
+                    activeTool={activeTool}
+                    brushColor={brushColor}
+                    brushSize={brushSize}
+                    fontSize={fontSize}
+                    shapeFillEnabled={shapeFillEnabled}
+                    shapeFillOpacity={shapeFillOpacity}
+                    selectedAnnotationIds={selectedAnnotationIds}
+                    setSelectedAnnotationIds={setSelectedAnnotationIds}
+                    comments={showAnnotations ? comments : []}
+                    activeCommentId={activeCommentId}
+                    onCommentPlacement={handleCommentPlacement}
+                    activeCommentPopoverId={activeCommentPopoverId}
+                    setActiveCommentPopoverId={setActiveCommentPopoverId}
+                    onUpdateCommentPosition={handleUpdateCommentPosition}
+                    onAddComment={handleAddComment}
+                    onToggleCommentResolved={handleToggleCommentResolved}
+                    onEditComment={handleEditCommentText}
+                    onJumpToFrame={jumpToFrame}
+                    pendingComment={pendingComment}
+                    setPendingComment={setPendingComment}
+                    isDark={isDark}
+                    onUploadAsset={uploadAnnotationAsset}
+                    threadMeta={commentThreadMeta}
+                    mentionOptions={mentionableOptions ?? []}
+                  />
+                </div>
+              ) : compareSource && compareMode !== 'overlay' ? (
 	              <div className={`w-full h-full flex ${compareMode === 'side-by-side-vertical' ? 'flex-col' : 'flex-row'}`}>
 	                <div className="relative flex-1 min-w-0 flex items-center justify-center overflow-hidden group">
 	                  <VideoPlayer
@@ -2404,47 +2526,55 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
 	                )}
 	              </div>
 	            )}
-	            {compareSource && (
+	            {!isImageReview && compareSource && (
 	              <div
-	                className={`absolute top-4 right-4 md:top-6 md:right-6 z-30 w-[min(90vw,260px)] rounded-3xl border px-4 py-4 shadow-lg ${
+	                className={`absolute top-4 right-4 md:top-6 md:right-6 z-30 w-[min(92vw,320px)] max-h-[min(68vh,420px)] overflow-hidden rounded-2xl border shadow-lg ${
 	                  isDark ? 'bg-black/75 border-white/10 text-white' : 'bg-white/95 border-gray-200 text-gray-900'
 	                }`}
 	              >
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <p className={`text-xs font-semibold uppercase tracking-[0.2em] ${isDark ? 'text-white/70' : 'text-gray-500'}`}>Compare</p>
-                    <p className={`text-xs truncate max-w-[220px] ${isDark ? 'text-white/90' : 'text-gray-900'}`}>{compareSource.name}</p>
+                <div className={`flex items-start justify-between gap-3 px-3 py-2 ${isDark ? 'bg-white/5 border-b border-white/10' : 'bg-black/[0.03] border-b border-gray-200'}`}>
+                  <div className="min-w-0">
+                    <p className={`text-[10px] font-semibold uppercase tracking-[0.2em] ${isDark ? 'text-white/70' : 'text-gray-500'}`}>Compare</p>
+                    <p className={`mt-0.5 text-xs truncate ${isDark ? 'text-white/90' : 'text-gray-900'}`} title={compareSource.name}>{compareSource.name}</p>
                   </div>
-                  <button
-                    onClick={clearCompare}
-                    className={`text-[11px] uppercase font-semibold ${isDark ? 'text-white/60 hover:text-white' : 'text-gray-600 hover:text-gray-900'}`}
-                  >
-                    Remove
-                  </button>
+                    <button
+                      onClick={() => setComparePanelCollapsed((prev) => !prev)}
+                      className={`${isDark ? 'bg-white/10 hover:bg-white/20 text-white' : 'bg-black/5 hover:bg-black/10 text-gray-800'} inline-flex h-7 w-7 items-center justify-center rounded-full`}
+                      title={comparePanelCollapsed ? 'Expand compare panel' : 'Collapse compare panel'}
+                    >
+                      {comparePanelCollapsed ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+                    </button>
+                    <button
+                      onClick={clearCompare}
+                      className={`text-[10px] uppercase font-semibold ${isDark ? 'text-white/60 hover:text-white' : 'text-gray-600 hover:text-gray-900'}`}
+                    >
+                      Remove
+                    </button>
                 </div>
-                <div className="mt-3 flex items-center justify-between text-[11px]">
-                  <span>Mode</span>
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => setCompareMode('overlay')}
-                      className={`${compareMode === 'overlay'
-                        ? (isDark ? 'bg-white/20 text-white' : 'bg-black/10 text-gray-900')
-                        : (isDark ? 'bg-white/10 text-white/70 hover:bg-white/20' : 'bg-black/5 text-gray-700 hover:bg-black/10')}
-                        px-2.5 py-1 rounded-full text-[11px] font-semibold`}
-                      title="Overlay"
-                    >
-                      Overlay
-                    </button>
-                    <button
-                      onClick={() => setCompareMode('side-by-side-horizontal')}
-                      className={`${compareMode === 'side-by-side-horizontal'
-                        ? (isDark ? 'bg-white/20 text-white' : 'bg-black/10 text-gray-900')
-                        : (isDark ? 'bg-white/10 text-white/70 hover:bg-white/20' : 'bg-black/5 text-gray-700 hover:bg-black/10')}
-                        px-2.5 py-1 rounded-full text-[11px] font-semibold`}
-                      title="Horizontal"
-                    >
-                      H
-                    </button>
+                {!comparePanelCollapsed && (
+                  <div className="space-y-3 overflow-y-auto px-3 py-3">
+                    <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                      <span className={`${isDark ? 'text-white/70' : 'text-gray-600'}`}>Mode</span>
+                      <button
+                        onClick={() => setCompareMode('overlay')}
+                        className={`${compareMode === 'overlay'
+                          ? (isDark ? 'bg-white/20 text-white' : 'bg-black/10 text-gray-900')
+                          : (isDark ? 'bg-white/10 text-white/70 hover:bg-white/20' : 'bg-black/5 text-gray-700 hover:bg-black/10')}
+                          px-2.5 py-1 rounded-full text-[11px] font-semibold`}
+                        title="Overlay"
+                      >
+                        Overlay
+                      </button>
+                      <button
+                        onClick={() => setCompareMode('side-by-side-horizontal')}
+                        className={`${compareMode === 'side-by-side-horizontal'
+                          ? (isDark ? 'bg-white/20 text-white' : 'bg-black/10 text-gray-900')
+                          : (isDark ? 'bg-white/10 text-white/70 hover:bg-white/20' : 'bg-black/5 text-gray-700 hover:bg-black/10')}
+                          px-2.5 py-1 rounded-full text-[11px] font-semibold`}
+                        title="Horizontal"
+                      >
+                        H
+                      </button>
                     <button
                       onClick={() => setCompareMode('side-by-side-vertical')}
                       className={`${compareMode === 'side-by-side-vertical'
@@ -2462,59 +2592,58 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
                     >
                       …
                     </button>
-                  </div>
-                </div>
-                {compareMode === 'overlay' && (
-                  <div className="mt-3">
-                    <label className="flex items-center justify-between text-[11px] uppercase gap-3">
-                      <span className={`${isDark ? 'text-white/60' : 'text-gray-600'}`}>Opacity</span>
-                      <span className={`${isDark ? 'text-white/80' : 'text-gray-800'}`}>{Math.round(compareOpacity * 100)}%</span>
-                    </label>
-                    <input
-                      type="range"
-                      min={0.1}
-                      max={1}
-                      step={0.05}
-                      value={compareOpacity}
-                      onChange={(e) => setCompareOpacity(Number(e.target.value))}
-                      className={`mt-2 w-full ${isDark ? 'accent-white' : 'accent-black'}`}
-                    />
+                    </div>
+                    {compareMode === 'overlay' && (
+                      <div>
+                        <label className="flex items-center justify-between text-[11px] uppercase gap-3">
+                          <span className={`${isDark ? 'text-white/60' : 'text-gray-600'}`}>Opacity</span>
+                          <span className={`${isDark ? 'text-white/80' : 'text-gray-800'}`}>{Math.round(compareOpacity * 100)}%</span>
+                        </label>
+                        <input
+                          type="range"
+                          min={0.1}
+                          max={1}
+                          step={0.05}
+                          value={compareOpacity}
+                          onChange={(e) => setCompareOpacity(Number(e.target.value))}
+                          className={`mt-2 w-full ${isDark ? 'accent-white' : 'accent-black'}`}
+                        />
+                      </div>
+                    )}
+                    <div>
+                      <label className={`flex items-center justify-between text-[11px] uppercase gap-3`}>
+                        <span className={`${isDark ? 'text-white/60' : 'text-gray-600'}`}>Offset</span>
+                        <span className={`${isDark ? 'text-white/80' : 'text-gray-800'}`}>
+                          {compareOffsetFrames} f • ≈ {(compareOffsetFrames / Math.max(1, Math.floor(video.fps || 24))).toFixed(2)}s
+                        </span>
+                      </label>
+                      <div className="mt-2 flex items-center gap-2">
+                        <button
+                          onClick={() => setCompareOffsetFrames((v) => Math.max(0, v - 1))}
+                          className={`${isDark ? 'bg-white/10 hover:bg-white/20 text-white' : 'bg-black/5 hover:bg-black/10 text-gray-800'} px-2 py-1 rounded-full text-[11px] font-semibold`}
+                          title="-1 frame"
+                        >
+                          −
+                        </button>
+                        <input
+                          type="number"
+                          min={0}
+                          step={1}
+                          value={compareOffsetFrames}
+                          onChange={(e) => setCompareOffsetFrames(Math.max(0, Math.round(Number(e.target.value) || 0)))}
+                          className={`${isDark ? 'bg-white/10 text-white border-white/10' : 'bg-black/5 text-gray-900 border-gray-300'} w-24 rounded-md border px-2 py-1 text-[11px]`}
+                        />
+                        <button
+                          onClick={() => setCompareOffsetFrames((v) => v + 1)}
+                          className={`${isDark ? 'bg-white/10 hover:bg-white/20 text-white' : 'bg-black/5 hover:bg-black/10 text-gray-800'} px-2 py-1 rounded-full text-[11px] font-semibold`}
+                          title="+1 frame"
+                        >
+                          +
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 )}
-
-                {/* Offset control (frames) */}
-                <div className="mt-3">
-                  <label className={`flex items-center justify-between text-[11px] uppercase gap-3`}>
-                    <span className={`${isDark ? 'text-white/60' : 'text-gray-600'}`}>Offset</span>
-                    <span className={`${isDark ? 'text-white/80' : 'text-gray-800'}`}>
-                      {compareOffsetFrames} f • ≈ {(compareOffsetFrames / Math.max(1, Math.floor(video.fps || 24))).toFixed(2)}s
-                    </span>
-                  </label>
-                  <div className="mt-2 flex items-center gap-2">
-                    <button
-                      onClick={() => setCompareOffsetFrames((v) => Math.max(0, v - 1))}
-                      className={`${isDark ? 'bg-white/10 hover:bg-white/20 text-white' : 'bg-black/5 hover:bg-black/10 text-gray-800'} px-2 py-1 rounded-full text-[11px] font-semibold`}
-                      title="-1 frame"
-                    >
-                      −
-                    </button>
-                    <input
-                      type="number"
-                      min={0}
-                      step={1}
-                      value={compareOffsetFrames}
-                      onChange={(e) => setCompareOffsetFrames(Math.max(0, Math.round(Number(e.target.value) || 0)))}
-                      className={`${isDark ? 'bg-white/10 text-white border-white/10' : 'bg-black/5 text-gray-900 border-gray-300'} w-20 rounded-md border px-2 py-1 text-[11px]`}
-                    />
-                    <button
-                      onClick={() => setCompareOffsetFrames((v) => v + 1)}
-                      className={`${isDark ? 'bg-white/10 hover:bg-white/20 text-white' : 'bg-black/5 hover:bg-black/10 text-gray-800'} px-2 py-1 rounded-full text-[11px] font-semibold`}
-                      title="+1 frame"
-                    >
-                      +
-                    </button>
-                  </div>
-                </div>
 	              </div>
 	            )}
 		                    </div>
@@ -2530,6 +2659,8 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
                   isFullscreen ? 'rounded-none border-0 shadow-none' : ''
                 }`}
               >
+                {!isImageReview ? (
+                <>
                 <div className="flex-1 flex flex-col">
                   <Timeline
                     currentTime={currentTime}
@@ -2686,6 +2817,17 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
                     </button>
                   </div>
                 </div>
+                </>
+                ) : (
+                  <div className="flex items-center justify-between gap-3 py-1">
+                    <div className={`${ui.subtleText} text-xs`}>
+                      Image review mode • all annotations and comments are on frame 0
+                    </div>
+                    <button onClick={toggleFullscreen} className={`p-2 rounded-full ${ui.softBtn}`}>
+                      {isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -2835,7 +2977,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
           onClose={() => setShareOpen(false)}
         />
       )}
-      {compareModalOpen && (
+      {!isImageReview && compareModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
           <div className="absolute inset-0 bg-black/60" onClick={closeCompareModal} />
           <div className={`relative w-full max-w-xl rounded-2xl border px-6 py-6 shadow-2xl ${isDark ? 'bg-black/90 border-white/10 text-white/80' : 'bg-white border-gray-200 text-gray-900'}`}>

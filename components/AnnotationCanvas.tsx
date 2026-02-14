@@ -56,6 +56,10 @@ interface AnnotationCanvasProps {
 }
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+const getLayerValue = (annotation: Annotation, fallbackIndex: number) => {
+  const raw = (annotation as any).zIndex;
+  return Number.isFinite(raw) ? Number(raw) : fallbackIndex;
+};
 
 const hexToRgba = (hex: string, alpha: number) => {
   let normalized = hex.replace('#', '');
@@ -170,6 +174,8 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
   const [videoControls, setVideoControls] = useState<Record<string, VideoControlState>>({});
   const videoControlsRef = useRef<Record<string, VideoControlState>>({});
   const [hoveredVideoId, setHoveredVideoId] = useState<string | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; targetId: string } | null>(null);
+  const contextMenuRef = useRef<HTMLDivElement>(null);
   
   const renderedRect = useMemo(() => {
     if (!containerRect || !video) return null;
@@ -182,7 +188,16 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
   }, [containerRect, video]);
 
   const annotationsForFrame = useMemo(() => {
-    return annotations.filter(a => a.frame === currentFrame);
+    return annotations
+      .filter((annotation) => annotation.frame === currentFrame)
+      .map((annotation, index) => ({ annotation, index }))
+      .sort((left, right) => {
+        const leftLayer = getLayerValue(left.annotation, left.index);
+        const rightLayer = getLayerValue(right.annotation, right.index);
+        if (leftLayer !== rightLayer) return leftLayer - rightLayer;
+        return left.index - right.index;
+      })
+      .map(({ annotation }) => annotation);
   }, [annotations, currentFrame]);
 
   const selectedAnnotations = useMemo(() => {
@@ -198,7 +213,15 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
     transformedAnnotations.forEach((anno) => {
       byId.set(anno.id, anno as Annotation);
     });
-    return Array.from(byId.values());
+    return Array.from(byId.values())
+      .map((annotation, index) => ({ annotation, index }))
+      .sort((left, right) => {
+        const leftLayer = getLayerValue(left.annotation, left.index);
+        const rightLayer = getLayerValue(right.annotation, right.index);
+        if (leftLayer !== rightLayer) return leftLayer - rightLayer;
+        return left.index - right.index;
+      })
+      .map(({ annotation }) => annotation);
   }, [annotationsForFrame, transformedAnnotations]);
 
   const videoAnnotationsToRender = useMemo(() => {
@@ -370,6 +393,26 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [selectedAnnotationIds, onDeleteAnnotations, removeVideoAttachment]);
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    const closeIfOutside = (event: PointerEvent) => {
+      const menuNode = contextMenuRef.current;
+      if (menuNode && menuNode.contains(event.target as Node)) return;
+      setContextMenu(null);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setContextMenu(null);
+      }
+    };
+    window.addEventListener('pointerdown', closeIfOutside);
+    window.addEventListener('keydown', closeOnEscape);
+    return () => {
+      window.removeEventListener('pointerdown', closeIfOutside);
+      window.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [contextMenu]);
   
   // Resize observer for canvas
   useEffect(() => {
@@ -751,6 +794,9 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     // Make the stage focusable so Cmd/Ctrl+V paste events can target this component.
     stageRef.current?.focus?.();
+    if (contextMenu) {
+      setContextMenu(null);
+    }
     if (editingText || pendingComment) return;
     // Only treat primary/left button as an interaction on desktop.
     if (e.pointerType === 'mouse' && e.button !== 0) return;
@@ -1176,6 +1222,138 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
     isPointerDownRef.current = false;
     activePointerIdRef.current = null;
   };
+
+  const handleCanvasContextMenu = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (editingText || pendingComment || !renderedRect) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const pos = getPointerPosition(e);
+    if (!pos) {
+      setContextMenu(null);
+      return;
+    }
+    const hit = [...annotationsForFrame]
+      .reverse()
+      .find((annotation) => geo.isPointInAnnotation(pos.normalized, annotation, renderedRect, video.height / renderedRect.height));
+    if (!hit) {
+      setContextMenu(null);
+      return;
+    }
+
+    const frameIds = new Set(annotationsForFrame.map((annotation) => annotation.id));
+    const nextSelection = selectedAnnotationIds.includes(hit.id)
+      ? selectedAnnotationIds.filter((id) => frameIds.has(id))
+      : [hit.id];
+    setSelectedAnnotationIds(nextSelection);
+
+    const stageRect = stageRef.current?.getBoundingClientRect();
+    const localX = stageRect ? e.clientX - stageRect.left : e.clientX;
+    const localY = stageRect ? e.clientY - stageRect.top : e.clientY;
+    setContextMenu({
+      x: Math.max(8, Math.round(localX)),
+      y: Math.max(8, Math.round(localY)),
+      targetId: hit.id,
+    });
+  };
+
+  const canMoveSelectedLayerUp = useMemo(() => {
+    const selectedSet = new Set(selectedAnnotationIds);
+    if (selectedSet.size === 0 || annotationsForFrame.length < 2) return false;
+    for (let index = annotationsForFrame.length - 2; index >= 0; index -= 1) {
+      const currentId = annotationsForFrame[index].id;
+      const aboveId = annotationsForFrame[index + 1].id;
+      if (selectedSet.has(currentId) && !selectedSet.has(aboveId)) {
+        return true;
+      }
+    }
+    return false;
+  }, [annotationsForFrame, selectedAnnotationIds]);
+
+  const canMoveSelectedLayerDown = useMemo(() => {
+    const selectedSet = new Set(selectedAnnotationIds);
+    if (selectedSet.size === 0 || annotationsForFrame.length < 2) return false;
+    for (let index = 1; index < annotationsForFrame.length; index += 1) {
+      const currentId = annotationsForFrame[index].id;
+      const belowId = annotationsForFrame[index - 1].id;
+      if (selectedSet.has(currentId) && !selectedSet.has(belowId)) {
+        return true;
+      }
+    }
+    return false;
+  }, [annotationsForFrame, selectedAnnotationIds]);
+
+  const canBringSelectedToFront = useMemo(() => {
+    const selectedSet = new Set(selectedAnnotationIds);
+    if (selectedSet.size === 0 || annotationsForFrame.length < 2) return false;
+    const selectedCount = annotationsForFrame.filter((annotation) => selectedSet.has(annotation.id)).length;
+    if (selectedCount === 0) return false;
+    const topSlice = annotationsForFrame.slice(-selectedCount);
+    return topSlice.some((annotation) => !selectedSet.has(annotation.id));
+  }, [annotationsForFrame, selectedAnnotationIds]);
+
+  const canSendSelectedToBack = useMemo(() => {
+    const selectedSet = new Set(selectedAnnotationIds);
+    if (selectedSet.size === 0 || annotationsForFrame.length < 2) return false;
+    const selectedCount = annotationsForFrame.filter((annotation) => selectedSet.has(annotation.id)).length;
+    if (selectedCount === 0) return false;
+    const bottomSlice = annotationsForFrame.slice(0, selectedCount);
+    return bottomSlice.some((annotation) => !selectedSet.has(annotation.id));
+  }, [annotationsForFrame, selectedAnnotationIds]);
+
+  const moveSelectedLayer = useCallback(
+    (direction: 'up' | 'down' | 'front' | 'back') => {
+      if (annotationsForFrame.length < 2) return;
+      const selectedSet = new Set(selectedAnnotationIds);
+      if (selectedSet.size === 0) return;
+
+      let reordered = [...annotationsForFrame];
+      if (direction === 'up') {
+        for (let index = reordered.length - 2; index >= 0; index -= 1) {
+          const currentId = reordered[index].id;
+          const aboveId = reordered[index + 1].id;
+          if (selectedSet.has(currentId) && !selectedSet.has(aboveId)) {
+            [reordered[index], reordered[index + 1]] = [reordered[index + 1], reordered[index]];
+          }
+        }
+      } else if (direction === 'down') {
+        for (let index = 1; index < reordered.length; index += 1) {
+          const currentId = reordered[index].id;
+          const belowId = reordered[index - 1].id;
+          if (selectedSet.has(currentId) && !selectedSet.has(belowId)) {
+            [reordered[index], reordered[index - 1]] = [reordered[index - 1], reordered[index]];
+          }
+        }
+      } else if (direction === 'front') {
+        const selected = reordered.filter((annotation) => selectedSet.has(annotation.id));
+        const others = reordered.filter((annotation) => !selectedSet.has(annotation.id));
+        reordered = [...others, ...selected];
+      } else {
+        const selected = reordered.filter((annotation) => selectedSet.has(annotation.id));
+        const others = reordered.filter((annotation) => !selectedSet.has(annotation.id));
+        reordered = [...selected, ...others];
+      }
+
+      const originalOrder = new Map<string, number>();
+      annotationsForFrame.forEach((annotation, index) => {
+        originalOrder.set(annotation.id, getLayerValue(annotation, index));
+      });
+      const updates = reordered
+        .map((annotation, index) => {
+          const next = {
+            ...annotation,
+            zIndex: index,
+          } as Annotation;
+          const previousLayer = originalOrder.get(annotation.id);
+          return previousLayer === index ? null : next;
+        })
+        .filter((annotation): annotation is Annotation => Boolean(annotation));
+      if (updates.length > 0) {
+        onUpdateAnnotations(updates);
+      }
+      setContextMenu(null);
+    },
+    [annotationsForFrame, selectedAnnotationIds, onUpdateAnnotations],
+  );
 
   const handleCanvasPointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
     try { e.currentTarget.releasePointerCapture(e.pointerId); } catch {}
@@ -1784,8 +1962,73 @@ const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
         onPointerCancel={handleCanvasPointerUp}
         onLostPointerCapture={handleCanvasPointerUp as any}
         onPointerLeave={handleCanvasPointerUp}
+        onContextMenu={handleCanvasContextMenu}
         style={{ cursor: getCursor() }}
       />
+
+      {contextMenu && (
+        <div
+          ref={contextMenuRef}
+          className={`absolute z-50 min-w-[160px] rounded-xl border p-1 shadow-2xl ${
+            isDark ? 'border-white/10 bg-black/90 text-white' : 'border-gray-200 bg-white text-gray-900'
+          }`}
+          style={{
+            left: contextMenu.x,
+            top: contextMenu.y,
+            transform: 'translate(-12px, -8px)',
+          }}
+          onPointerDown={(event) => event.stopPropagation()}
+        >
+          <button
+            type="button"
+            className={`w-full rounded-lg px-3 py-2 text-left text-xs font-semibold ${
+              canBringSelectedToFront
+                ? (isDark ? 'hover:bg-white/10' : 'hover:bg-gray-100')
+                : 'opacity-40 cursor-not-allowed'
+            }`}
+            onClick={() => moveSelectedLayer('front')}
+            disabled={!canBringSelectedToFront}
+          >
+            Bring to front
+          </button>
+          <button
+            type="button"
+            className={`w-full rounded-lg px-3 py-2 text-left text-xs font-semibold ${
+              canMoveSelectedLayerUp
+                ? (isDark ? 'hover:bg-white/10' : 'hover:bg-gray-100')
+                : 'opacity-40 cursor-not-allowed'
+            }`}
+            onClick={() => moveSelectedLayer('up')}
+            disabled={!canMoveSelectedLayerUp}
+          >
+            Bring forward
+          </button>
+          <button
+            type="button"
+            className={`w-full rounded-lg px-3 py-2 text-left text-xs font-semibold ${
+              canMoveSelectedLayerDown
+                ? (isDark ? 'hover:bg-white/10' : 'hover:bg-gray-100')
+                : 'opacity-40 cursor-not-allowed'
+            }`}
+            onClick={() => moveSelectedLayer('down')}
+            disabled={!canMoveSelectedLayerDown}
+          >
+            Send backward
+          </button>
+          <button
+            type="button"
+            className={`w-full rounded-lg px-3 py-2 text-left text-xs font-semibold ${
+              canSendSelectedToBack
+                ? (isDark ? 'hover:bg-white/10' : 'hover:bg-gray-100')
+                : 'opacity-40 cursor-not-allowed'
+            }`}
+            onClick={() => moveSelectedLayer('back')}
+            disabled={!canSendSelectedToBack}
+          >
+            Send to back
+          </button>
+        </div>
+      )}
 
       {renderedRect && videoAnnotationsToRender.length > 0 && (
         <>

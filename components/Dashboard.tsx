@@ -76,6 +76,7 @@ interface DashboardProps {
 
 interface UploadState {
   file: File;
+  kind: 'video' | 'image';
   objectUrl: string;
   metadata: {
     width: number;
@@ -403,60 +404,118 @@ const Dashboard: React.FC<DashboardProps> = ({
     setToasts((current) => current.filter((item) => item.id !== id));
   };
 
+  const detectReviewUploadKind = (file: File): 'video' | 'image' | null => {
+    const type = (file.type || '').toLowerCase();
+    if (type.startsWith('video/')) return 'video';
+    if (type.startsWith('image/')) return 'image';
+    const name = (file.name || '').toLowerCase();
+    if (/\.(mp4|m4v|mov|webm|mkv|avi)$/.test(name)) return 'video';
+    if (/\.(png|jpe?g|gif|webp|avif|bmp|svg)$/.test(name)) return 'image';
+    return null;
+  };
+
 
   const prepareUpload = async (file: File) => {
     setUploadLogs([]);
     setUploadProgress(0);
+    const kind = detectReviewUploadKind(file);
+    if (!kind) {
+      throw new Error('Only video or image files are supported for upload.');
+    }
     const objectUrl = URL.createObjectURL(file);
-    const videoElement = document.createElement('video');
-    videoElement.preload = 'metadata';
-    videoElement.src = objectUrl;
+    try {
+      if (kind === 'video') {
+        const videoElement = document.createElement('video');
+        videoElement.preload = 'metadata';
+        videoElement.src = objectUrl;
 
-    const metadata = await new Promise<UploadState['metadata']>((resolve, reject) => {
-      videoElement.onloadedmetadata = () => {
-        resolve({
-          width: videoElement.videoWidth,
-          height: videoElement.videoHeight,
-          duration: videoElement.duration,
-          fps: videoElement.getVideoPlaybackQuality?.().totalVideoFrames && videoElement.duration > 0
-            ? Math.round(videoElement.getVideoPlaybackQuality().totalVideoFrames / videoElement.duration)
-            : 24,
+        const metadata = await new Promise<UploadState['metadata']>((resolve, reject) => {
+          videoElement.onloadedmetadata = () => {
+            resolve({
+              width: videoElement.videoWidth,
+              height: videoElement.videoHeight,
+              duration: videoElement.duration,
+              fps: videoElement.getVideoPlaybackQuality?.().totalVideoFrames && videoElement.duration > 0
+                ? Math.round(videoElement.getVideoPlaybackQuality().totalVideoFrames / videoElement.duration)
+                : 24,
+            });
+          };
+          videoElement.onerror = () => {
+            reject(new Error('Unable to read video metadata.'));
+          };
         });
-      };
-      videoElement.onerror = () => {
-        reject(new Error('Unable to read video metadata.'));
-      };
-    });
 
-    const captureFrame = async () => {
-      try {
-        const canvas = document.createElement('canvas');
-        const maxWidth = 640;
-        const scale = Math.min(1, maxWidth / metadata.width);
-        const width = Math.max(1, Math.round(metadata.width * scale));
-        const height = Math.max(1, Math.round(metadata.height * scale));
-        canvas.width = width;
-        canvas.height = height;
-        const context = canvas.getContext('2d');
-        if (!context) return null;
-        const targetTime = Math.min(Math.max(0.2, metadata.duration * 0.2), Math.max(metadata.duration - 0.1, 0.2));
-        videoElement.currentTime = targetTime;
-        await new Promise<void>((resolve) => {
-          videoElement.onseeked = () => resolve();
-        });
-        context.drawImage(videoElement, 0, 0, width, height);
-        return await new Promise<Blob | null>((resolve) =>
-          canvas.toBlob((blob) => resolve(blob), 'image/jpeg', 0.85)
-        );
-      } catch {
-        return null;
+        const captureFrame = async () => {
+          try {
+            const canvas = document.createElement('canvas');
+            const maxWidth = 640;
+            const scale = Math.min(1, maxWidth / metadata.width);
+            const width = Math.max(1, Math.round(metadata.width * scale));
+            const height = Math.max(1, Math.round(metadata.height * scale));
+            canvas.width = width;
+            canvas.height = height;
+            const context = canvas.getContext('2d');
+            if (!context) return null;
+            const targetTime = Math.min(Math.max(0.2, metadata.duration * 0.2), Math.max(metadata.duration - 0.1, 0.2));
+            videoElement.currentTime = targetTime;
+            await new Promise<void>((resolve) => {
+              videoElement.onseeked = () => resolve();
+            });
+            context.drawImage(videoElement, 0, 0, width, height);
+            return await new Promise<Blob | null>((resolve) =>
+              canvas.toBlob((blob) => resolve(blob), 'image/jpeg', 0.85)
+            );
+          } catch {
+            return null;
+          }
+        };
+
+        const thumbnailBlob = await captureFrame();
+        setPendingUpload({ file, kind, objectUrl, metadata, thumbnailBlob, reviewId: nanoid() });
+        setShowUploadModal(true);
+        return;
       }
-    };
 
-    const thumbnailBlob = await captureFrame();
+      const imageElement = new Image();
+      const metadata = await new Promise<UploadState['metadata']>((resolve, reject) => {
+        imageElement.onload = () => {
+          resolve({
+            width: imageElement.naturalWidth || imageElement.width || 1920,
+            height: imageElement.naturalHeight || imageElement.height || 1080,
+            duration: 0,
+            fps: 1,
+          });
+        };
+        imageElement.onerror = () => reject(new Error('Unable to read image metadata.'));
+        imageElement.src = objectUrl;
+      });
 
-    setPendingUpload({ file, objectUrl, metadata, thumbnailBlob, reviewId: nanoid() });
-    setShowUploadModal(true);
+      const thumbnailBlob = await (async () => {
+        try {
+          const canvas = document.createElement('canvas');
+          const maxWidth = 640;
+          const scale = Math.min(1, maxWidth / metadata.width);
+          const width = Math.max(1, Math.round(metadata.width * scale));
+          const height = Math.max(1, Math.round(metadata.height * scale));
+          canvas.width = width;
+          canvas.height = height;
+          const context = canvas.getContext('2d');
+          if (!context) return null;
+          context.drawImage(imageElement, 0, 0, width, height);
+          return await new Promise<Blob | null>((resolve) =>
+            canvas.toBlob((blob) => resolve(blob), 'image/jpeg', 0.85)
+          );
+        } catch {
+          return null;
+        }
+      })();
+
+      setPendingUpload({ file, kind, objectUrl, metadata, thumbnailBlob, reviewId: nanoid() });
+      setShowUploadModal(true);
+    } catch (error) {
+      URL.revokeObjectURL(objectUrl);
+      throw error;
+    }
   };
 
   const ensureDefaultProject = useCallback(async () => {
@@ -495,10 +554,6 @@ const Dashboard: React.FC<DashboardProps> = ({
     setIsDragActive(false);
     const file = event.dataTransfer.files?.[0];
     if (!file) return;
-    if (!file.type.startsWith('video/')) {
-      pushToast('error', 'Only video files are supported for upload.');
-      return;
-    }
     try {
       await prepareUpload(file);
     } catch (error) {
@@ -662,7 +717,7 @@ const Dashboard: React.FC<DashboardProps> = ({
               }
             }
           };
-          xhr.onerror = () => reject(new Error('Network error during video upload.'));
+          xhr.onerror = () => reject(new Error('Network error during file upload.'));
           xhr.ontimeout = () => reject(new Error('Upload timed out (URL expired or network/proxy limit hit). Try a smaller file or faster connection.'));
           xhr.send(pendingUpload.file);
         });
@@ -671,11 +726,14 @@ const Dashboard: React.FC<DashboardProps> = ({
 
       setUploadLogs((current) => [...current, 'Upload completed, saving review…']);
 
-      const thumbnailUrl = await persistThumbnail(
-        pendingUpload.thumbnailBlob ?? null,
-        pendingUpload.file.name,
-        pendingUpload.reviewId,
-      );
+      const thumbnailUrl =
+        pendingUpload.kind === 'image'
+          ? uploadResult.publicUrl
+          : await persistThumbnail(
+              pendingUpload.thumbnailBlob ?? null,
+              pendingUpload.file.name,
+              pendingUpload.reviewId,
+            );
 
       const created = await onCompleteUpload({
         storageKey: uploadResult.storageKey,
@@ -1421,7 +1479,7 @@ const Dashboard: React.FC<DashboardProps> = ({
             <div className="flex items-start justify-between">
               <div>
                 <h3 className="text-lg font-semibold text-white">Prepare upload</h3>
-                <p className="text-sm text-white/60">Review the details before processing your video.</p>
+                <p className="text-sm text-white/60">Review the details before processing your file.</p>
               </div>
               <button onClick={resetUploadState} className="rounded-full bg-white/10 p-1 text-white/60 hover:text-white">
                 <X size={16} />
@@ -1432,7 +1490,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                 <h4 className="font-semibold text-white">File</h4>
                 <p>{pendingUpload.file.name}</p>
                 <p>
-                  {pendingUpload.metadata.width}×{pendingUpload.metadata.height} • {Math.round(pendingUpload.metadata.duration)}s
+                  {pendingUpload.metadata.width}×{pendingUpload.metadata.height} • {pendingUpload.kind === 'image' ? 'Image' : `${Math.round(pendingUpload.metadata.duration)}s`}
                 </p>
               </div>
               <div className="rounded-2xl border border-white/10 bg-white/5 p-4">

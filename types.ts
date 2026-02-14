@@ -25,6 +25,7 @@ export interface BaseAnnotation {
   videoId: string;
   authorId: string;
   frame: number;
+  zIndex?: number;
   color: string;
   lineWidth: number;
   createdAt: string;
