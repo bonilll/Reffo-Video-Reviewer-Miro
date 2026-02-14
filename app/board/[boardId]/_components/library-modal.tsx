@@ -159,7 +159,7 @@ export const LibraryModal = ({
     return layerId;
   }, [getCameraViewCenter]);
 
-  const insertVideoLayer = useLibeblocksMutation(async ({ storage, setMyPresence }, videoUrl: string, title: string) => {
+  const insertVideoLayer = useLibeblocksMutation(async ({ storage, setMyPresence }, videoUrl: string, title: string, previewUrl?: string) => {
     
     const liveLayers = storage.get("layers");
     const liveLayerIds = storage.get("layerIds");
@@ -191,6 +191,8 @@ export const LibraryModal = ({
       width: width || 320,
       height: height || 240,
       url: videoUrl,
+      previewUrl: previewUrl || undefined,
+      thumbnailUrl: previewUrl || undefined,
       title: title,
       fill: { r: 0, g: 0, b: 0 },
       value: ""
@@ -279,7 +281,18 @@ export const LibraryModal = ({
           if (ref.type === 'image') {
             layerId = await insertImageLayer(ref.fileUrl, ref.title || ref.fileName || 'Image');
           } else if (ref.type === 'video') {
-            layerId = await insertVideoLayer(ref.fileUrl, ref.title || ref.fileName || 'Video');
+            const refPreview =
+              ref.previewUrl ||
+              ref.thumbnailUrl ||
+              ref.variants?.thumb?.publicUrl ||
+              ref.variants?.preview?.publicUrl ||
+              ref.blurDataUrl ||
+              undefined;
+            layerId = await insertVideoLayer(
+              ref.fileUrl,
+              ref.title || ref.fileName || 'Video',
+              refPreview,
+            );
           } else if (ref.type === 'file') {
             layerId = await insertFileLayer(ref.fileUrl, ref.fileName || ref.title || 'File', ref.fileType || 'file', ref.fileSize);
           }

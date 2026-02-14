@@ -786,6 +786,36 @@ export const Toolbar = ({
   const selectionBounds = useSelectionBounds();
   const hasSelection = selection.length > 0 && selectionBounds !== null;
   const { selectedLayers } = useSelection();
+  const isViewer = userRole === "viewer";
+  const isPencilMode = canvasState.mode === CanvasMode.Pencil;
+  const shouldShowFloatingSelectionTools = hasSelection && !isViewer;
+  const shouldShowEmbeddedSelectionTools = isPencilMode && !hasSelection && !isViewer;
+  const floatingSelectionToolsRef = useRef<HTMLDivElement>(null);
+  const [floatingSelectionToolsRect, setFloatingSelectionToolsRect] = useState<{
+    left: number;
+    top: number;
+    placement: "above" | "below";
+  } | null>(null);
+  const [isFloatingSelectionToolsVisible, setIsFloatingSelectionToolsVisible] = useState(false);
+  const [floatingViewportTick, setFloatingViewportTick] = useState(0);
+  const floatingSelectionAnchor = React.useMemo(() => {
+    if (!shouldShowFloatingSelectionTools || !selectionBounds) {
+      return null;
+    }
+
+    const scale = camera.scale || 1;
+    return {
+      centerX: camera.x + (selectionBounds.x + selectionBounds.width / 2) * scale,
+      topY: camera.y + selectionBounds.y * scale,
+      bottomY: camera.y + (selectionBounds.y + selectionBounds.height) * scale,
+    };
+  }, [
+    shouldShowFloatingSelectionTools,
+    selectionBounds,
+    camera.x,
+    camera.y,
+    camera.scale,
+  ]);
   
   // Controlla se lo strumento testo è attivo o se è selezionato un testo
   const isTextActive = 
@@ -912,6 +942,70 @@ export const Toolbar = ({
     setShowColorPicker(visible);
   };
 
+  React.useEffect(() => {
+    const handleResize = () => {
+      setFloatingViewportTick((prev) => prev + 1);
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  React.useEffect(() => {
+    if (!shouldShowFloatingSelectionTools) {
+      setIsFloatingSelectionToolsVisible(false);
+      setFloatingSelectionToolsRect(null);
+    }
+  }, [shouldShowFloatingSelectionTools]);
+
+  React.useEffect(() => {
+    if (!shouldShowFloatingSelectionTools || !floatingSelectionAnchor || !floatingSelectionToolsRef.current) {
+      return;
+    }
+
+    const toolbarEl = floatingSelectionToolsRef.current;
+    const toolbarRect = toolbarEl.getBoundingClientRect();
+
+    if (!toolbarRect.width || !toolbarRect.height) {
+      return;
+    }
+
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    const margin = 16;
+    const gap = 12;
+    const maxLeft = Math.max(margin, viewportWidth - toolbarRect.width - margin);
+
+    let left = floatingSelectionAnchor.centerX - toolbarRect.width / 2;
+    left = Math.min(Math.max(left, margin), maxLeft);
+
+    let top = floatingSelectionAnchor.topY - toolbarRect.height - gap;
+    let placement: "above" | "below" = "above";
+
+    if (top < margin) {
+      top = floatingSelectionAnchor.bottomY + gap;
+      placement = "below";
+    }
+
+    if (top + toolbarRect.height > viewportHeight - margin) {
+      top = Math.max(margin, viewportHeight - toolbarRect.height - margin);
+    }
+
+    setFloatingSelectionToolsRect({ left, top, placement });
+    const raf = window.requestAnimationFrame(() => {
+      setIsFloatingSelectionToolsVisible(true);
+    });
+
+    return () => {
+      window.cancelAnimationFrame(raf);
+    };
+  }, [
+    shouldShowFloatingSelectionTools,
+    floatingSelectionAnchor,
+    canvasState.mode,
+    selection.length,
+    floatingViewportTick,
+  ]);
+
   // Funzione per impostare lo strumento forma e aggiornare l'ultimo utilizzato
   const setShapeTool = (layerType: LayerType.Rectangle | LayerType.Ellipse | LayerType.Arrow | LayerType.Line) => {
     if (isViewer) {
@@ -926,8 +1020,6 @@ export const Toolbar = ({
   };
 
   // Viewer restrictions - only allow viewing and camera controls
-  const isViewer = userRole === "viewer";
-  
   // Disable editing functions for viewers
   const handleCanvasStateChange = isViewer 
     ? () => {
@@ -1003,6 +1095,49 @@ export const Toolbar = ({
 
       {/* Desktop Toolbar - mostrato solo su schermi medi e grandi */}
       <div className="hidden md:block">
+        {shouldShowFloatingSelectionTools && (
+          <div className="pointer-events-none fixed inset-0 z-[60]">
+            <div
+              ref={floatingSelectionToolsRef}
+              className={`pointer-events-auto absolute transition-opacity duration-200 ease-out ${
+                isFloatingSelectionToolsVisible
+                  ? "opacity-100"
+                  : "opacity-0"
+              }`}
+              style={
+                floatingSelectionToolsRect
+                  ? {
+                      left: `${floatingSelectionToolsRect.left}px`,
+                      top: `${floatingSelectionToolsRect.top}px`,
+                    }
+                  : {
+                      left: "-9999px",
+                      top: "-9999px",
+                    }
+              }
+            >
+              <SelectionTools
+                camera={camera}
+                setLastUsedColor={setLastUsedColor}
+                onActionHover={handleHover}
+                onActionHoverEnd={handleHoverEnd}
+                onShowColorPicker={handleColorPickerVisibility}
+                containerRef={toolbarRef}
+                pencilStrokeWidth={pencilStrokeWidth}
+                setPencilStrokeWidth={setPencilStrokeWidth}
+                canvasState={canvasState}
+                lastUsedColor={lastUsedColor}
+                setLastUsedFontSize={setLastUsedFontSize}
+                setLastUsedFontWeight={setLastUsedFontWeight}
+                onToggleFrameAutoResize={onToggleFrameAutoResize}
+                onManualFrameResize={onManualFrameResize}
+                isTouchDevice={false}
+                boardId={boardId}
+              />
+            </div>
+          </div>
+        )}
+
         {/* Fixed positioned container that maintains center regardless of selection tools */}
         <div className="toolbar-container pointer-events-none absolute bottom-6 left-1/2 z-50 flex -translate-x-1/2 flex-col items-center">
           {/* Main toolbar with fixed width to prevent shifting */}
@@ -1010,7 +1145,7 @@ export const Toolbar = ({
             ref={toolbarRef}
             className="pointer-events-auto relative w-max rounded-2xl border border-slate-200/80 bg-white/95 shadow-xl shadow-slate-200/40 backdrop-blur-md px-2.5 py-2"
           >
-            {(hasSelection || canvasState.mode === CanvasMode.Pencil) && !isViewer && (
+            {shouldShowEmbeddedSelectionTools && (
               <>
                 <div className="selection-tools-container w-max">
                   <SelectionTools 

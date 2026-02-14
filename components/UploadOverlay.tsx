@@ -29,6 +29,86 @@ export const UploadOverlay = ({ boardId, userRole }: UploadOverlayProps) => {
   
   const { handleMediaUploaded, handleFileUploaded } = useMediaUpload({ boardId, camera });
   const canUpload = !isViewer;
+
+  const createVideoPreviewDataUrl = async (file: File): Promise<string | undefined> => {
+    if (!file.type.startsWith("video/")) return undefined;
+
+    const objectUrl = URL.createObjectURL(file);
+    try {
+      const dataUrl = await new Promise<string | undefined>((resolve) => {
+        const video = document.createElement("video");
+        video.preload = "metadata";
+        video.muted = true;
+        video.playsInline = true;
+        video.crossOrigin = "anonymous";
+
+        const cleanup = () => {
+          video.removeAttribute("src");
+          video.load();
+        };
+
+        const onError = () => {
+          cleanup();
+          resolve(undefined);
+        };
+
+        const onLoadedData = () => {
+          const width = video.videoWidth || 0;
+          const height = video.videoHeight || 0;
+          if (width <= 0 || height <= 0) {
+            cleanup();
+            resolve(undefined);
+            return;
+          }
+
+          const maxDimension = 320;
+          const scale = Math.min(maxDimension / width, maxDimension / height, 1);
+          const targetWidth = Math.max(1, Math.round(width * scale));
+          const targetHeight = Math.max(1, Math.round(height * scale));
+
+          const canvas = document.createElement("canvas");
+          canvas.width = targetWidth;
+          canvas.height = targetHeight;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) {
+            cleanup();
+            resolve(undefined);
+            return;
+          }
+
+          ctx.drawImage(video, 0, 0, targetWidth, targetHeight);
+          const preview = canvas.toDataURL("image/jpeg", 0.72);
+          cleanup();
+          resolve(preview);
+        };
+
+        video.addEventListener("error", onError, { once: true });
+        video.addEventListener(
+          "loadedmetadata",
+          () => {
+            const trySeek = () => {
+              const targetTime = Number.isFinite(video.duration) && video.duration > 1 ? 0.5 : 0;
+              try {
+                video.currentTime = targetTime;
+              } catch {
+                // Some browsers may block seek before enough data is available.
+              }
+            };
+            trySeek();
+          },
+          { once: true },
+        );
+        video.addEventListener("seeked", onLoadedData, { once: true });
+        video.addEventListener("loadeddata", onLoadedData, { once: true });
+
+        video.src = objectUrl;
+      });
+
+      return dataUrl;
+    } finally {
+      URL.revokeObjectURL(objectUrl);
+    }
+  };
   
 
   const getFileCategory = (file: File) => {
@@ -96,6 +176,12 @@ export const UploadOverlay = ({ boardId, userRole }: UploadOverlayProps) => {
             previewUrl = preview.dataUrl;
           } catch (previewError) {
             console.warn("⚠️ Preview generation failed:", previewError);
+          }
+        } else if (file.type.startsWith("video/")) {
+          try {
+            previewUrl = await createVideoPreviewDataUrl(file);
+          } catch (previewError) {
+            console.warn("⚠️ Video preview generation failed:", previewError);
           }
         }
 

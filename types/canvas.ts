@@ -141,6 +141,8 @@ export type VideoLayer = {
   height: number;
   width: number;
   url: string;
+  previewUrl?: string;
+  thumbnailUrl?: string;
   title?: string;
   shadow?: boolean;
 };

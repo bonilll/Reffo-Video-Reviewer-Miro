@@ -115,24 +115,19 @@ export const SelectionBox = memo(
       return null;
     });
     
-    // Determina se mostrare gli handle
-    // 1. Per un singolo elemento, eccetto Path
-    // 2. Per più elementi di tipo resizable (eccetto Path)
+    // Determina se mostrare gli handle:
+    // 1. Per un singolo elemento (eccetto frecce/linee, gestite con handle dedicati)
+    // 2. Per selezioni multiple
     const isShowingHandles = useStorage((root) => {
-      // Caso 1: singolo elemento non Path
+      // Caso 1: singolo elemento
       if (soleLayerId) {
-        return root.layers.get(soleLayerId)?.type !== LayerType.Path;
+        const layerType = root.layers.get(soleLayerId)?.type;
+        return layerType !== LayerType.Arrow && layerType !== LayerType.Line;
       }
       
-      // Caso 2: selezione multipla di layer resizable
+      // Caso 2: selezione multipla
       if (selectionCount > 1) {
-        // Conta quanti elementi selezionati sono resizable (tutti eccetto Path)
-        const resizableLayers = selectedLayers.filter(layer => 
-          layer.type !== LayerType.Path
-        );
-        
-        // Mostra gli handle se ci sono almeno due layer resizable
-        return resizableLayers.length >= 2;
+        return selectedLayers.length >= 2;
       }
       
       return false;

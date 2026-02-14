@@ -107,13 +107,81 @@ type SelectionToolsProps = {
 const CONTROL_BUTTON_CLASSES =
   "flex items-center gap-2 h-9 px-3 min-w-[170px] text-sm bg-white/90 text-slate-700 hover:bg-white hover:text-slate-900 rounded-xl border border-slate-200/80 transition-all duration-200 shadow-sm hover:shadow-sm";
 const CONTROL_DROPDOWN_BASE =
-  "absolute bottom-full left-0 mb-2 min-w-full bg-white/98 backdrop-blur-xl border border-slate-200/80 shadow-xl shadow-slate-200/40 rounded-2xl z-50 overflow-hidden";
+  "absolute min-w-full bg-white/98 backdrop-blur-xl border border-slate-200/80 shadow-xl shadow-slate-200/40 rounded-2xl z-50 overflow-hidden";
 const CONTROL_DROPDOWN_MENU =
   "bg-white/98 backdrop-blur-xl border border-slate-200/80 shadow-xl shadow-slate-200/40 rounded-2xl min-w-[var(--radix-popper-anchor-width)] w-[var(--radix-popper-anchor-width)]";
 const CONTROL_MENU_ITEM =
   "w-full min-w-full text-left flex items-center gap-3 rounded-xl px-3 py-2.5 text-xs transition-all duration-200 cursor-pointer hover:bg-slate-100/80 text-slate-700 hover:text-slate-900 hover:shadow-sm";
 const CONTROL_MENU_ITEM_ACTIVE =
   "bg-blue-600/10 text-blue-700 font-semibold border border-blue-200 shadow-sm";
+
+const VIEWPORT_MARGIN = 10;
+const MIN_DROPDOWN_SPACE = 130;
+
+const useAdaptiveDropdownPlacement = (isOpen: boolean) => {
+  const triggerRef = useRef<HTMLDivElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const [placementClass, setPlacementClass] = useState("bottom-full mb-2 left-0");
+  const [maxHeight, setMaxHeight] = useState<number | undefined>(undefined);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    let rafId: number | null = null;
+
+    const updatePlacement = () => {
+      const triggerEl = triggerRef.current;
+      const dropdownEl = dropdownRef.current;
+      if (!triggerEl || !dropdownEl || typeof window === "undefined") return;
+
+      const triggerRect = triggerEl.getBoundingClientRect();
+      const dropdownRect = dropdownEl.getBoundingClientRect();
+
+      const spaceAbove = Math.max(0, triggerRect.top - VIEWPORT_MARGIN);
+      const spaceBelow = Math.max(0, window.innerHeight - triggerRect.bottom - VIEWPORT_MARGIN);
+      const dropdownHeight = dropdownRect.height || 260;
+
+      const shouldOpenDown =
+        (spaceBelow >= dropdownHeight && spaceBelow >= spaceAbove) ||
+        (spaceBelow >= MIN_DROPDOWN_SPACE && spaceBelow > spaceAbove);
+      const verticalClass = shouldOpenDown ? "top-full mt-2" : "bottom-full mb-2";
+      const maxVerticalSpace = shouldOpenDown ? spaceBelow : spaceAbove;
+      setMaxHeight(Math.max(MIN_DROPDOWN_SPACE, Math.floor(maxVerticalSpace - 6)));
+
+      const spaceRight = Math.max(0, window.innerWidth - triggerRect.left - VIEWPORT_MARGIN);
+      const spaceLeft = Math.max(0, triggerRect.right - VIEWPORT_MARGIN);
+      const dropdownWidth = Math.max(dropdownRect.width, triggerRect.width);
+      const horizontalClass =
+        (spaceRight >= dropdownWidth && spaceRight >= spaceLeft) || spaceRight >= MIN_DROPDOWN_SPACE
+          ? "left-0"
+          : "right-0";
+
+      setPlacementClass(`${verticalClass} ${horizontalClass}`);
+    };
+
+    const scheduleUpdate = () => {
+      if (rafId !== null) cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(updatePlacement);
+    };
+
+    scheduleUpdate();
+    window.addEventListener("resize", scheduleUpdate);
+    window.addEventListener("scroll", scheduleUpdate, true);
+
+    return () => {
+      if (rafId !== null) cancelAnimationFrame(rafId);
+      window.removeEventListener("resize", scheduleUpdate);
+      window.removeEventListener("scroll", scheduleUpdate, true);
+    };
+  }, [isOpen]);
+
+  return {
+    triggerRef,
+    dropdownRef,
+    placementClass,
+    dropdownStyle: maxHeight ? ({ maxHeight: `${maxHeight}px` } as React.CSSProperties) : undefined,
+  };
+};
 
 // Numeric input component with increment/decrement arrows and manual input
 const NumericInput = memo(({ 
@@ -238,6 +306,7 @@ const PencilStrokeWidthSelector = memo(({
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [isCustom, setIsCustom] = useState(false);
+  const { triggerRef, dropdownRef, placementClass, dropdownStyle } = useAdaptiveDropdownPlacement(isOpen);
   
   const strokeOptions = [
     { value: 8, label: "8px - Fine" },
@@ -275,7 +344,7 @@ const PencilStrokeWidthSelector = memo(({
   }
 
   return (
-    <div className="relative">
+    <div ref={triggerRef} className="relative">
       <button
         onClick={() => setIsOpen(!isOpen)}
         className={`${CONTROL_BUTTON_CLASSES} justify-between`}
@@ -296,7 +365,11 @@ const PencilStrokeWidthSelector = memo(({
       {isOpen && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
-          <div className={`${CONTROL_DROPDOWN_BASE} min-w-48 max-w-xs p-3`}>
+          <div
+            ref={dropdownRef}
+            className={`${CONTROL_DROPDOWN_BASE} ${placementClass} min-w-48 max-w-xs p-3`}
+            style={dropdownStyle}
+          >
             <div className="py-1">
               {strokeOptions.map((option) => (
                 <button
@@ -339,6 +412,7 @@ const PencilStrokeWidthSelector = memo(({
 const StrokeWidthSelector = memo(({ selectedLayerIds }: { selectedLayerIds: string[] }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [isCustom, setIsCustom] = useState(false);
+  const { triggerRef, dropdownRef, placementClass, dropdownStyle } = useAdaptiveDropdownPlacement(isOpen);
   
   const currentStrokeWidth = useStorage((root) => {
     const strokeWidths = selectedLayerIds
@@ -400,7 +474,7 @@ const StrokeWidthSelector = memo(({ selectedLayerIds }: { selectedLayerIds: stri
   }
 
   return (
-    <div className="relative">
+    <div ref={triggerRef} className="relative">
       <button
         onClick={() => setIsOpen(!isOpen)}
         className={`${CONTROL_BUTTON_CLASSES} justify-between`}
@@ -421,7 +495,11 @@ const StrokeWidthSelector = memo(({ selectedLayerIds }: { selectedLayerIds: stri
       {isOpen && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
-          <div className={`${CONTROL_DROPDOWN_BASE} min-w-48 max-w-xs p-3`}>
+          <div
+            ref={dropdownRef}
+            className={`${CONTROL_DROPDOWN_BASE} ${placementClass} min-w-48 max-w-xs p-3`}
+            style={dropdownStyle}
+          >
             <div className="py-1">
               {strokeOptions.map((option) => (
                 <button
@@ -468,6 +546,7 @@ const FontSizeSelector = memo(({ selectedLayerIds, onDropdownChange, setLastUsed
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [isCustom, setIsCustom] = useState(false);
+  const { triggerRef, dropdownRef, placementClass, dropdownStyle } = useAdaptiveDropdownPlacement(isOpen);
   
   // Notify parent about dropdown state changes
   const handleOpenChange = (open: boolean) => {
@@ -544,7 +623,7 @@ const FontSizeSelector = memo(({ selectedLayerIds, onDropdownChange, setLastUsed
   }
 
   return (
-    <div className="relative">
+    <div ref={triggerRef} className="relative">
       <button
         onClick={() => handleOpenChange(!isOpen)}
         className={`${CONTROL_BUTTON_CLASSES} justify-between`}
@@ -565,7 +644,11 @@ const FontSizeSelector = memo(({ selectedLayerIds, onDropdownChange, setLastUsed
       {isOpen && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => handleOpenChange(false)} />
-          <div className={`${CONTROL_DROPDOWN_BASE} min-w-52 max-w-xs p-3`}>
+          <div
+            ref={dropdownRef}
+            className={`${CONTROL_DROPDOWN_BASE} ${placementClass} min-w-52 max-w-xs p-3`}
+            style={dropdownStyle}
+          >
             <div className="max-h-60 overflow-y-auto overscroll-contain scrollbar-hidden pr-1">
               <div className="py-1">
                 {fontSizes.map((size) => (
@@ -610,6 +693,7 @@ const FontWeightDropdown = memo(({ selectedLayerIds, onDropdownChange, setLastUs
   setLastUsedFontWeight?: (fontWeight: string) => void;
 }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const { triggerRef, dropdownRef, placementClass, dropdownStyle } = useAdaptiveDropdownPlacement(isOpen);
   
   // Notify parent about dropdown state changes
   const handleOpenChange = (open: boolean) => {
@@ -661,8 +745,13 @@ const FontWeightDropdown = memo(({ selectedLayerIds, onDropdownChange, setLastUs
   ];
 
   return (
-    <div className="relative">
+    <div ref={triggerRef} className="relative">
       <button
+        onMouseDown={(e) => {
+          if (typeof window !== "undefined" && (window as any).applyNoteFormatting) {
+            e.preventDefault();
+          }
+        }}
         onClick={() => handleOpenChange(!isOpen)}
         className={`${CONTROL_BUTTON_CLASSES} justify-between ${currentFontWeight === "bold" ? "font-bold" : ""}`}
         title="Font weight"
@@ -682,11 +771,20 @@ const FontWeightDropdown = memo(({ selectedLayerIds, onDropdownChange, setLastUs
       {isOpen && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => handleOpenChange(false)} />
-          <div className={`${CONTROL_DROPDOWN_BASE} min-w-36 max-w-xs p-3`}>
+          <div
+            ref={dropdownRef}
+            className={`${CONTROL_DROPDOWN_BASE} ${placementClass} min-w-36 max-w-xs p-3`}
+            style={dropdownStyle}
+          >
             <div className="py-1">
               {fontWeights.map((weight) => (
                 <button
                   key={weight.value}
+                  onMouseDown={(e) => {
+                    if (typeof window !== "undefined" && (window as any).applyNoteFormatting) {
+                      e.preventDefault();
+                    }
+                  }}
                   onClick={() => {
                     updateFontWeight(weight.value);
                     handleOpenChange(false);
@@ -780,6 +878,17 @@ const TextStyleButton = memo(({ selectedLayerIds, styleType, icon: IconComponent
   
   const updateStyle = useMutation(
     ({ storage }) => {
+      if ((window as any).applyNoteFormatting) {
+        const command =
+          styleType === "italic"
+            ? "italic"
+            : styleType === "underline"
+              ? "underline"
+              : "strikeThrough";
+        (window as any).applyNoteFormatting(command);
+        return;
+      }
+
       const liveLayers = storage.get("layers");
       selectedLayerIds.forEach(id => {
         const layer = liveLayers.get(id);
@@ -804,6 +913,11 @@ const TextStyleButton = memo(({ selectedLayerIds, styleType, icon: IconComponent
 
   return (
     <button
+      onMouseDown={(e) => {
+        if (typeof window !== "undefined" && (window as any).applyNoteFormatting) {
+          e.preventDefault();
+        }
+      }}
       onClick={updateStyle}
       className={`p-2.5 rounded-xl transition-all duration-200 ${
         isActive
@@ -846,9 +960,10 @@ const CompactColorPicker = memo(({
       onStateChange(false);
     }
   };
+  const { triggerRef, dropdownRef, placementClass, dropdownStyle } = useAdaptiveDropdownPlacement(isVisible);
 
   return (
-    <div className="relative">
+    <div ref={triggerRef} className="relative">
       <button
         onClick={handleToggle}
         className="w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-200 ease-out border border-slate-200/70 bg-white/90 hover:bg-white hover:border-slate-200 hover:scale-[1.03] active:scale-95 shadow-sm"
@@ -862,7 +977,9 @@ const CompactColorPicker = memo(({
         <>
           <div className="fixed inset-0 z-40" onClick={handleToggle} />
           <div 
-            className={`${CONTROL_DROPDOWN_BASE} p-3`}
+            ref={dropdownRef}
+            className={`${CONTROL_DROPDOWN_BASE} ${placementClass} p-3`}
+            style={dropdownStyle}
             onClick={(e) => e.stopPropagation()}
           >
             <ColorPicker onChange={handleColorChange} currentColor={currentColor} />
@@ -922,6 +1039,7 @@ const TextControlsDropdown = memo(({ selectedLayerIds, onDropdownChange }: {
   onDropdownChange?: (open: boolean, dropdownId: string) => void;
 }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const { triggerRef, dropdownRef, placementClass, dropdownStyle } = useAdaptiveDropdownPlacement(isOpen);
   
   // Notify parent about dropdown state changes
   const handleOpenChange = (open: boolean) => {
@@ -932,7 +1050,7 @@ const TextControlsDropdown = memo(({ selectedLayerIds, onDropdownChange }: {
   };
   
   return (
-    <div className="relative">
+    <div ref={triggerRef} className="relative">
       <button
         onClick={() => handleOpenChange(!isOpen)}
         className={`${CONTROL_BUTTON_CLASSES} justify-between`}
@@ -948,7 +1066,11 @@ const TextControlsDropdown = memo(({ selectedLayerIds, onDropdownChange }: {
       {isOpen && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => handleOpenChange(false)} />
-          <div className={`${CONTROL_DROPDOWN_BASE} min-w-64 p-3`}>
+          <div
+            ref={dropdownRef}
+            className={`${CONTROL_DROPDOWN_BASE} ${placementClass} min-w-64 p-3`}
+            style={dropdownStyle}
+          >
             <div className="py-1">
               <div className="px-3 py-2 text-xs font-semibold text-slate-500 uppercase tracking-wider border-b border-slate-100/80">
                 Text Alignment
@@ -985,6 +1107,7 @@ const CompactAlignmentDropdown = memo(({ selectedLayers, updateLayerPositions, o
   onDropdownChange?: (open: boolean, dropdownId: string) => void;
 }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const { triggerRef, dropdownRef, placementClass, dropdownStyle } = useAdaptiveDropdownPlacement(isOpen);
   
   const handleOpenChange = (open: boolean) => {
     setIsOpen(open);
@@ -1006,7 +1129,7 @@ const CompactAlignmentDropdown = memo(({ selectedLayers, updateLayerPositions, o
   ] : [];
 
   return (
-    <div className="relative">
+    <div ref={triggerRef} className="relative">
       <button
         onClick={() => handleOpenChange(!isOpen)}
         onMouseEnter={() => onActionHover?.("Alignment & Distribution")}
@@ -1024,7 +1147,11 @@ const CompactAlignmentDropdown = memo(({ selectedLayers, updateLayerPositions, o
       {isOpen && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => handleOpenChange(false)} />
-          <div className={`${CONTROL_DROPDOWN_BASE} min-w-52 max-w-sm p-3`}>
+          <div
+            ref={dropdownRef}
+            className={`${CONTROL_DROPDOWN_BASE} ${placementClass} min-w-52 max-w-sm p-3`}
+            style={dropdownStyle}
+          >
             <div className="py-1">
               <div className="px-3 py-2 text-xs font-semibold text-slate-500 uppercase tracking-wider border-b border-slate-100/80">
                 Alignment
@@ -1303,6 +1430,7 @@ export const SelectionTools = memo(
 
     // Check if pencil is active
     const isPencilActive = canvasState && canvasState.mode === CanvasMode.Pencil;
+    const hasEditingNote = typeof window !== "undefined" && typeof (window as any).applyNoteFormatting === "function";
 
     // Get current color of selected layers OR lastUsedColor when pencil is active
     const currentColor = useStorage((root) => {
@@ -2218,10 +2346,10 @@ export const SelectionTools = memo(
     }, [selection.length, onShowColorPicker, isPencilActive]);
 
     // Show SelectionTools if there are selected elements OR if pencil is active
-    if ((!selectionBounds || selection.length === 0) && !isPencilActive) return null;
+    if ((!selectionBounds || selection.length === 0) && !isPencilActive && !hasEditingNote) return null;
     
     return (
-      <div className="relative z-30">
+      <div className="selection-tools relative z-30" data-note-formatting-ui="true">
         {/* Contenitore principale - moderno, leggero e allineato alla toolbar */}
         <div
           className={
@@ -2234,7 +2362,7 @@ export const SelectionTools = memo(
                           {/* Style controls group - compact layout */}
             <div className="flex items-center gap-x-1.5">
               {/* Color control - show if elements are selected OR pencil is active */}
-              {((selectionBounds && selection.length > 0) || isPencilActive) && (
+              {((selectionBounds && selection.length > 0) || isPencilActive || hasEditingNote) && (
                 <SelectionTooltip label="Change color" isVisible={shouldShowSelectionTooltip("Change color")}>
                   <div 
                     onMouseEnter={() => handleMouseEnter("Change color")} 

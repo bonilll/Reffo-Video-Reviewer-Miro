@@ -119,6 +119,14 @@ const isLikelyTouchPointer = (event: React.PointerEvent | any) => {
   // On some iOS paths pointerType can be missing; on mobile runtime treat it as touch-like.
   return true;
 };
+const getPointerButton = (event: React.PointerEvent | any) =>
+  typeof event?.button === "number" ? event.button : 0;
+const isAuxiliaryMouseButton = (event: React.PointerEvent | any) => {
+  const nativePointerType = event?.pointerType ?? event?.nativeEvent?.pointerType;
+  const button = getPointerButton(event);
+  const isMouseLike = nativePointerType === "mouse" || nativePointerType === undefined;
+  return isMouseLike && (button === 1 || button === 2);
+};
 
 export type CanvasProps = {
   boardId: string;
@@ -253,6 +261,7 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
 
   const [dragPreviewOffset, setDragPreviewOffset] = useState<Point | null>(null);
   const dragPreviewStartRef = useRef<Point | null>(null);
+  const dragNeedsLiveTranslateRef = useRef(false);
 
   const cameraTransform = useMemo(
     () => `translate(${camera.x} ${camera.y}) scale(${camera.scale})`,
@@ -263,6 +272,7 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
     if (canvasState.mode !== CanvasMode.Translating) {
       dragPreviewStartRef.current = null;
       setDragPreviewOffset(null);
+      dragNeedsLiveTranslateRef.current = false;
     }
   }, [canvasState.mode]);
   
@@ -300,21 +310,42 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
 
 
   // Gestione panning
-  const [isPanning, setIsPanning] = useState(false);
-  const [panStart, setPanStart] = useState<{ x: number; y: number } | null>(null);
   const [isSpacePressed, setIsSpacePressed] = useState(false);
+  const panStateRef = useRef<{
+    active: boolean;
+    lastX: number;
+    lastY: number;
+    button: number | null;
+    pointerId: number | null;
+  }>({
+    active: false,
+    lastX: 0,
+    lastY: 0,
+    button: null,
+    pointerId: null,
+  });
+  const panRafRef = useRef<number | null>(null);
+  const pendingPanDeltaRef = useRef<Point>({ x: 0, y: 0 });
 
   // Stato per la posizione iniziale del mouse durante il resize
   const [resizeInitialMousePos, setResizeInitialMousePos] = useState<Point | null>(null);
 
-  // Stato per lo snapshot iniziale dei layer durante il group resize
-  const [initialLayersSnapshot, setInitialLayersSnapshot] = useState<Array<{
+  type ResizeLayerSnapshot = {
     id: string;
     x: number;
     y: number;
     width: number;
     height: number;
-  }> | null>(null);
+    type: LayerType;
+    points?: number[][];
+    strokeWidth?: number;
+  };
+
+  // Snapshot iniziale del layer durante il resize singolo
+  const [initialResizeLayerSnapshot, setInitialResizeLayerSnapshot] = useState<ResizeLayerSnapshot | null>(null);
+
+  // Stato per lo snapshot iniziale dei layer durante il group resize
+  const [initialLayersSnapshot, setInitialLayersSnapshot] = useState<ResizeLayerSnapshot[] | null>(null);
 
   // Stato per il resize di frecce e linee
   const [isResizingArrowLine, setIsResizingArrowLine] = useState<{
@@ -361,6 +392,47 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
   const mySelection = useSelf((me) => me.presence.selection);
   const allLayers = useStorage((root) => root.layers);
   const currentUser = useSelf();
+
+  const hasSelectedNotes = useMemo(() => {
+    if (!mySelection || mySelection.length === 0 || !allLayers) {
+      return false;
+    }
+
+    return mySelection.some((layerId) => allLayers.get(layerId)?.type === LayerType.Note);
+  }, [mySelection, allLayers]);
+
+  const selectionContainsNotes = useCallback((liveLayers: any, selectionIds: string[]) => {
+    if (!liveLayers || selectionIds.length === 0) return false;
+
+    const visitedFrames = new Set<string>();
+    const hasNoteInLayer = (layerId: string): boolean => {
+      const layer = liveLayers.get(layerId);
+      if (!layer) return false;
+
+      const layerType = layer.get("type");
+      if (layerType === LayerType.Note) return true;
+      if (layerType !== LayerType.Frame) return false;
+
+      if (visitedFrames.has(layerId)) return false;
+      visitedFrames.add(layerId);
+
+      const children = (layer.get("children") as string[] | undefined) ?? [];
+      for (const childId of children) {
+        if (hasNoteInLayer(childId)) {
+          return true;
+        }
+      }
+      return false;
+    };
+
+    for (const id of selectionIds) {
+      if (hasNoteInLayer(id)) {
+        return true;
+      }
+    }
+
+    return false;
+  }, []);
   
   // Hook per snap automatico delle frecce
   const { updateArrowSnap, checkSnapPreview, getSnapPoint, SNAP_DISTANCE } = useArrowSnap();
@@ -809,7 +881,8 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
         const isMindMapArrow = layerData.isMindMapConnection;
         const isSnappedArrow = layerData.isSnappedToSource || layerData.isSnappedToTarget;
         
-        if (isMindMapArrow || isSnappedArrow) {
+        const hasNoteAnchors = Boolean(layerData.sourceNoteId || layerData.targetNoteId);
+        if (isMindMapArrow || isSnappedArrow || hasNoteAnchors) {
           arrowsToUpdate.push({ id: layerId, arrow: layerData });
         }
       }
@@ -866,6 +939,12 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
 
       if (needsUpdate) {
         const isMindMapArrow = arrow.isMindMapConnection;
+        const shouldUseCurvedPath =
+          isMindMapArrow ||
+          arrow.isSnappedToSource ||
+          arrow.isSnappedToTarget ||
+          arrow.sourceNoteId ||
+          arrow.targetNoteId;
         
         let updateData: any = {
           startX: newStartX,
@@ -875,7 +954,7 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
         };
 
         // Calcola curve per entrambi i tipi
-        if (isMindMapArrow || arrow.isSnappedToSource || arrow.isSnappedToTarget) {
+        if (shouldUseCurvedPath) {
           const { controlPoint1, controlPoint2 } = calculateAutoCurveControlPoints(
             newStartX,
             newStartY,
@@ -936,7 +1015,8 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
       if (layerData.type !== LayerType.Arrow) return;
       const isMindMapArrow = layerData.isMindMapConnection;
       const isSnappedArrow = layerData.isSnappedToSource || layerData.isSnappedToTarget;
-      if (!isSnappedArrow && !isMindMapArrow) return;
+      const hasNoteAnchors = Boolean(layerData.sourceNoteId || layerData.targetNoteId);
+      if (!isSnappedArrow && !isMindMapArrow && !hasNoteAnchors) return;
       const needsUpdate =
         (layerData.sourceNoteId && movedNoteIds.has(layerData.sourceNoteId)) ||
         (layerData.targetNoteId && movedNoteIds.has(layerData.targetNoteId));
@@ -992,6 +1072,12 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
 
       if (needsUpdate) {
         const isMindMapArrow = arrow.isMindMapConnection;
+        const shouldUseCurvedPath =
+          isMindMapArrow ||
+          arrow.isSnappedToSource ||
+          arrow.isSnappedToTarget ||
+          arrow.sourceNoteId ||
+          arrow.targetNoteId;
         
         let updateData: any = {
           startX: newStartX,
@@ -1000,8 +1086,8 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
           endY: newEndY,
         };
 
-        if (isMindMapArrow) {
-          // Per frecce Mind Map: usa la stessa funzione delle frecce snappate per consistenza
+        if (shouldUseCurvedPath) {
+          // Per frecce connesse/snappate: usa curve automatiche per mantenere il tracciato coerente
           const { controlPoint1, controlPoint2 } = calculateAutoCurveControlPoints(
             newStartX,
             newStartY,
@@ -1030,50 +1116,19 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
             controlPoint2Y: controlPoint2.y,
           };
         } else {
-          // Per frecce snappate: calcola curve automatiche se sono snappate
-          if (arrow.isSnappedToSource || arrow.isSnappedToTarget) {
-            const { controlPoint1, controlPoint2 } = calculateAutoCurveControlPoints(
-              newStartX,
-              newStartY,
-              newEndX,
-              newEndY,
-              arrow.sourceSide,
-              arrow.targetSide
-            );
-            
-            // Calcola bounding box includendo le curve
-            const minX = Math.min(newStartX, newEndX, controlPoint1.x, controlPoint2.x) - 20;
-            const maxX = Math.max(newStartX, newEndX, controlPoint1.x, controlPoint2.x) + 20;
-            const minY = Math.min(newStartY, newEndY, controlPoint1.y, controlPoint2.y) - 20;
-            const maxY = Math.max(newStartY, newEndY, controlPoint1.y, controlPoint2.y) + 20;
+          // Per frecce non snappate: bounding box semplice
+          const minX = Math.min(newStartX, newEndX) - 20;
+          const maxX = Math.max(newStartX, newEndX) + 20;
+          const minY = Math.min(newStartY, newEndY) - 20;
+          const maxY = Math.max(newStartY, newEndY) + 20;
 
-            updateData = {
-              ...updateData,
-              x: minX,
-              y: minY,
-              width: maxX - minX,
-              height: maxY - minY,
-              curved: true,
-              controlPoint1X: controlPoint1.x,
-              controlPoint1Y: controlPoint1.y,
-              controlPoint2X: controlPoint2.x,
-              controlPoint2Y: controlPoint2.y,
-            };
-          } else {
-            // Per frecce non snappate: bounding box semplice
-            const minX = Math.min(newStartX, newEndX) - 20;
-            const maxX = Math.max(newStartX, newEndX) + 20;
-            const minY = Math.min(newStartY, newEndY) - 20;
-            const maxY = Math.max(newStartY, newEndY) + 20;
-
-            updateData = {
-              ...updateData,
-              x: minX,
-              y: minY,
-              width: maxX - minX,
-              height: maxY - minY,
-            };
-          }
+          updateData = {
+            ...updateData,
+            x: minX,
+            y: minY,
+            width: maxX - minX,
+            height: maxY - minY,
+          };
         }
 
         // Aggiorna la freccia
@@ -1506,7 +1561,7 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
           movedNotes.add(id);
         }
       }
-      if (enableSnapping && movedNotes.size > 0) {
+      if (movedNotes.size > 0) {
         updateMindMapArrows(liveLayers, movedNotes);
       }
 
@@ -2136,11 +2191,15 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
 
       if (layer) {
         let bounds;
+        const layerType = layer.get("type");
+        const forceSquareAspect = layerType === LayerType.Note;
         
         // Check if Shift is pressed and get aspect ratio for the layer
-        if (isShiftPressed) {
+        if (isShiftPressed || forceSquareAspect) {
           const layerData = layer.toObject() as any;
-          const aspectRatio = getLayerAspectRatio(layerData) || (initialBounds.width / initialBounds.height);
+          const aspectRatio = forceSquareAspect
+            ? 1
+            : getLayerAspectRatio(layerData) || (initialBounds.width / initialBounds.height);
           
           // Use constrained resize to maintain aspect ratio
           bounds = constrainResizeToAspectRatio(
@@ -2158,10 +2217,47 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
           );
         }
 
-        layer.update(bounds);
+        if (layerType === LayerType.Path) {
+          const layerId = self.presence.selection[0];
+          const snapshot =
+            initialResizeLayerSnapshot && initialResizeLayerSnapshot.id === layerId
+              ? initialResizeLayerSnapshot
+              : null;
+
+          const sourceWidth = Math.max(snapshot?.width ?? layer.get("width"), 0.0001);
+          const sourceHeight = Math.max(snapshot?.height ?? layer.get("height"), 0.0001);
+          const scaleX = bounds.width / sourceWidth;
+          const scaleY = bounds.height / sourceHeight;
+          const sourcePoints = snapshot?.points ?? ((layer.get("points") as number[][]) || []);
+
+          const resizedPoints = sourcePoints.map((point) => {
+            const [px = 0, py = 0, ...rest] = point;
+            return [px * scaleX, py * scaleY, ...rest];
+          });
+
+          const nextStrokeWidth = (() => {
+            const sourceStrokeWidth = snapshot?.strokeWidth;
+            if (typeof sourceStrokeWidth !== "number") return undefined;
+            const strokeScale = Math.max(0.05, Math.min(Math.abs(scaleX), Math.abs(scaleY)));
+            return Math.max(1, sourceStrokeWidth * strokeScale);
+          })();
+
+          const pathUpdate: any = {
+            ...bounds,
+            points: resizedPoints,
+          };
+
+          if (typeof nextStrokeWidth === "number") {
+            pathUpdate.strokeWidth = nextStrokeWidth;
+          }
+
+          layer.update(pathUpdate);
+        } else {
+          layer.update(bounds);
+        }
       }
     },
-    [canvasState, resizeInitialMousePos, isShiftPressed],
+    [canvasState, resizeInitialMousePos, isShiftPressed, initialResizeLayerSnapshot],
   );
 
   // Nuovo: Resize per selezioni multiple (gruppo)
@@ -2218,18 +2314,49 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
 
       // Applica le nuove dimensioni e posizioni ai layer
       const movedNoteIds = new Set<string>();
+      const initialSnapshotById = new Map(initialLayersSnapshot.map((layerSnapshot) => [layerSnapshot.id, layerSnapshot]));
       resizedLayers.forEach(({ id, x, y, width, height }) => {
         const layer = liveLayers.get(id);
         if (layer) {
-          layer.update({
+          const layerType = layer.get("type");
+          let roundedWidth = Math.max(5, Math.round(width));
+          let roundedHeight = Math.max(5, Math.round(height));
+          if (layerType === LayerType.Note) {
+            const squareSize = Math.max(roundedWidth, roundedHeight);
+            roundedWidth = squareSize;
+            roundedHeight = squareSize;
+          }
+          const updateData: any = {
             x: Math.round(x),
             y: Math.round(y), 
-            width: Math.max(5, Math.round(width)), // Dimensione minima
-            height: Math.max(5, Math.round(height))
-          });
+            width: roundedWidth,
+            height: roundedHeight,
+          };
+
+          if (layerType === LayerType.Path) {
+            const snapshot = initialSnapshotById.get(id);
+            if (snapshot?.type === LayerType.Path && snapshot.points) {
+              const sourceWidth = Math.max(snapshot.width, 0.0001);
+              const sourceHeight = Math.max(snapshot.height, 0.0001);
+              const scaleX = roundedWidth / sourceWidth;
+              const scaleY = roundedHeight / sourceHeight;
+
+              updateData.points = snapshot.points.map((point) => {
+                const [px = 0, py = 0, ...rest] = point;
+                return [px * scaleX, py * scaleY, ...rest];
+              });
+
+              if (typeof snapshot.strokeWidth === "number") {
+                const strokeScale = Math.max(0.05, Math.min(Math.abs(scaleX), Math.abs(scaleY)));
+                updateData.strokeWidth = Math.max(1, snapshot.strokeWidth * strokeScale);
+              }
+            }
+          }
+
+          layer.update(updateData);
           
           // Traccia le note che sono state ridimensionate per aggiornare le frecce
-          if (layer.get("type") === LayerType.Note) {
+          if (layerType === LayerType.Note) {
             movedNoteIds.add(id);
           }
         }
@@ -2255,6 +2382,33 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
       const selection = mySelection || [];
       
       if (selection.length === 1) {
+        const selectedLayerId = selection[0];
+        const selectedLayer = allLayers?.get(selectedLayerId);
+        if (selectedLayer) {
+          const baseSnapshot: ResizeLayerSnapshot = {
+            id: selectedLayerId,
+            x: selectedLayer.x,
+            y: selectedLayer.y,
+            width: selectedLayer.width,
+            height: selectedLayer.height,
+            type: selectedLayer.type as LayerType,
+          };
+
+          if (selectedLayer.type === LayerType.Path) {
+            const layerData = selectedLayer as any;
+            baseSnapshot.points = Array.isArray(layerData.points)
+              ? layerData.points.map((point: number[]) => [...point])
+              : [];
+            if (typeof layerData.strokeWidth === "number") {
+              baseSnapshot.strokeWidth = layerData.strokeWidth;
+            }
+          }
+
+          setInitialResizeLayerSnapshot(baseSnapshot);
+        } else {
+          setInitialResizeLayerSnapshot(null);
+        }
+
         // Resize singolo layer
         setCanvasState({
           mode: CanvasMode.Resizing,
@@ -2262,26 +2416,34 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
           corner,
         });
       } else if (selection.length > 1) {
+        setInitialResizeLayerSnapshot(null);
         // Per il resize di gruppo, cattura lo snapshot iniziale dei layer
         const snapshot = selection.map(id => {
           const layer = allLayers?.get(id);
           if (layer) {
-            return {
+            const layerSnapshot: ResizeLayerSnapshot = {
               id,
               x: layer.x,
               y: layer.y,
               width: layer.width,
-              height: layer.height
+              height: layer.height,
+              type: layer.type as LayerType,
             };
+
+            if (layer.type === LayerType.Path) {
+              const layerData = layer as any;
+              layerSnapshot.points = Array.isArray(layerData.points)
+                ? layerData.points.map((point: number[]) => [...point])
+                : [];
+              if (typeof layerData.strokeWidth === "number") {
+                layerSnapshot.strokeWidth = layerData.strokeWidth;
+              }
+            }
+
+            return layerSnapshot;
           }
           return null;
-        }).filter(Boolean) as Array<{
-          id: string;
-          x: number;
-          y: number;
-          width: number;
-          height: number;
-        }>;
+        }).filter(Boolean) as ResizeLayerSnapshot[];
         
         setInitialLayersSnapshot(snapshot);
         
@@ -2291,6 +2453,8 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
           initialBounds,
           corner,
         });
+      } else {
+        setInitialResizeLayerSnapshot(null);
       }
     },
     [history, mySelection, camera, allLayers],
@@ -2512,6 +2676,60 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
     setCamera(targetCamera);
   }, []);
 
+  const startPanning = useCallback(
+    (clientX: number, clientY: number, button: number, pointerId: number | null = null) => {
+    panStateRef.current = {
+      active: true,
+      lastX: clientX,
+      lastY: clientY,
+      button,
+      pointerId,
+    };
+    document.body.style.cursor = "grabbing";
+    },
+    [],
+  );
+
+  const stopPanning = useCallback(() => {
+    panStateRef.current.active = false;
+    panStateRef.current.button = null;
+    panStateRef.current.pointerId = null;
+    pendingPanDeltaRef.current = { x: 0, y: 0 };
+    if (panRafRef.current !== null) {
+      window.cancelAnimationFrame(panRafRef.current);
+      panRafRef.current = null;
+    }
+    document.body.style.cursor = isSpacePressed ? "grab" : "auto";
+  }, [isSpacePressed]);
+
+  const schedulePanCameraUpdate = useCallback(
+    (deltaX: number, deltaY: number) => {
+      if (deltaX === 0 && deltaY === 0) return;
+
+      pendingPanDeltaRef.current = {
+        x: pendingPanDeltaRef.current.x + deltaX,
+        y: pendingPanDeltaRef.current.y + deltaY,
+      };
+
+      if (panRafRef.current !== null) return;
+
+      panRafRef.current = window.requestAnimationFrame(() => {
+        panRafRef.current = null;
+        const delta = pendingPanDeltaRef.current;
+        if (delta.x === 0 && delta.y === 0) return;
+
+        const currentCamera = cameraRef.current;
+        setCamera({
+          ...currentCamera,
+          x: currentCamera.x + delta.x,
+          y: currentCamera.y + delta.y,
+        });
+        pendingPanDeltaRef.current = { x: 0, y: 0 };
+      });
+    },
+    [setCamera],
+  );
+
   // Gestione del movimento del puntatore
   const onPointerMove = useMutation(
     ({ setMyPresence }, e: React.PointerEvent) => {
@@ -2524,11 +2742,27 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
       ) {
         return;
       }
-      e.preventDefault();
+      const panState = panStateRef.current;
+      if (panState.active) {
+        e.preventDefault();
+        const pointerId = typeof (e as any).pointerId === "number" ? (e as any).pointerId : null;
+        if (panState.pointerId !== null && pointerId !== panState.pointerId) {
+          return;
+        }
 
-      if (isPanning) {
+        const deltaX = e.clientX - panState.lastX;
+        const deltaY = e.clientY - panState.lastY;
+        panStateRef.current.lastX = e.clientX;
+        panStateRef.current.lastY = e.clientY;
+        schedulePanCameraUpdate(deltaX, deltaY);
+
+        if (typeof (e as any).buttons === "number" && (e as any).buttons === 0) {
+          stopPanning();
+        }
         return;
       }
+
+      e.preventDefault();
 
       const activeCamera =
         isMobileRuntime && isTouchDevice && isMobileSynthetic
@@ -2544,11 +2778,24 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
       } else if (canvasState.mode === CanvasMode.SelectionNet) {
         updateSelectionNet(current, canvasState.origin);
       } else if (canvasState.mode === CanvasMode.Translating) {
-        const startPoint = dragPreviewStartRef.current ?? canvasState.current ?? current;
-        scheduleDragPreview({
-          x: current.x - startPoint.x,
-          y: current.y - startPoint.y,
-        });
+        const shouldTranslateLive = dragNeedsLiveTranslateRef.current || hasSelectedNotes;
+        if (shouldTranslateLive) {
+          if (
+            !canvasState.current ||
+            current.x !== canvasState.current.x ||
+            current.y !== canvasState.current.y
+          ) {
+            translateSelectedLayers(current);
+            setDragPreviewOffset(null);
+            dragPreviewStartRef.current = current;
+          }
+        } else {
+          const startPoint = dragPreviewStartRef.current ?? canvasState.current ?? current;
+          scheduleDragPreview({
+            x: current.x - startPoint.x,
+            y: current.y - startPoint.y,
+          });
+        }
       } else if (canvasState.mode === CanvasMode.Resizing) {
         resizeSelectedLayer(current, e);
       } else if (canvasState.mode === CanvasMode.GroupResizing) {
@@ -2588,10 +2835,13 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
       updateSelectionNet,
       continueDrawing,
       canvasState,
+      hasSelectedNotes,
+      translateSelectedLayers,
       resizeSelectedLayer,
       resizeSelectedLayers,
       scheduleDragPreview,
-      isPanning,
+      schedulePanCameraUpdate,
+      stopPanning,
       camera,
       setCanvasState,
       isResizingArrowLine,
@@ -2603,56 +2853,82 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
     ],
   );
 
-  // Gestione degli eventi di panning
+  // Fallback desktop pan path for browsers where pointer-capture is not available/stable.
   useEffect(() => {
+    const handlePointerMove = (e: PointerEvent) => {
+      const panState = panStateRef.current;
+      if (!panState.active) return;
+      if (panState.pointerId !== null && panState.pointerId !== e.pointerId) return;
+
+      const deltaX = e.clientX - panState.lastX;
+      const deltaY = e.clientY - panState.lastY;
+      panStateRef.current.lastX = e.clientX;
+      panStateRef.current.lastY = e.clientY;
+      schedulePanCameraUpdate(deltaX, deltaY);
+
+      if (typeof e.buttons === "number" && e.buttons === 0) {
+        stopPanning();
+      }
+    };
+
+    const handlePointerEnd = (e: PointerEvent) => {
+      const panState = panStateRef.current;
+      if (!panState.active) return;
+      if (panState.pointerId !== null && panState.pointerId !== e.pointerId) return;
+      stopPanning();
+    };
+
     const handleMouseMove = (e: MouseEvent) => {
-      if (isPanning && panStart) {
-        try {
-        e.preventDefault();
-        e.stopPropagation();
-        } catch (error) {
-          // Ignora l'errore se preventDefault non può essere chiamato
-        }
-        
-        const deltaX = e.clientX - panStart.x;
-        const deltaY = e.clientY - panStart.y;
-        
-        setPanStart({ x: e.clientX, y: e.clientY });
-        
-        const newCamera = {
-          ...camera,
-          x: camera.x + deltaX,
-          y: camera.y + deltaY
-        };
-        
-        setCamera(newCamera);
+      const panState = panStateRef.current;
+      if (!panState.active || panState.pointerId !== null) return;
+
+      const deltaX = e.clientX - panState.lastX;
+      const deltaY = e.clientY - panState.lastY;
+      panStateRef.current.lastX = e.clientX;
+      panStateRef.current.lastY = e.clientY;
+      schedulePanCameraUpdate(deltaX, deltaY);
+    };
+
+    const handleMouseUp = () => {
+      if (panStateRef.current.active) {
+        stopPanning();
       }
     };
-    
-    const handleMouseUp = (e: MouseEvent) => {
-      if (isPanning) {
-        try {
-        e.preventDefault();
-        } catch (error) {
-          // Ignora l'errore se preventDefault non può essere chiamato
-        }
-        
-        setIsPanning(false);
-        setPanStart(null);
-        
-        document.body.style.cursor = isSpacePressed ? 'grab' : 'auto';
-        setCanvasState({ mode: CanvasMode.None });
+
+    const handleWindowBlur = () => {
+      if (panStateRef.current.active) {
+        stopPanning();
       }
     };
-    
-    window.addEventListener('mousemove', handleMouseMove, { capture: true, passive: false });
-    window.addEventListener('mouseup', handleMouseUp, { capture: true, passive: false });
-    
+
+    window.addEventListener("pointermove", handlePointerMove, { capture: true, passive: false });
+    window.addEventListener("pointerup", handlePointerEnd, { capture: true, passive: false });
+    window.addEventListener("pointercancel", handlePointerEnd, { capture: true, passive: false });
+    const hasPointerEvents = typeof window.PointerEvent !== "undefined";
+    if (!hasPointerEvents) {
+      window.addEventListener("mousemove", handleMouseMove, { capture: true, passive: false });
+      window.addEventListener("mouseup", handleMouseUp, { capture: true, passive: false });
+    }
+    window.addEventListener("blur", handleWindowBlur);
     return () => {
-      window.removeEventListener('mousemove', handleMouseMove, { capture: true });
-      window.removeEventListener('mouseup', handleMouseUp, { capture: true });
+      window.removeEventListener("pointermove", handlePointerMove, { capture: true });
+      window.removeEventListener("pointerup", handlePointerEnd, { capture: true });
+      window.removeEventListener("pointercancel", handlePointerEnd, { capture: true });
+      if (!hasPointerEvents) {
+        window.removeEventListener("mousemove", handleMouseMove, { capture: true });
+        window.removeEventListener("mouseup", handleMouseUp, { capture: true });
+      }
+      window.removeEventListener("blur", handleWindowBlur);
+      if (panRafRef.current !== null) {
+        window.cancelAnimationFrame(panRafRef.current);
+        panRafRef.current = null;
+      }
+      pendingPanDeltaRef.current = { x: 0, y: 0 };
+      panStateRef.current.active = false;
+      panStateRef.current.button = null;
+      panStateRef.current.pointerId = null;
     };
-  }, [isPanning, panStart, camera, isSpacePressed, setCanvasState]);
+  }, [schedulePanCameraUpdate, stopPanning]);
 
   // Gestione wheel
   const handleWheel = useCallback((e: WheelEvent) => {
@@ -3408,6 +3684,20 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
 
   // Gestione eventi tastiera per panning
   useEffect(() => {
+    const resolveEventElement = (target: EventTarget | null): Element | null => {
+      if (!target) return null;
+      if (target instanceof Element) return target;
+      if ((target as Node).nodeType === Node.TEXT_NODE) {
+        return (target as Node).parentElement;
+      }
+      return null;
+    };
+
+    const isBoardEventTarget = (target: EventTarget | null) => {
+      const el = resolveEventElement(target);
+      return !!el?.closest(".board-canvas");
+    };
+
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.code === 'Space' && !isSpacePressed) {
         // ✅ VERIFICA SE L'UTENTE STA DIGITANDO IN UN ELEMENTO DI INPUT
@@ -3436,16 +3726,16 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
     };
 
     const handleMouseDown = (e: MouseEvent) => {
+      if (!isBoardEventTarget(e.target)) {
+        return;
+      }
+
       if (isSpacePressed && e.button === 0) {
         e.preventDefault();
-        setIsPanning(true);
-        setPanStart({ x: e.clientX, y: e.clientY });
-        document.body.style.cursor = 'grabbing';
-      } else if (e.button === 2) { // Right click
+        startPanning(e.clientX, e.clientY, 0, null);
+      } else if (e.button === 1 || e.button === 2) {
         e.preventDefault();
-        setIsPanning(true);
-        setPanStart({ x: e.clientX, y: e.clientY });
-        document.body.style.cursor = 'grabbing';
+        startPanning(e.clientX, e.clientY, e.button, null);
       }
     };
 
@@ -3455,16 +3745,17 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
     
     document.addEventListener('keydown', handleKeyDown);
     document.addEventListener('keyup', handleKeyUp);
-    document.addEventListener('mousedown', handleMouseDown);
+    // Capture phase ensures pan starts even when inner layer components stop event propagation.
+    document.addEventListener('mousedown', handleMouseDown, true);
     document.addEventListener('contextmenu', handleContextMenu);
     
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
       document.removeEventListener('keyup', handleKeyUp);
-      document.removeEventListener('mousedown', handleMouseDown);
+      document.removeEventListener('mousedown', handleMouseDown, true);
       document.removeEventListener('contextmenu', handleContextMenu);
     };
-  }, [isSpacePressed]);
+  }, [isSpacePressed, startPanning]);
 
   const onPointerDown = useCallback(
     (e: React.PointerEvent) => {
@@ -3483,6 +3774,38 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
           ? cameraRef.current
           : camera;
       const point = pointerEventToCanvasPoint(e, activeCamera);
+
+      // If pan is already active, suppress all canvas interactions until release.
+      if (!isMobileSynthetic && panStateRef.current.active) {
+        e.preventDefault();
+        return;
+      }
+
+      const pointerButton = getPointerButton(e);
+      const shouldPanWithPointer =
+        !isMobileSynthetic &&
+        (isAuxiliaryMouseButton(e) || (isSpacePressed && pointerButton === 0));
+
+      // Pan gestures (right/middle click or Space+left) must not trigger selection logic.
+      if (shouldPanWithPointer) {
+        e.preventDefault();
+        let capturedPointerId: number | null = null;
+        if (typeof e.pointerId === "number") {
+          try {
+            (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+            capturedPointerId = e.pointerId;
+          } catch (_error) {
+            // Ignore browsers that deny pointer capture for non-primary buttons.
+          }
+        }
+        startPanning(
+          e.clientX,
+          e.clientY,
+          pointerButton,
+          capturedPointerId,
+        );
+        return;
+      }
 
       // 🛡️ SECURITY: Block editing interactions for viewers
       if (isViewer) {
@@ -3524,7 +3847,7 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
 
       setCanvasState({ origin: point, mode: CanvasMode.Pressing });
     },
-    [camera, canvasState.mode, setCanvasState, startDrawing, isViewer, isShiftPressed, isTouchDevice, isMobileRuntime, cameraRef],
+    [camera, canvasState.mode, setCanvasState, startDrawing, isViewer, isShiftPressed, isSpacePressed, isTouchDevice, isMobileRuntime, cameraRef, startPanning],
   );
 
   const onPointerUp = useCallback(
@@ -3544,6 +3867,32 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
           ? cameraRef.current
           : camera;
       const point = pointerEventToCanvasPoint(e, activeCamera);
+      const targetElement = e.target instanceof Element ? e.target : null;
+      const isNoteEditorInteraction =
+        !!targetElement?.closest?.('[data-note-editor="true"]') ||
+        (typeof window !== "undefined" && typeof (window as any).applyNoteFormatting === "function");
+
+      if (panStateRef.current.active) {
+        if (typeof e.pointerId === "number") {
+          try {
+            (e.currentTarget as Element).releasePointerCapture?.(e.pointerId);
+          } catch (_error) {
+            // Ignore if capture was not set.
+          }
+        }
+        stopPanning();
+        return;
+      }
+
+      // Ignore non-primary pointer releases (right/middle mouse up) to avoid accidental deselection while panning.
+      if (!isMobileSynthetic && isAuxiliaryMouseButton(e)) {
+        stopPanning();
+        return;
+      }
+
+      if (isNoteEditorInteraction && canvasState.mode !== CanvasMode.Translating) {
+        return;
+      }
 
       if (
         canvasState.mode === CanvasMode.None ||
@@ -3659,16 +4008,20 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
           setCanvasState({ mode: CanvasMode.None });
         }
       } else if (canvasState.mode === CanvasMode.Translating) {
-        const startPoint = dragPreviewStartRef.current ?? canvasState.current ?? point;
-        const offset = {
-          x: point.x - startPoint.x,
-          y: point.y - startPoint.y,
-        };
-        if (canvasState.current && (offset.x !== 0 || offset.y !== 0)) {
-          translateSelectedLayers(point);
+        const shouldTranslateLive = dragNeedsLiveTranslateRef.current || hasSelectedNotes;
+        if (!shouldTranslateLive) {
+          const startPoint = dragPreviewStartRef.current ?? canvasState.current ?? point;
+          const offset = {
+            x: point.x - startPoint.x,
+            y: point.y - startPoint.y,
+          };
+          if (canvasState.current && (offset.x !== 0 || offset.y !== 0)) {
+            translateSelectedLayers(point);
+          }
         }
         setDragPreviewOffset(null);
         dragPreviewStartRef.current = null;
+        dragNeedsLiveTranslateRef.current = false;
         setCanvasState({ mode: CanvasMode.None });
         setActiveSnapLines([]);
         setCurrentMovingLayer(null);
@@ -3679,6 +4032,7 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
         });
         // Reset della posizione iniziale del mouse e snapshot dei layer
         setResizeInitialMousePos(null);
+        setInitialResizeLayerSnapshot(null);
         setInitialLayersSnapshot(null);
       } else {
         setCanvasState({
@@ -3737,10 +4091,12 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
       autoResizeFrame,
       mySelection,
       isShiftPressed,
+      hasSelectedNotes,
       translateSelectedLayers,
       isTouchDevice,
       isMobileRuntime,
       cameraRef,
+      stopPanning,
     ],
   );
 
@@ -3748,8 +4104,24 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
     setMyPresence({ cursor: null });
   }, []);
 
+  const onPointerCancel = useCallback((e: React.PointerEvent) => {
+    dragNeedsLiveTranslateRef.current = false;
+    if (panStateRef.current.active) {
+      if (typeof e.pointerId === "number") {
+        try {
+          (e.currentTarget as Element).releasePointerCapture?.(e.pointerId);
+        } catch (_error) {
+          // Ignore if capture was not set.
+        }
+      }
+      stopPanning();
+    }
+  }, [stopPanning]);
+
   const onLayerPointerDown = useMutation(
-    ({ self, setMyPresence }, e: React.PointerEvent, layerId: string) => {
+    ({ self, setMyPresence, storage }, e: React.PointerEvent, layerId: string) => {
+      dragNeedsLiveTranslateRef.current = false;
+      const liveLayers = storage.get("layers");
       const isMobileSynthetic = Boolean((e as any).__fromMobileInputEngine);
       if (
         isMobileRuntime &&
@@ -3784,8 +4156,22 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
           setMyPresence({ selection: [layerId] }, { addToHistory: true });
         }
 
+        dragNeedsLiveTranslateRef.current = selectionContainsNotes(liveLayers, [layerId]);
         setCanvasState({ mode: CanvasMode.Translating, current: point });
         beginDragPreview(point);
+        return;
+      }
+
+      if (panStateRef.current.active) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+
+      if (isAuxiliaryMouseButton(e)) {
+        e.preventDefault();
+        // Do not stop propagation: allow canvas-level handlers to keep pan logic centralized.
+        startPanning(e.clientX, e.clientY, getPointerButton(e));
         return;
       }
 
@@ -3835,6 +4221,7 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
         
         // Inizia il trascinamento dei layer duplicati
         if (duplicatedIds.length > 0) {
+          dragNeedsLiveTranslateRef.current = selectionContainsNotes(liveLayers, duplicatedIds);
           setCanvasState({ mode: CanvasMode.Translating, current: point });
           beginDragPreview(point);
         }
@@ -3866,12 +4253,17 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
       if (!self.presence.selection.includes(layerId)) {
         setMyPresence({ selection: [layerId] }, { addToHistory: true });
       }
+
+      const selectedIdsForDrag = self.presence.selection.includes(layerId)
+        ? [...self.presence.selection]
+        : [layerId];
+      dragNeedsLiveTranslateRef.current = selectionContainsNotes(liveLayers, selectedIdsForDrag);
       
       // Inizia sempre il trascinamento quando un layer viene cliccato (senza Shift)
       setCanvasState({ mode: CanvasMode.Translating, current: point });
       beginDragPreview(point);
     },
-    [setCanvasState, camera, history, canvasState.mode, isViewer, isAltPressed, isShiftPressed, duplicateSelectedLayers, onPointerDown, beginDragPreview, isTouchDevice, isMobileRuntime, cameraRef],
+    [setCanvasState, camera, history, canvasState.mode, isViewer, isAltPressed, isShiftPressed, duplicateSelectedLayers, onPointerDown, beginDragPreview, isTouchDevice, isMobileRuntime, cameraRef, startPanning, selectionContainsNotes],
   );
 
   const onLayerContextMenu = useCallback(
@@ -4526,11 +4918,12 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
 	        ref={svgRef}
 	        className="h-[100vh] w-[100vw] select-none"
 	        onWheel={onWheel}
-	        onPointerMove={onPointerMove}
-	        onPointerLeave={onPointerLeave}
-	        onPointerDown={onPointerDown}
-	        onPointerUp={onPointerUp}
-	        onContextMenu={onContextMenu}
+		        onPointerMove={onPointerMove}
+		        onPointerLeave={onPointerLeave}
+		        onPointerDown={onPointerDown}
+		        onPointerUp={onPointerUp}
+		        onPointerCancel={onPointerCancel}
+		        onContextMenu={onContextMenu}
 	        style={{ 
 	          touchAction: 'none',
 	          userSelect: 'none',
@@ -4660,11 +5053,14 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
           <CursorsPresence />
           
           {/* Mind Map Connection Points - renderizzati per ultimi per essere in cima */}
-                        <NoteConnectionPoints 
-              lastUsedColor={lastUsedColor} 
-              lastUsedFontSize={lastUsedFontSize}
-              lastUsedFontWeight={lastUsedFontWeight}
-            />
+          {mySelection?.length === 1 &&
+            allLayers?.get(mySelection[0])?.type === LayerType.Note && (
+              <NoteConnectionPoints
+                lastUsedColor={lastUsedColor}
+                lastUsedFontSize={lastUsedFontSize}
+                lastUsedFontWeight={lastUsedFontWeight}
+              />
+            )}
               <ArrowSnapIndicators 
                 camera={camera} 
                 canvasState={canvasState}

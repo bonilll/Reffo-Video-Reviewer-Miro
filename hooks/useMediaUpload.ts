@@ -173,6 +173,8 @@ export const useMediaUpload = ({ boardId, camera }: UseMediaUploadOptions) => {
           height,
           width,
           url: mediaUrl,
+          previewUrl: previewUrl || undefined,
+          thumbnailUrl: previewUrl || undefined,
           title: "Video caricato"
         };
         

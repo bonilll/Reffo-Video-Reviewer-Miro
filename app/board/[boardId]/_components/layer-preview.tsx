@@ -69,6 +69,191 @@ type LayerPreviewProps = {
   runtimeMode?: "desktop" | "mobile";
 };
 
+const videoPreviewCache = new Map<string, string>();
+const videoPreviewJobs = new Map<string, Promise<string | undefined>>();
+
+const getVideoPreviewSeekTime = (duration?: number): number => {
+  if (!Number.isFinite(duration) || (duration ?? 0) <= 0) return 1.2;
+  const safeDuration = duration as number;
+  if (safeDuration <= 1) return Math.max(0.12, safeDuration * 0.45);
+  if (safeDuration < 4) return Math.min(1.4, Math.max(0.4, safeDuration * 0.35));
+  return Math.min(Math.max(safeDuration * 0.15, 1.2), 6);
+};
+
+const createVideoPreviewFromUrl = (url: string): Promise<string | undefined> => {
+  if (!url || typeof document === "undefined" || typeof window === "undefined") {
+    return Promise.resolve(undefined);
+  }
+
+  const cached = videoPreviewCache.get(url);
+  if (cached) return Promise.resolve(cached);
+
+  const running = videoPreviewJobs.get(url);
+  if (running) return running;
+
+  const job = new Promise<string | undefined>((resolve) => {
+    const video = document.createElement("video");
+    let candidateTimes: number[] = [];
+    let candidateIndex = 0;
+    let seekScheduled = false;
+    let settled = false;
+    let timeoutId: number | null = null;
+
+    const cleanup = () => {
+      video.pause();
+      video.removeAttribute("src");
+      video.load();
+      video.onloadedmetadata = null;
+      video.onloadeddata = null;
+      video.onseeked = null;
+      video.onerror = null;
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+      }
+    };
+
+    const finalize = (preview?: string) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (preview) {
+        videoPreviewCache.set(url, preview);
+      }
+      resolve(preview);
+    };
+
+    const capture = (): { preview?: string; brightness?: number | null } => {
+      try {
+        const width = video.videoWidth || 0;
+        const height = video.videoHeight || 0;
+        if (width <= 0 || height <= 0) {
+          return { preview: undefined, brightness: null };
+        }
+
+        const maxDimension = 480;
+        const scale = Math.min(maxDimension / width, maxDimension / height, 1);
+        const targetWidth = Math.max(1, Math.round(width * scale));
+        const targetHeight = Math.max(1, Math.round(height * scale));
+        const canvas = document.createElement("canvas");
+        canvas.width = targetWidth;
+        canvas.height = targetHeight;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          return { preview: undefined, brightness: null };
+        }
+
+        ctx.drawImage(video, 0, 0, targetWidth, targetHeight);
+        let brightness: number | null = null;
+        try {
+          const sampleSize = 20;
+          const sampleCanvas = document.createElement("canvas");
+          sampleCanvas.width = sampleSize;
+          sampleCanvas.height = sampleSize;
+          const sampleCtx = sampleCanvas.getContext("2d");
+          if (sampleCtx) {
+            sampleCtx.drawImage(video, 0, 0, sampleSize, sampleSize);
+            const pixels = sampleCtx.getImageData(0, 0, sampleSize, sampleSize).data;
+            let total = 0;
+            for (let i = 0; i < pixels.length; i += 4) {
+              total += 0.2126 * pixels[i] + 0.7152 * pixels[i + 1] + 0.0722 * pixels[i + 2];
+            }
+            brightness = total / (sampleSize * sampleSize);
+          }
+        } catch {
+          brightness = null;
+        }
+
+        const preview = canvas.toDataURL("image/jpeg", 0.78);
+        return { preview, brightness };
+      } catch {
+        return { preview: undefined, brightness: null };
+      }
+    };
+
+    const buildCandidateTimes = () => {
+      const duration = video.duration;
+      if (!Number.isFinite(duration) || duration <= 0) {
+        candidateTimes = [getVideoPreviewSeekTime(undefined), 2.1, 3.2];
+        return;
+      }
+      const d = duration as number;
+      const times = [
+        getVideoPreviewSeekTime(d),
+        d * 0.22,
+        d * 0.35,
+        d * 0.5,
+        d * 0.68,
+      ]
+        .map((t) => Math.max(0.06, Math.min(d - 0.06, t)))
+        .filter((t) => Number.isFinite(t));
+      candidateTimes = Array.from(new Set(times.map((t) => Math.round(t * 100) / 100)));
+      if (candidateTimes.length === 0) {
+        candidateTimes = [Math.max(0.06, Math.min(d - 0.06, getVideoPreviewSeekTime(d)))];
+      }
+    };
+
+    const seekToPreviewTime = () => {
+      if (seekScheduled || settled) return;
+      if (candidateTimes.length === 0) buildCandidateTimes();
+      const targetTime = candidateTimes[Math.max(0, Math.min(candidateIndex, candidateTimes.length - 1))];
+      try {
+        seekScheduled = true;
+        video.currentTime = targetTime;
+      } catch {
+        const frame = capture();
+        finalize(frame.preview);
+      }
+    };
+
+    const handleCaptureAttempt = () => {
+      seekScheduled = false;
+      const frame = capture();
+      if (!frame.preview) {
+        finalize(undefined);
+        return;
+      }
+
+      const isLikelyDark = typeof frame.brightness === "number" ? frame.brightness < 18 : false;
+      const hasMoreCandidates = candidateIndex < candidateTimes.length - 1;
+      if (isLikelyDark && hasMoreCandidates) {
+        candidateIndex += 1;
+        seekToPreviewTime();
+        return;
+      }
+
+      finalize(frame.preview);
+    };
+
+    video.preload = "auto";
+    video.muted = true;
+    video.playsInline = true;
+    video.crossOrigin = "anonymous";
+    video.onloadedmetadata = () => {
+      buildCandidateTimes();
+      seekToPreviewTime();
+    };
+    video.onloadeddata = () => {
+      if (video.currentTime > 0) {
+        handleCaptureAttempt();
+      } else if (!seekScheduled) {
+        seekToPreviewTime();
+      }
+    };
+    video.onseeked = handleCaptureAttempt;
+    video.onerror = () => finalize(undefined);
+
+    timeoutId = window.setTimeout(() => finalize(undefined), 10000);
+    video.src = url.includes("#t=") ? url : `${url}#t=${getVideoPreviewSeekTime(undefined)}`;
+  });
+
+  videoPreviewJobs.set(url, job);
+  void job.finally(() => {
+    videoPreviewJobs.delete(url);
+  });
+
+  return job;
+};
+
 	export const LayerPreview = memo(
 	  ({ id, onLayerPointerDown, onLayerContextMenu, selectionColor, lastUsedColor, camera, cameraRef, lodBucket = "high", canvasState, boardId, backgroundColor = "#f5f5f5", onDrawingStart, onDrawingContinue, onDrawingEnd, onDrawingModeStart, onDrawingModeMove, onDrawingModeEnd, onCommentClick, runtimeMode = "desktop" }: LayerPreviewProps) => {
 	    const layer = useStorage((root) => root.layers.get(id));
@@ -77,6 +262,7 @@ type LayerPreviewProps = {
 	    const [isDragActive, setIsDragActive] = useState(false);
 	    const [dragStarted, setDragStarted] = useState(false);
 	    const [imageHiResReady, setImageHiResReady] = useState(false);
+	    const [runtimeVideoPreviewUrl, setRuntimeVideoPreviewUrl] = useState<string | undefined>(undefined);
 	    const iosSafari = isIOSSafari();
 	    
 	    // Determina se questo layer è selezionato
@@ -146,6 +332,58 @@ type LayerPreviewProps = {
       setImageHiResReady(false);
     }, [layer?.type, (layer as any)?.url, lodBucket]);
 
+    const videoLayerUrl = layer?.type === LayerType.Video ? (layer as VideoLayer).url : undefined;
+    const layerVideoPreviewProp = layer?.type === LayerType.Video
+      ? (((layer as any).previewUrl as string | undefined)?.trim() || undefined)
+      : undefined;
+    const layerVideoThumbnailProp = layer?.type === LayerType.Video
+      ? (((layer as any).thumbnailUrl as string | undefined)?.trim() || undefined)
+      : undefined;
+    const layerVideoPreviewUrl = layerVideoPreviewProp || layerVideoThumbnailProp;
+
+    useEffect(() => {
+      if (!layer || layer.type !== LayerType.Video) {
+        setRuntimeVideoPreviewUrl(undefined);
+        return;
+      }
+      setRuntimeVideoPreviewUrl(layerVideoPreviewUrl);
+    }, [layer?.type, videoLayerUrl, layerVideoPreviewUrl]);
+
+    useEffect(() => {
+      if (!layer || layer.type !== LayerType.Video) return;
+      if (runtimeVideoPreviewUrl || !videoLayerUrl) return;
+
+      let cancelled = false;
+      createVideoPreviewFromUrl(videoLayerUrl).then((preview) => {
+        if (!cancelled && preview) {
+          setRuntimeVideoPreviewUrl(preview);
+        }
+      });
+
+      return () => {
+        cancelled = true;
+      };
+    }, [layer?.type, videoLayerUrl, runtimeVideoPreviewUrl]);
+
+    useEffect(() => {
+      if (!layer || layer.type !== LayerType.Video) return;
+      if (!runtimeVideoPreviewUrl) return;
+
+      if (layerVideoPreviewProp || layerVideoThumbnailProp) return;
+
+      updateLayerProps(id, {
+        previewUrl: runtimeVideoPreviewUrl,
+        thumbnailUrl: runtimeVideoPreviewUrl,
+      });
+    }, [
+      layer?.type,
+      layerVideoPreviewProp,
+      layerVideoThumbnailProp,
+      runtimeVideoPreviewUrl,
+      updateLayerProps,
+      id,
+    ]);
+
     // Funzione per rilevare se si sta trascinando sopra una tabella
     const checkIfOverTable = useCallback((clientX: number, clientY: number) => {
       // Trova l'elemento trascinato per renderlo temporaneamente trasparente
@@ -173,6 +411,12 @@ type LayerPreviewProps = {
 
     // Sistema unificato di drag che inizia sempre con movimento normale
     const handlePointerDown = useCallback((e: React.PointerEvent) => {
+      const pointerButton = typeof e.button === "number" ? e.button : 0;
+      if (pointerButton !== 0) {
+        // Let right/middle click bubble to canvas-level pan handlers.
+        return;
+      }
+
       // IMPORTANTE: Non interferire se siamo in modalità Drawing o Inserting
       // Questi modi sono per disegnare nuove forme e non devono essere interrotti
       if (canvasState.mode === CanvasMode.Drawing || canvasState.mode === CanvasMode.Inserting) {
@@ -425,9 +669,12 @@ type LayerPreviewProps = {
             onPointerDown={(e) => onLayerPointerDown(e, id)}
             x={(layer as PathLayer).x}
             y={(layer as PathLayer).y}
+            width={(layer as PathLayer).width}
+            height={(layer as PathLayer).height}
             fill={layer.fill ? colorToCSS(layer.fill) : "#000"}
             stroke={selectionColor}
             strokeWidth={(layer as PathLayer).strokeWidth}
+            isSelected={isSelected}
           />
         );
       case LayerType.Text:
@@ -605,15 +852,22 @@ type LayerPreviewProps = {
       case LayerType.Video:
         const videoLayer = layer as VideoLayer;
         const useVideoLOD = lodBucket !== "high";
-        const videoPreviewUrl = (videoLayer as any).previewUrl as string | undefined;
-
+        const videoPreviewUrl =
+          (((videoLayer as any).previewUrl as string | undefined)?.trim() ||
+            ((videoLayer as any).thumbnailUrl as string | undefined)?.trim() ||
+            undefined);
+        const resolvedVideoPreviewUrl =
+          videoPreviewUrl && videoPreviewUrl.trim().length > 0
+            ? videoPreviewUrl
+            : undefined;
+        const effectiveVideoPreviewUrl = runtimeVideoPreviewUrl || resolvedVideoPreviewUrl;
         if (runtimeMode === "mobile") {
           return (
             <g data-layer-id={id} onPointerDown={handlePointerDown} style={{ cursor: "pointer" }}>
-              {videoPreviewUrl ? (
+              {effectiveVideoPreviewUrl ? (
                 <image
                   data-layer-id={id}
-                  href={videoPreviewUrl}
+                  href={effectiveVideoPreviewUrl}
                   x={videoLayer.x}
                   y={videoLayer.y}
                   width={videoLayer.width}
@@ -622,18 +876,33 @@ type LayerPreviewProps = {
                   style={{ pointerEvents: "auto" }}
                 />
               ) : (
-                <rect
-                  data-layer-id={id}
-                  x={videoLayer.x}
-                  y={videoLayer.y}
-                  width={videoLayer.width}
-                  height={videoLayer.height}
-                  fill="#0f172a"
-                  stroke="#1e293b"
-                  strokeWidth={1}
-                  rx={8}
-                  ry={8}
-                />
+                <g data-layer-id={id}>
+                  <rect
+                    data-layer-id={id}
+                    x={videoLayer.x}
+                    y={videoLayer.y}
+                    width={videoLayer.width}
+                    height={videoLayer.height}
+                    fill="#f1f5f9"
+                    stroke="#cbd5e1"
+                    strokeWidth={1}
+                    rx={8}
+                    ry={8}
+                  />
+                  <circle
+                    data-layer-id={id}
+                    cx={videoLayer.x + videoLayer.width / 2}
+                    cy={videoLayer.y + videoLayer.height / 2}
+                    r={Math.max(10, Math.min(videoLayer.width, videoLayer.height) * 0.12)}
+                    fill="#0f172a"
+                    opacity={0.9}
+                  />
+                  <polygon
+                    data-layer-id={id}
+                    points={`${videoLayer.x + videoLayer.width / 2 - 4},${videoLayer.y + videoLayer.height / 2 - 6} ${videoLayer.x + videoLayer.width / 2 - 4},${videoLayer.y + videoLayer.height / 2 + 6} ${videoLayer.x + videoLayer.width / 2 + 7},${videoLayer.y + videoLayer.height / 2}`}
+                    fill="#ffffff"
+                  />
+                </g>
               )}
               <g data-layer-id={id} transform={`translate(${videoLayer.x + 12} ${videoLayer.y + 26})`}>
                 <text
@@ -709,16 +978,33 @@ type LayerPreviewProps = {
               <div className="relative w-full h-full">
                 {/* Custom player */}
                 {useVideoLOD ? (
-                  <div className="w-full h-full bg-slate-100/80 flex items-center justify-center text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                    Video
-                  </div>
+                  effectiveVideoPreviewUrl ? (
+                    <img
+                      src={effectiveVideoPreviewUrl}
+                      alt="Video preview"
+                      className="w-full h-full object-cover"
+                      draggable={false}
+                      loading="lazy"
+                      decoding="async"
+                    />
+                  ) : (
+                    <div className="w-full h-full bg-slate-100 flex items-center justify-center">
+                      <div className="flex items-center gap-2 rounded-full bg-slate-900/85 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-white">
+                        <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                          <path d="M8 5v14l11-7z" />
+                        </svg>
+                        Video
+                      </div>
+                    </div>
+                  )
                 ) : (
                   <VideoPlayer
                     src={videoLayer.url}
+                    poster={effectiveVideoPreviewUrl}
                     fit="cover"
                     autoPlay={false}
                     muted={true}
-                    preload={isSelected ? "metadata" : "none"}
+                    preload="metadata"
                   />
                 )}
                 

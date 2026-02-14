@@ -45,6 +45,11 @@ export const NoteConnectionPoints = memo(({ lastUsedColor, lastUsedFontSize, las
     return notes;
   });
 
+  // Mostra i bottoni di connessione solo con UNA selezione attiva (e se è una nota).
+  if (selection.length !== 1 || selectedNotes.length !== 1) {
+    return null;
+  }
+
   // Gestisce la creazione di note collegate
   const handleConnectionClick = (noteId: string, side: ConnectionSide, e: React.MouseEvent) => {
     e.stopPropagation();
