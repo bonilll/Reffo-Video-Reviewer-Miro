@@ -2300,7 +2300,12 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
           </div>
         </div>
       )}
-	          <div ref={containerRef} className="flex-1 flex flex-col min-h-0 min-w-0 gap-4">
+	          <div
+              ref={containerRef}
+              className={`flex-1 flex flex-col min-h-0 min-w-0 gap-4 ${
+                isFullscreen ? (isDark ? 'bg-neutral-950' : 'bg-white') : ''
+              }`}
+            >
 	            <section
 	              className={`relative flex-1 min-h-0 rounded-3xl border shadow-sm ${ui.cardSolid} p-2 sm:p-3 ${
 	                isFullscreen ? 'rounded-none border-0 shadow-none' : ''
