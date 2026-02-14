@@ -19,6 +19,30 @@ interface UploadOverlayProps {
   userRole?: string;
 }
 
+const buildVideoPreviewSeekCandidates = (duration?: number): number[] => {
+  if (!Number.isFinite(duration) || (duration ?? 0) <= 0) {
+    return [1.2, 2.4, 3.8];
+  }
+  const safeDuration = duration as number;
+  if (safeDuration <= 1) {
+    return [Math.max(0.08, safeDuration * 0.45)];
+  }
+  const rawCandidates = [
+    Math.min(Math.max(safeDuration * 0.15, 1.0), safeDuration - 0.08),
+    safeDuration * 0.28,
+    safeDuration * 0.42,
+    safeDuration * 0.58,
+    safeDuration * 0.72,
+  ];
+  return Array.from(
+    new Set(
+      rawCandidates
+        .map((t) => Math.max(0.08, Math.min(safeDuration - 0.08, t)))
+        .map((t) => Math.round(t * 100) / 100)
+    )
+  );
+};
+
 export const UploadOverlay = ({ boardId, userRole }: UploadOverlayProps) => {
   const [uploads, setUploads] = useState<Record<string, UploadState>>({});
   const { camera } = useCamera();
@@ -30,38 +54,58 @@ export const UploadOverlay = ({ boardId, userRole }: UploadOverlayProps) => {
   const { handleMediaUploaded, handleFileUploaded } = useMediaUpload({ boardId, camera });
   const canUpload = !isViewer;
 
-  const createVideoPreviewDataUrl = async (file: File): Promise<string | undefined> => {
-    if (!file.type.startsWith("video/")) return undefined;
+  const createVideoPreviewCapture = async (
+    file: File
+  ): Promise<{ dataUrl?: string; blob?: Blob }> => {
+    if (!file.type.startsWith("video/")) return {};
 
     const objectUrl = URL.createObjectURL(file);
     try {
-      const dataUrl = await new Promise<string | undefined>((resolve) => {
+      const result = await new Promise<{ dataUrl?: string; blob?: Blob }>((resolve) => {
         const video = document.createElement("video");
+        let settled = false;
+        let seekIndex = 0;
+        let candidateTimes: number[] = [];
+        let timeoutId: number | null = null;
+        let seekScheduled = false;
+
         video.preload = "metadata";
         video.muted = true;
         video.playsInline = true;
         video.crossOrigin = "anonymous";
 
+        const finalize = (payload?: { dataUrl?: string; blob?: Blob }) => {
+          if (settled) return;
+          settled = true;
+          cleanup();
+          resolve(payload ?? {});
+        };
+
         const cleanup = () => {
+          video.pause();
+          video.onloadedmetadata = null;
+          video.onloadeddata = null;
+          video.onseeked = null;
+          video.onerror = null;
+          if (timeoutId !== null) {
+            window.clearTimeout(timeoutId);
+          }
           video.removeAttribute("src");
           video.load();
         };
 
         const onError = () => {
-          cleanup();
-          resolve(undefined);
+          finalize({});
         };
 
-        const onLoadedData = () => {
+        const captureFrame = async (): Promise<{ dataUrl?: string; blob?: Blob; brightness?: number | null }> => {
           const width = video.videoWidth || 0;
           const height = video.videoHeight || 0;
           if (width <= 0 || height <= 0) {
-            cleanup();
-            resolve(undefined);
-            return;
+            return {};
           }
 
-          const maxDimension = 320;
+          const maxDimension = 360;
           const scale = Math.min(maxDimension / width, maxDimension / height, 1);
           const targetWidth = Math.max(1, Math.round(width * scale));
           const targetHeight = Math.max(1, Math.round(height * scale));
@@ -71,40 +115,92 @@ export const UploadOverlay = ({ boardId, userRole }: UploadOverlayProps) => {
           canvas.height = targetHeight;
           const ctx = canvas.getContext("2d");
           if (!ctx) {
-            cleanup();
-            resolve(undefined);
-            return;
+            return {};
           }
 
           ctx.drawImage(video, 0, 0, targetWidth, targetHeight);
-          const preview = canvas.toDataURL("image/jpeg", 0.72);
-          cleanup();
-          resolve(preview);
+          let brightness: number | null = null;
+          try {
+            const sampleSize = 18;
+            const sampleCanvas = document.createElement("canvas");
+            sampleCanvas.width = sampleSize;
+            sampleCanvas.height = sampleSize;
+            const sampleCtx = sampleCanvas.getContext("2d");
+            if (sampleCtx) {
+              sampleCtx.drawImage(video, 0, 0, sampleSize, sampleSize);
+              const pixels = sampleCtx.getImageData(0, 0, sampleSize, sampleSize).data;
+              let total = 0;
+              for (let i = 0; i < pixels.length; i += 4) {
+                total += 0.2126 * pixels[i] + 0.7152 * pixels[i + 1] + 0.0722 * pixels[i + 2];
+              }
+              brightness = total / (sampleSize * sampleSize);
+            }
+          } catch {
+            brightness = null;
+          }
+
+          const dataUrl = canvas.toDataURL("image/jpeg", 0.74);
+          const blob = await new Promise<Blob | undefined>((resolveBlob) => {
+            canvas.toBlob((value) => resolveBlob(value ?? undefined), "image/jpeg", 0.74);
+          });
+          return { dataUrl, blob, brightness };
+        };
+
+        const seekNextCandidate = () => {
+          if (settled || seekScheduled) return;
+          if (candidateTimes.length === 0) {
+            candidateTimes = buildVideoPreviewSeekCandidates(video.duration);
+          }
+          const index = Math.max(0, Math.min(seekIndex, candidateTimes.length - 1));
+          const targetTime = candidateTimes[index];
+          try {
+            seekScheduled = true;
+            video.currentTime = targetTime;
+          } catch {
+            finalize({});
+          }
+        };
+
+        const onCaptureAttempt = async () => {
+          seekScheduled = false;
+          const frame = await captureFrame();
+          if (!frame.dataUrl) {
+            finalize({});
+            return;
+          }
+
+          const looksTooDark = typeof frame.brightness === "number" ? frame.brightness < 18 : false;
+          const hasMoreCandidates = seekIndex < candidateTimes.length - 1;
+
+          if (looksTooDark && hasMoreCandidates) {
+            seekIndex += 1;
+            seekNextCandidate();
+            return;
+          }
+
+          finalize({ dataUrl: frame.dataUrl, blob: frame.blob });
         };
 
         video.addEventListener("error", onError, { once: true });
-        video.addEventListener(
-          "loadedmetadata",
-          () => {
-            const trySeek = () => {
-              const targetTime = Number.isFinite(video.duration) && video.duration > 1 ? 0.5 : 0;
-              try {
-                video.currentTime = targetTime;
-              } catch {
-                // Some browsers may block seek before enough data is available.
-              }
-            };
-            trySeek();
-          },
-          { once: true },
-        );
-        video.addEventListener("seeked", onLoadedData, { once: true });
-        video.addEventListener("loadeddata", onLoadedData, { once: true });
+        video.onloadedmetadata = () => {
+          candidateTimes = buildVideoPreviewSeekCandidates(video.duration);
+          seekNextCandidate();
+        };
+        video.onloadeddata = () => {
+          if (!seekScheduled) {
+            seekNextCandidate();
+          }
+        };
+        video.onseeked = () => {
+          void onCaptureAttempt();
+        };
+
+        timeoutId = window.setTimeout(() => finalize({}), 10000);
 
         video.src = objectUrl;
       });
 
-      return dataUrl;
+      return result;
     } finally {
       URL.revokeObjectURL(objectUrl);
     }
@@ -154,6 +250,7 @@ export const UploadOverlay = ({ boardId, userRole }: UploadOverlayProps) => {
       try {
         let uploadFile = file;
         let previewUrl: string | undefined;
+        let videoPreviewBlob: Blob | undefined;
         let compressionMeta: UploadState["meta"] = { wasCompressed: false };
 
         if (isCompressibleImage(file)) {
@@ -179,7 +276,9 @@ export const UploadOverlay = ({ boardId, userRole }: UploadOverlayProps) => {
           }
         } else if (file.type.startsWith("video/")) {
           try {
-            previewUrl = await createVideoPreviewDataUrl(file);
+            const preview = await createVideoPreviewCapture(file);
+            previewUrl = preview?.dataUrl;
+            videoPreviewBlob = preview?.blob;
           } catch (previewError) {
             console.warn("⚠️ Video preview generation failed:", previewError);
           }
@@ -221,6 +320,29 @@ export const UploadOverlay = ({ boardId, userRole }: UploadOverlayProps) => {
           
           if (isImage || isVideo) {
             const mediaType = isImage ? "image" : "video";
+            let layerPreviewUrl = previewUrl;
+
+            if (isVideo && videoPreviewBlob) {
+              try {
+                const baseName = (uploadFile.name || "video").replace(/\.[^.]+$/, "");
+                const previewFile = new File([videoPreviewBlob], `${baseName}-preview.jpg`, {
+                  type: "image/jpeg",
+                });
+                const previewUpload = await uploadFileMultipart(previewFile, {
+                  boardId,
+                  context: "board",
+                  contextId: boardId,
+                  isPrivate: false,
+                  autoSaveToLibrary: false,
+                  concurrency: 2,
+                });
+                if (previewUpload.success && previewUpload.url) {
+                  layerPreviewUrl = previewUpload.url;
+                }
+              } catch (previewUploadError) {
+                console.warn("⚠️ Video preview upload failed, using local preview fallback:", previewUploadError);
+              }
+            }
 
             await createMedia({
               boardId: boardId as Id<"boards">,
@@ -234,7 +356,7 @@ export const UploadOverlay = ({ boardId, userRole }: UploadOverlayProps) => {
             
             
             // Aggiungi il media al canvas
-            await handleMediaUploaded(mediaType, uploadResult.url, previewUrl);
+            await handleMediaUploaded(mediaType, uploadResult.url, layerPreviewUrl);
             
           } else {
             await createMedia({

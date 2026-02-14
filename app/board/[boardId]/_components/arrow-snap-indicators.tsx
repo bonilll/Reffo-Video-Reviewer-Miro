@@ -162,20 +162,6 @@ export const ArrowSnapIndicators = memo(({ camera, canvasState, isResizingArrowL
             }}
           />
           
-          {/* Anello esterno animato */}
-          <circle
-            cx={point.x}
-            cy={point.y}
-            r={12}
-            fill="none"
-            stroke={point.isNearArrowStart ? "#10b981" : "#3b82f6"}
-            strokeWidth={2}
-            opacity={0.6}
-            style={{
-              animation: "pulse 1.5s ease-in-out infinite",
-            }}
-          />
-          
           {/* Indicatore direzionale */}
           <g transform={`translate(${point.x}, ${point.y})`}>
             {point.side === "top" && (
@@ -209,18 +195,6 @@ export const ArrowSnapIndicators = memo(({ camera, canvasState, isResizingArrowL
           </g>
         </g>
       ))}
-      
-      {/* Aggiungi CSS per animazione pulse */}
-      <defs>
-        <style>
-          {`
-            @keyframes pulse {
-              0%, 100% { opacity: 0.6; transform: scale(1); }
-              50% { opacity: 0.3; transform: scale(1.1); }
-            }
-          `}
-        </style>
-      </defs>
     </>
   );
 });
