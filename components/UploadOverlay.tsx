@@ -253,26 +253,31 @@ export const UploadOverlay = ({ boardId, userRole }: UploadOverlayProps) => {
         let videoPreviewBlob: Blob | undefined;
         let compressionMeta: UploadState["meta"] = { wasCompressed: false };
 
-        if (isCompressibleImage(file)) {
-          try {
-            const result = await compressImageFile(file, { maxDimension: 3072, quality: 0.5 });
-            uploadFile = result.file;
-            compressionMeta = {
-              wasCompressed: true,
-              originalSize: result.originalSize,
-              compressedSize: result.compressedSize,
-              outputType: result.outputType,
-            };
-          } catch (compressionError) {
-            console.warn("⚠️ Image compression failed, uploading original:", compressionError);
-            compressionMeta = { wasCompressed: false };
+        if (file.type.startsWith("image/")) {
+          if (isCompressibleImage(file)) {
+            try {
+              const result = await compressImageFile(file, { maxDimension: 3072, quality: 0.5 });
+              uploadFile = result.file;
+              compressionMeta = {
+                wasCompressed: true,
+                originalSize: result.originalSize,
+                compressedSize: result.compressedSize,
+                outputType: result.outputType,
+              };
+            } catch (compressionError) {
+              console.warn("⚠️ Image compression failed, uploading original:", compressionError);
+              compressionMeta = { wasCompressed: false };
+            }
           }
 
-          try {
-            const preview = await createImagePreviewDataUrl(uploadFile, { maxDimension: 256, quality: 0.5 });
-            previewUrl = preview.dataUrl;
-          } catch (previewError) {
-            console.warn("⚠️ Preview generation failed:", previewError);
+          // Generate LOD preview for all raster images, including GIF.
+          if ((uploadFile.type || file.type).toLowerCase() !== "image/svg+xml") {
+            try {
+              const preview = await createImagePreviewDataUrl(uploadFile, { maxDimension: 256, quality: 0.5 });
+              previewUrl = preview.dataUrl;
+            } catch (previewError) {
+              console.warn("⚠️ Preview generation failed:", previewError);
+            }
           }
         } else if (file.type.startsWith("video/")) {
           try {

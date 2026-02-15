@@ -299,6 +299,196 @@ const extractVideoMetadata = (file: File) =>
     video.src = objectUrl;
   });
 
+const buildVideoPreviewSeekCandidates = (duration?: number): number[] => {
+  if (!Number.isFinite(duration) || (duration ?? 0) <= 0) {
+    return [1.2, 2.4, 3.8];
+  }
+  const safeDuration = duration as number;
+  if (safeDuration <= 1) {
+    return [Math.max(0.08, safeDuration * 0.45)];
+  }
+  const rawCandidates = [
+    Math.min(Math.max(safeDuration * 0.15, 1.0), safeDuration - 0.08),
+    safeDuration * 0.28,
+    safeDuration * 0.42,
+    safeDuration * 0.58,
+    safeDuration * 0.72,
+  ];
+  return Array.from(
+    new Set(
+      rawCandidates
+        .map((t) => Math.max(0.08, Math.min(safeDuration - 0.08, t)))
+        .map((t) => Math.round(t * 100) / 100)
+    )
+  );
+};
+
+const captureVideoPreviewFromSource = async (
+  sourceUrl: string
+): Promise<{ dataUrl?: string; blob?: Blob; width?: number; height?: number }> => {
+  if (!sourceUrl) return {};
+
+  return await new Promise<{ dataUrl?: string; blob?: Blob; width?: number; height?: number }>((resolve) => {
+    const video = document.createElement("video");
+    let settled = false;
+    let seekIndex = 0;
+    let candidateTimes: number[] = [];
+    let timeoutId: number | null = null;
+    let seekScheduled = false;
+
+    const finalize = (payload?: { dataUrl?: string; blob?: Blob; width?: number; height?: number }) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(payload ?? {});
+    };
+
+    const cleanup = () => {
+      video.pause();
+      video.onloadedmetadata = null;
+      video.onloadeddata = null;
+      video.onseeked = null;
+      video.onerror = null;
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+      }
+      video.removeAttribute("src");
+      video.load();
+    };
+
+    const onError = () => finalize({});
+
+    const captureFrame = async (): Promise<{
+      dataUrl?: string;
+      blob?: Blob;
+      brightness?: number | null;
+      width?: number;
+      height?: number;
+    }> => {
+      const width = video.videoWidth || 0;
+      const height = video.videoHeight || 0;
+      if (width <= 0 || height <= 0) {
+        return {};
+      }
+
+      const maxDimension = 360;
+      const scale = Math.min(maxDimension / width, maxDimension / height, 1);
+      const targetWidth = Math.max(1, Math.round(width * scale));
+      const targetHeight = Math.max(1, Math.round(height * scale));
+
+      const canvas = document.createElement("canvas");
+      canvas.width = targetWidth;
+      canvas.height = targetHeight;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        return {};
+      }
+
+      ctx.drawImage(video, 0, 0, targetWidth, targetHeight);
+      let brightness: number | null = null;
+      try {
+        const sampleSize = 18;
+        const sampleCanvas = document.createElement("canvas");
+        sampleCanvas.width = sampleSize;
+        sampleCanvas.height = sampleSize;
+        const sampleCtx = sampleCanvas.getContext("2d");
+        if (sampleCtx) {
+          sampleCtx.drawImage(video, 0, 0, sampleSize, sampleSize);
+          const pixels = sampleCtx.getImageData(0, 0, sampleSize, sampleSize).data;
+          let total = 0;
+          for (let i = 0; i < pixels.length; i += 4) {
+            total += 0.2126 * pixels[i] + 0.7152 * pixels[i + 1] + 0.0722 * pixels[i + 2];
+          }
+          brightness = total / (sampleSize * sampleSize);
+        }
+      } catch {
+        brightness = null;
+      }
+
+      const dataUrl = canvas.toDataURL("image/jpeg", 0.74);
+      const blob = await new Promise<Blob | undefined>((resolveBlob) => {
+        canvas.toBlob((value) => resolveBlob(value ?? undefined), "image/jpeg", 0.74);
+      });
+      return { dataUrl, blob, brightness, width: targetWidth, height: targetHeight };
+    };
+
+    const seekNextCandidate = () => {
+      if (settled || seekScheduled) return;
+      if (candidateTimes.length === 0) {
+        candidateTimes = buildVideoPreviewSeekCandidates(video.duration);
+      }
+      const index = Math.max(0, Math.min(seekIndex, candidateTimes.length - 1));
+      const targetTime = candidateTimes[index];
+      try {
+        seekScheduled = true;
+        video.currentTime = targetTime;
+      } catch {
+        finalize({});
+      }
+    };
+
+    const onCaptureAttempt = async () => {
+      seekScheduled = false;
+      const frame = await captureFrame();
+      if (!frame.dataUrl) {
+        finalize({});
+        return;
+      }
+
+      const looksTooDark = typeof frame.brightness === "number" ? frame.brightness < 18 : false;
+      const hasMoreCandidates = seekIndex < candidateTimes.length - 1;
+
+      if (looksTooDark && hasMoreCandidates) {
+        seekIndex += 1;
+        seekNextCandidate();
+        return;
+      }
+
+      finalize({
+        dataUrl: frame.dataUrl,
+        blob: frame.blob,
+        width: frame.width,
+        height: frame.height,
+      });
+    };
+
+    video.addEventListener("error", onError, { once: true });
+    video.onloadedmetadata = () => {
+      candidateTimes = buildVideoPreviewSeekCandidates(video.duration);
+      seekNextCandidate();
+    };
+    video.onloadeddata = () => {
+      if (!seekScheduled) {
+        seekNextCandidate();
+      }
+    };
+    video.onseeked = () => {
+      void onCaptureAttempt();
+    };
+
+    timeoutId = window.setTimeout(() => finalize({}), 10000);
+
+    video.preload = "metadata";
+    video.muted = true;
+    video.playsInline = true;
+    video.crossOrigin = "anonymous";
+    video.src = sourceUrl;
+  });
+};
+
+const createVideoPreviewCapture = async (
+  file: File
+): Promise<{ dataUrl?: string; blob?: Blob; width?: number; height?: number }> => {
+  if (!file.type.startsWith("video/")) return {};
+
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    return await captureVideoPreviewFromSource(objectUrl);
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+};
+
 const getImageAspectRatio = (file: File) =>
   new Promise<number>((resolve) => {
     const objectUrl = getObjectUrl(file);
@@ -491,7 +681,7 @@ const LibraryPage: React.FC = () => {
   const missingPreviewAssets = useMemo(() => {
     if (!assets) return [];
     return assets.filter((asset: any) => {
-      if (asset.type !== "image") return false;
+      if (asset.type !== "image" && asset.type !== "video") return false;
       return !getAssetVariantUrl(asset, "preview") && !getAssetVariantUrl(asset, "thumb");
     });
   }, [assets]);
@@ -670,8 +860,14 @@ const LibraryPage: React.FC = () => {
         let imagePreviewDataUrl: string | undefined;
         let imagePreviewUploadUrl: string | undefined;
         let imagePreviewMeta:
-          | { width: number; height: number; size: number; outputType: string }
+          | { dataUrl: string; width: number; height: number; size: number; outputType: string }
           | undefined;
+        let videoPreviewDataUrl: string | undefined;
+        let videoPreviewBlob: Blob | undefined;
+        let videoPreviewMeta:
+          | { width?: number; height?: number; size?: number; outputType?: string }
+          | undefined;
+        let videoPreviewUploadUrl: string | undefined;
 
         if (type === "image") {
           if (isCompressibleImage(item.file)) {
@@ -694,6 +890,24 @@ const LibraryPage: React.FC = () => {
             imagePreviewDataUrl = imagePreviewMeta.dataUrl;
           } catch (previewError) {
             console.warn("Library image preview generation failed", previewError);
+          }
+        }
+
+        if (type === "video") {
+          try {
+            const preview = await createVideoPreviewCapture(item.file);
+            videoPreviewDataUrl = preview?.dataUrl;
+            videoPreviewBlob = preview?.blob;
+            if (preview?.blob) {
+              videoPreviewMeta = {
+                width: preview.width,
+                height: preview.height,
+                size: preview.blob.size,
+                outputType: preview.blob.type || "image/jpeg",
+              };
+            }
+          } catch (previewError) {
+            console.warn("Library video preview generation failed", previewError);
           }
         }
 
@@ -720,6 +934,24 @@ const LibraryPage: React.FC = () => {
             }
           } catch (previewUploadError) {
             console.warn("Library preview upload failed; proceeding without variant", previewUploadError);
+          }
+        }
+        if (type === "video" && videoPreviewBlob) {
+          try {
+            const baseName = item.file.name.replace(/\.[^/.]+$/, "") || "video";
+            const previewFile = new File([videoPreviewBlob], `${baseName}-preview.jpg`, {
+              type: "image/jpeg",
+            });
+            const previewResult = await uploadFileMultipart(previewFile, {
+              context: "library",
+              autoSaveToLibrary: false,
+              concurrency: 2,
+            });
+            if (previewResult.success && previewResult.url) {
+              videoPreviewUploadUrl = previewResult.url;
+            }
+          } catch (previewUploadError) {
+            console.warn("Library video preview upload failed; proceeding without variant", previewUploadError);
           }
         }
 
@@ -774,12 +1006,34 @@ const LibraryPage: React.FC = () => {
         if (type === "video") {
           try {
             const metadata = await extractVideoMetadata(item.file);
+            const variants: Record<string, any> = {
+              original: {
+                url: result.url,
+                width: metadata.width,
+                height: metadata.height,
+                byteSize: uploadFile.size || item.file.size,
+                mimeType: uploadFile.type || item.file.type || undefined,
+              },
+            };
+            if (videoPreviewUploadUrl) {
+              const previewVariant = {
+                url: videoPreviewUploadUrl,
+                width: videoPreviewMeta?.width,
+                height: videoPreviewMeta?.height,
+                byteSize: videoPreviewMeta?.size,
+                mimeType: videoPreviewMeta?.outputType || "image/jpeg",
+              };
+              variants.preview = previewVariant;
+              variants.thumb = previewVariant;
+            }
             await patchDerived({
               id: assetId,
               width: metadata.width,
               height: metadata.height,
               durationSeconds: metadata.durationSeconds,
               aspectRatio: metadata.aspectRatio,
+              blurDataUrl: videoPreviewDataUrl,
+              variants,
             });
           } catch (error) {
             console.warn("Video metadata extraction failed", error);
@@ -901,6 +1155,8 @@ const LibraryPage: React.FC = () => {
         }
 
         let successCount = 0;
+        let successImageCount = 0;
+        let successVideoCount = 0;
         let failedCount = 0;
 
         for (const asset of targets) {
@@ -909,40 +1165,7 @@ const LibraryPage: React.FC = () => {
             if (!sourceUrl) {
               throw new Error("Missing source URL");
             }
-            const response = await fetch(sourceUrl, { cache: "force-cache" });
-            if (!response.ok) {
-              throw new Error(`Source download failed (${response.status})`);
-            }
-            const blob = await response.blob();
-            const blobType = (blob.type || asset?.mimeType || "").toLowerCase();
-            if (!blobType.startsWith("image/")) {
-              throw new Error(`Unsupported mime type "${blobType || "unknown"}"`);
-            }
-
-            const baseName = toSafeBaseName(String(asset?.fileName || asset?.title || "image"));
-            const sourceFile = new File([blob], `${baseName}.${extensionFromMime(blobType)}`, {
-              type: blobType || "image/jpeg",
-              lastModified: Date.now(),
-            });
-
-            const previewMeta = await createImagePreviewDataUrl(sourceFile, {
-              maxDimension: 512,
-              quality: 0.58,
-            });
-
-            const previewFile = dataUrlToFile(previewMeta.dataUrl, `${baseName}-preview.webp`);
-            if (!previewFile) {
-              throw new Error("Failed to encode preview file");
-            }
-            const uploadedPreview = await uploadFileMultipart(previewFile, {
-              context: "library",
-              autoSaveToLibrary: false,
-              concurrency: 2,
-            });
-            if (!uploadedPreview.success || !uploadedPreview.url) {
-              throw new Error("Preview upload failed");
-            }
-
+            const assetType = String(asset?.type || "").toLowerCase();
             const existingVariants =
               asset?.variants && typeof asset.variants === "object" ? { ...asset.variants } : {};
             const originalVariant = existingVariants.original ?? {
@@ -958,37 +1181,144 @@ const LibraryPage: React.FC = () => {
               original: originalVariant,
             };
 
-            const previewVariant = {
-              url: uploadedPreview.url,
-              width: previewMeta.width,
-              height: previewMeta.height,
-              byteSize: previewMeta.size,
-              mimeType: previewMeta.outputType || "image/webp",
-            };
-            nextVariants.preview = previewVariant;
-            nextVariants.thumb = previewVariant;
+            if (assetType === "image") {
+              const response = await fetch(sourceUrl, { cache: "force-cache" });
+              if (!response.ok) {
+                throw new Error(`Source download failed (${response.status})`);
+              }
+              const blob = await response.blob();
+              const blobType = (blob.type || asset?.mimeType || "").toLowerCase();
+              if (!blobType.startsWith("image/")) {
+                throw new Error(`Unsupported mime type "${blobType || "unknown"}"`);
+              }
 
-            await patchDerived({
-              id: asset._id,
-              blurDataUrl: previewMeta.dataUrl,
-              variants: nextVariants,
-            });
+              const baseName = toSafeBaseName(String(asset?.fileName || asset?.title || "image"));
+              const sourceFile = new File([blob], `${baseName}.${extensionFromMime(blobType)}`, {
+                type: blobType || "image/jpeg",
+                lastModified: Date.now(),
+              });
 
-            successCount += 1;
+              const previewMeta = await createImagePreviewDataUrl(sourceFile, {
+                maxDimension: 512,
+                quality: 0.58,
+              });
+
+              const previewFile = dataUrlToFile(previewMeta.dataUrl, `${baseName}-preview.webp`);
+              if (!previewFile) {
+                throw new Error("Failed to encode preview file");
+              }
+              const uploadedPreview = await uploadFileMultipart(previewFile, {
+                context: "library",
+                autoSaveToLibrary: false,
+                concurrency: 2,
+              });
+              if (!uploadedPreview.success || !uploadedPreview.url) {
+                throw new Error("Preview upload failed");
+              }
+
+              const previewVariant = {
+                url: uploadedPreview.url,
+                width: previewMeta.width,
+                height: previewMeta.height,
+                byteSize: previewMeta.size,
+                mimeType: previewMeta.outputType || "image/webp",
+              };
+              nextVariants.preview = previewVariant;
+              nextVariants.thumb = previewVariant;
+
+              await patchDerived({
+                id: asset._id,
+                blurDataUrl: previewMeta.dataUrl,
+                variants: nextVariants,
+              });
+
+              successCount += 1;
+              successImageCount += 1;
+              continue;
+            }
+
+            if (assetType === "video") {
+              const baseName = toSafeBaseName(String(asset?.fileName || asset?.title || "video"));
+              let previewMeta = await captureVideoPreviewFromSource(sourceUrl);
+
+              // Fallback when direct URL capture fails (e.g. restrictive CORS).
+              if (!previewMeta.dataUrl || !previewMeta.blob) {
+                const response = await fetch(sourceUrl, { cache: "force-cache" });
+                if (!response.ok) {
+                  throw new Error(`Source download failed (${response.status})`);
+                }
+                const blob = await response.blob();
+                const blobType = (blob.type || asset?.mimeType || "").toLowerCase();
+                if (!blobType.startsWith("video/")) {
+                  throw new Error(`Unsupported mime type "${blobType || "unknown"}"`);
+                }
+
+                const sourceFile = new File([blob], `${baseName}.mp4`, {
+                  type: blobType || "video/mp4",
+                  lastModified: Date.now(),
+                });
+                previewMeta = await createVideoPreviewCapture(sourceFile);
+              }
+
+              if (!previewMeta.dataUrl || !previewMeta.blob) {
+                throw new Error("Unable to extract video preview frame");
+              }
+
+              const previewFile = new File([previewMeta.blob], `${baseName}-preview.jpg`, {
+                type: previewMeta.blob.type || "image/jpeg",
+                lastModified: Date.now(),
+              });
+              const uploadedPreview = await uploadFileMultipart(previewFile, {
+                context: "library",
+                autoSaveToLibrary: false,
+                concurrency: 2,
+              });
+              if (!uploadedPreview.success || !uploadedPreview.url) {
+                throw new Error("Preview upload failed");
+              }
+
+              const previewVariant = {
+                url: uploadedPreview.url,
+                width: previewMeta.width,
+                height: previewMeta.height,
+                byteSize: previewMeta.blob.size,
+                mimeType: previewMeta.blob.type || "image/jpeg",
+              };
+              nextVariants.preview = previewVariant;
+              nextVariants.thumb = previewVariant;
+
+              await patchDerived({
+                id: asset._id,
+                blurDataUrl: previewMeta.dataUrl,
+                variants: nextVariants,
+              });
+
+              successCount += 1;
+              successVideoCount += 1;
+              continue;
+            }
+
+            throw new Error(`Unsupported asset type "${assetType || "unknown"}"`);
           } catch (error) {
             failedCount += 1;
-            console.warn("Failed to backfill image preview variant", asset?._id, error);
+            console.warn("Failed to backfill preview variant", asset?._id, asset?.type, error);
           }
         }
 
         if (!opts?.silent && successCount > 0) {
+          const successSummary =
+            successImageCount > 0 && successVideoCount > 0
+              ? `${successCount} assets (${successImageCount} images, ${successVideoCount} videos)`
+              : successImageCount > 0
+                ? `${successImageCount} image${successImageCount === 1 ? "" : "s"}`
+                : `${successVideoCount} video${successVideoCount === 1 ? "" : "s"}`;
           toast.success(
-            `Generated preview variants for ${successCount} image${successCount === 1 ? "" : "s"}.`
+            `Generated preview variants for ${successSummary}.`
           );
         }
         if (!opts?.silent && failedCount > 0) {
           toast.error(
-            `Failed on ${failedCount} image${failedCount === 1 ? "" : "s"}. Check browser console for details.`
+            `Failed on ${failedCount} asset${failedCount === 1 ? "" : "s"}. Check browser console for details.`
           );
         }
       } finally {

@@ -269,7 +269,7 @@ const getAssetPreviewUrl = (asset: Doc<"assets">): string =>
   getVariantUrl((asset as any).variants?.preview) ||
   getVariantUrl((asset as any).variants?.thumb) ||
   (asset as any).blurDataUrl ||
-  asset.fileUrl;
+  (asset.type === "image" ? asset.fileUrl : "");
 
 const scoreTagMatch = (token: string, tags: string[], exactWeight: number, partialWeight: number) => {
   for (const tag of tags) {
@@ -1712,10 +1712,12 @@ export const Library: React.FC<LibraryProps> = ({
                     />
                   ) : mediaType === "video" ? (
                     <video
-                      className="h-full w-full object-contain"
+                      className="h-full w-full object-contain bg-slate-100"
                       src={asset.fileUrl}
-                      poster={previewSrc}
+                      poster={previewSrc || undefined}
                       preload="metadata"
+                      autoPlay={!previewSrc}
+                      loop={!previewSrc}
                       muted
                       playsInline
                     />
