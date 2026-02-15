@@ -47,7 +47,6 @@ import {
   MoreHorizontal,
   Settings,
   Info,
-  Table as TableIcon,
   Download,
   Share2,
   Trash2
@@ -82,8 +81,8 @@ const ToolTooltip = ({ children }: {
   return <>{children}</>;
 };
 
-const ENABLE_LIBRARY = false;
-const ENABLE_TODO = false;
+const ENABLE_LIBRARY = true;
+const ENABLE_TODO = true;
 const ENABLE_CALENDAR = false;
 
 
@@ -119,8 +118,6 @@ type ToolbarProps = {
   isTouchDevice?: boolean;
   // Todo widget creation
   onCreateTodoWidget?: () => void;
-  // Table creation
-  onCreateTable?: () => void;
   // User role for permission control
   userRole?: string;
   // Board actions
@@ -354,7 +351,7 @@ const MobileToolbar = ({
       case LayerType.Path:
         return Paintbrush;
       case LayerType.Table:
-        return TableIcon;
+        return Database;
       default:
         return Layers;
     }
@@ -474,6 +471,17 @@ const MobileToolbar = ({
                   >
                     <Pencil className="h-5 w-5" />
                     <span className="text-sm">Pen</span>
+                  </DropdownMenuItem>
+
+                  <DropdownMenuItem
+                    onClick={() => {
+                      setCanvasState({ mode: CanvasMode.Inserting, layerType: LayerType.Table });
+                      setIsMenuOpen(false);
+                    }}
+                    className="flex items-center gap-3 rounded-xl px-3 py-3 hover:bg-slate-100/80 cursor-pointer"
+                  >
+                    <Database className="h-5 w-5" />
+                    <span className="text-sm">Table</span>
                   </DropdownMenuItem>
                 </div>
 
@@ -763,7 +771,6 @@ export const Toolbar = ({
   onManualFrameResize,
   isTouchDevice = false,
   onCreateTodoWidget,
-  onCreateTable,
   userRole,
   onShareBoard,
   onDownloadBoard,
@@ -776,6 +783,11 @@ export const Toolbar = ({
   const [showColorPicker, setShowColorPicker] = useState(false);
   // Stato per tracciare dropdown aperti
   const [openDropdowns, setOpenDropdowns] = useState<Set<string>>(new Set());
+  const [isFrameMenuOpen, setIsFrameMenuOpen] = useState(false);
+  const [isShapesMenuOpen, setIsShapesMenuOpen] = useState(false);
+  const [isZoomMenuOpen, setIsZoomMenuOpen] = useState(false);
+  const [isMoreToolsMenuOpen, setIsMoreToolsMenuOpen] = useState(false);
+  const hoverCloseTimeoutsRef = useRef<Record<string, number | null>>({});
   // Riferimento al contenitore della toolbar
   const toolbarRef = useRef<HTMLDivElement>(null);
   // Stato per l'ultimo strumento forma utilizzato
@@ -916,6 +928,35 @@ export const Toolbar = ({
   const handleHoverEnd = () => {
     setHoveredTool("");
   };
+
+  const clearHoverCloseTimeout = React.useCallback((dropdownId: string) => {
+    const timeoutId = hoverCloseTimeoutsRef.current[dropdownId];
+    if (timeoutId != null) {
+      window.clearTimeout(timeoutId);
+      hoverCloseTimeoutsRef.current[dropdownId] = null;
+    }
+  }, []);
+
+  const openHoverDropdown = React.useCallback(
+    (dropdownId: string, setOpen: (open: boolean) => void) => {
+      if (isTouchDevice) return;
+      clearHoverCloseTimeout(dropdownId);
+      setOpen(true);
+    },
+    [clearHoverCloseTimeout, isTouchDevice]
+  );
+
+  const scheduleHoverClose = React.useCallback(
+    (dropdownId: string, setOpen: (open: boolean) => void) => {
+      if (isTouchDevice) return;
+      clearHoverCloseTimeout(dropdownId);
+      hoverCloseTimeoutsRef.current[dropdownId] = window.setTimeout(() => {
+        setOpen(false);
+        hoverCloseTimeoutsRef.current[dropdownId] = null;
+      }, 140);
+    },
+    [clearHoverCloseTimeout, isTouchDevice]
+  );
   
   // Helper functions per gestire dropdown aperti
   const addOpenDropdown = (dropdownId: string) => {
@@ -941,6 +982,16 @@ export const Toolbar = ({
   const handleColorPickerVisibility = (visible: boolean) => {
     setShowColorPicker(visible);
   };
+
+  React.useEffect(() => {
+    return () => {
+      Object.values(hoverCloseTimeoutsRef.current).forEach((timeoutId) => {
+        if (timeoutId != null) {
+          window.clearTimeout(timeoutId);
+        }
+      });
+    };
+  }, []);
 
   React.useEffect(() => {
     const handleResize = () => {
@@ -1243,44 +1294,64 @@ export const Toolbar = ({
 
                     {/* Frame with dropdown for formats */}
                     <ToolTooltip label="Frame" isVisible={shouldShowTooltip("Frame", "frame")}>
-                      <DropdownMenu onOpenChange={(open) => {
-                        if (open) {
-                          addOpenDropdown("frame");
-                          // NON attivare il tool quando si apre - aspetta che l'utente selezioni un formato
-                        } else {
-                          removeOpenDropdown("frame");
-                        }
-                      }}>
-                        <DropdownMenuTrigger asChild>
-                          <button 
-                            className={`
-                              relative w-9 h-9 rounded-xl flex items-center justify-center
-                              transition-all duration-300 ease-out group
-                              border border-transparent backdrop-blur-sm
-                              ${
-                                canvasState.mode === CanvasMode.Inserting && canvasState.layerType === LayerType.Frame
-                                  ? "bg-blue-600/10 text-blue-700 border-blue-200 shadow-sm scale-[1.04] ring-1 ring-blue-200/60" 
-                                  : "bg-white/90 text-slate-600 hover:bg-white hover:text-slate-900 hover:border-slate-200 hover:shadow-sm hover:scale-[1.03] active:scale-95"
-                              }
-                              focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:ring-offset-2
-                              touch-manipulation cursor-pointer
-                            `}
-                            style={{
-                              WebkitTapHighlightColor: 'transparent',
-                            }}
-                            title="Frame"
-                            onMouseEnter={() => handleHover("Frame")}
-                            onMouseLeave={handleHoverEnd}
+                      <div
+                        onMouseEnter={() => {
+                          handleHover("Frame");
+                          openHoverDropdown("frame", setIsFrameMenuOpen);
+                        }}
+                        onMouseLeave={() => {
+                          handleHoverEnd();
+                          scheduleHoverClose("frame", setIsFrameMenuOpen);
+                        }}
+                      >
+                        <DropdownMenu
+                          open={isFrameMenuOpen}
+                          onOpenChange={(open) => {
+                            setIsFrameMenuOpen(open);
+                            if (open) {
+                              addOpenDropdown("frame");
+                              // NON attivare il tool quando si apre - aspetta che l'utente selezioni un formato
+                            } else {
+                              removeOpenDropdown("frame");
+                            }
+                          }}
+                        >
+                          <DropdownMenuTrigger asChild>
+                            <button 
+                              className={`
+                                relative w-9 h-9 rounded-xl flex items-center justify-center
+                                transition-all duration-300 ease-out group
+                                border border-transparent backdrop-blur-sm
+                                ${
+                                  canvasState.mode === CanvasMode.Inserting && canvasState.layerType === LayerType.Frame
+                                    ? "bg-blue-600/10 text-blue-700 border-blue-200 shadow-sm scale-[1.04] ring-1 ring-blue-200/60" 
+                                    : "bg-white/90 text-slate-600 hover:bg-white hover:text-slate-900 hover:border-slate-200 hover:shadow-sm hover:scale-[1.03] active:scale-95"
+                                }
+                                focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:ring-offset-2
+                                touch-manipulation cursor-pointer
+                              `}
+                              style={{
+                                WebkitTapHighlightColor: 'transparent',
+                              }}
+                              title="Frame"
+                              onMouseEnter={() => handleHover("Frame")}
+                              onMouseLeave={handleHoverEnd}
+                            >
+                              <div className="relative flex items-center justify-center">
+                                <Frame className={`h-5 w-5 transition-all duration-300 ${
+                                  canvasState.mode === CanvasMode.Inserting && canvasState.layerType === LayerType.Frame 
+                                    ? 'drop-shadow-sm' : 'group-hover:scale-110'
+                                }`} />
+                              </div>
+                            </button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent
+                            align="center"
+                            className="w-48 bg-white/98 backdrop-blur-xl border border-slate-200/80 shadow-xl shadow-slate-200/40 rounded-2xl p-3 mt-2"
+                            sideOffset={8}
+                            onMouseEnter={() => openHoverDropdown("frame", setIsFrameMenuOpen)}
+                            onMouseLeave={() => scheduleHoverClose("frame", setIsFrameMenuOpen)}
                           >
-                            <div className="relative flex items-center justify-center">
-                              <Frame className={`h-5 w-5 transition-all duration-300 ${
-                                canvasState.mode === CanvasMode.Inserting && canvasState.layerType === LayerType.Frame 
-                                  ? 'drop-shadow-sm' : 'group-hover:scale-110'
-                              }`} />
-                            </div>
-                          </button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="center" className="w-48 bg-white/98 backdrop-blur-xl border border-slate-200/80 shadow-xl shadow-slate-200/40 rounded-2xl p-3 mt-2" sideOffset={8}>
                           <DropdownMenuItem
                             onClick={() => {
                               handleCanvasStateChange({ mode: CanvasMode.Inserting, layerType: LayerType.Frame, frameFormat: { name: 'A4 Portrait', width: 800, height: 1131 } });
@@ -1325,58 +1396,101 @@ export const Toolbar = ({
                             <Edit3 className="h-4 w-4" />
                             <span className="text-sm">Custom Size</span>
                           </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                    </ToolTooltip>
+
+                    <ToolTooltip label="Table" isVisible={shouldShowTooltip("Table")}>
+                      <div
+                        onMouseEnter={() => handleHover("Table")}
+                        onMouseLeave={handleHoverEnd}
+                      >
+                        <ToolButton
+                          label=""
+                          icon={Database}
+                          onClick={() =>
+                            handleCanvasStateChange({
+                              mode: CanvasMode.Inserting,
+                              layerType: LayerType.Table,
+                            })
+                          }
+                          isActive={
+                            canvasState.mode === CanvasMode.Inserting &&
+                            canvasState.layerType === LayerType.Table
+                          }
+                        />
+                      </div>
                     </ToolTooltip>
 
                     {/* Gruppo Shapes con dropdown moderno migliorato */}
                     <ToolTooltip label="Shapes" isVisible={shouldShowTooltip("Shapes", "shapes")}>
-                      <DropdownMenu onOpenChange={(open) => {
-                        if (open) {
-                          addOpenDropdown("shapes");
-                        } else {
-                          removeOpenDropdown("shapes");
-                        }
-                      }}>
-                        <DropdownMenuTrigger asChild>
-                          <button 
-                            className={`
-                              relative w-9 h-9 rounded-xl flex items-center justify-center
-                              transition-all duration-300 ease-out group
-                              border border-transparent backdrop-blur-sm
-                              ${
-                              ((canvasState.mode === CanvasMode.Inserting || canvasState.mode === CanvasMode.Drawing) && 
-                               (canvasState.layerType === LayerType.Rectangle || 
-                                canvasState.layerType === LayerType.Ellipse || 
-                                canvasState.layerType === LayerType.Arrow || 
-                                canvasState.layerType === LayerType.Line))
-                                ? "bg-blue-600/10 text-blue-700 border-blue-200 shadow-sm scale-[1.04] ring-1 ring-blue-200/60" 
-                                : "bg-white/90 text-slate-600 hover:bg-white hover:text-slate-900 hover:border-slate-200 hover:shadow-sm hover:scale-[1.03] active:scale-95"
-                              }
-                              focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:ring-offset-2
-                              touch-manipulation cursor-pointer
-                            `}
-                            style={{
-                              WebkitTapHighlightColor: 'transparent',
-                            }}
-                            title="Shapes"
-                            onMouseEnter={() => handleHover("Shapes")}
-                            onMouseLeave={handleHoverEnd}
+                      <div
+                        onMouseEnter={() => {
+                          handleHover("Shapes");
+                          openHoverDropdown("shapes", setIsShapesMenuOpen);
+                        }}
+                        onMouseLeave={() => {
+                          handleHoverEnd();
+                          scheduleHoverClose("shapes", setIsShapesMenuOpen);
+                        }}
+                      >
+                        <DropdownMenu
+                          open={isShapesMenuOpen}
+                          onOpenChange={(open) => {
+                            setIsShapesMenuOpen(open);
+                            if (open) {
+                              addOpenDropdown("shapes");
+                            } else {
+                              removeOpenDropdown("shapes");
+                            }
+                          }}
+                        >
+                          <DropdownMenuTrigger asChild>
+                            <button 
+                              className={`
+                                relative w-9 h-9 rounded-xl flex items-center justify-center
+                                transition-all duration-300 ease-out group
+                                border border-transparent backdrop-blur-sm
+                                ${
+                                ((canvasState.mode === CanvasMode.Inserting || canvasState.mode === CanvasMode.Drawing) && 
+                                 (canvasState.layerType === LayerType.Rectangle || 
+                                  canvasState.layerType === LayerType.Ellipse || 
+                                  canvasState.layerType === LayerType.Arrow || 
+                                  canvasState.layerType === LayerType.Line))
+                                  ? "bg-blue-600/10 text-blue-700 border-blue-200 shadow-sm scale-[1.04] ring-1 ring-blue-200/60" 
+                                  : "bg-white/90 text-slate-600 hover:bg-white hover:text-slate-900 hover:border-slate-200 hover:shadow-sm hover:scale-[1.03] active:scale-95"
+                                }
+                                focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:ring-offset-2
+                                touch-manipulation cursor-pointer
+                              `}
+                              style={{
+                                WebkitTapHighlightColor: 'transparent',
+                              }}
+                              title="Shapes"
+                              onMouseEnter={() => handleHover("Shapes")}
+                              onMouseLeave={handleHoverEnd}
+                            >
+                              <div className="relative flex items-center justify-center">
+                                <Shapes
+                                  className={`h-5 w-5 transition-all duration-300 ${
+                                    ((canvasState.mode === CanvasMode.Inserting || canvasState.mode === CanvasMode.Drawing) && 
+                                     (canvasState.layerType === LayerType.Rectangle || 
+                                      canvasState.layerType === LayerType.Ellipse || 
+                                      canvasState.layerType === LayerType.Arrow || 
+                                      canvasState.layerType === LayerType.Line)) ? 'drop-shadow-sm' : 'group-hover:scale-110'
+                                  }`}
+                                />
+                              </div>
+                            </button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent
+                            align="center"
+                            className="w-48 bg-white/98 backdrop-blur-xl border border-slate-200/80 shadow-xl shadow-slate-200/40 rounded-2xl p-3 mt-2"
+                            sideOffset={8}
+                            onMouseEnter={() => openHoverDropdown("shapes", setIsShapesMenuOpen)}
+                            onMouseLeave={() => scheduleHoverClose("shapes", setIsShapesMenuOpen)}
                           >
-                            <div className="relative flex items-center justify-center">
-                              <Shapes
-                                className={`h-5 w-5 transition-all duration-300 ${
-                                  ((canvasState.mode === CanvasMode.Inserting || canvasState.mode === CanvasMode.Drawing) && 
-                                   (canvasState.layerType === LayerType.Rectangle || 
-                                    canvasState.layerType === LayerType.Ellipse || 
-                                    canvasState.layerType === LayerType.Arrow || 
-                                    canvasState.layerType === LayerType.Line)) ? 'drop-shadow-sm' : 'group-hover:scale-110'
-                                }`}
-                              />
-                            </div>
-                          </button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="center" className="w-48 bg-white/98 backdrop-blur-xl border border-slate-200/80 shadow-xl shadow-slate-200/40 rounded-2xl p-3 mt-2" sideOffset={8}>
                           <DropdownMenuItem
                             onClick={() => setShapeTool(LayerType.Rectangle)}
                             className={`flex items-center gap-3 rounded-xl px-3 py-2.5 transition-all duration-200 cursor-pointer ${
@@ -1415,14 +1529,15 @@ export const Toolbar = ({
                             className={`flex items-center gap-3 rounded-xl px-3 py-2.5 transition-all duration-200 cursor-pointer ${
                               (canvasState.mode === CanvasMode.Inserting || canvasState.mode === CanvasMode.Drawing) && canvasState.layerType === LayerType.Line
                                 ? 'bg-blue-600/10 text-blue-700 font-semibold border border-blue-200 shadow-sm' 
-                                : 'hover:bg-slate-100/80 text-gray-700 hover:text-gray-900 hover:shadow-sm'
+                              : 'hover:bg-slate-100/80 text-gray-700 hover:text-gray-900 hover:shadow-sm'
                             }`}
                           >
                             <Minus className="h-4 w-4" />
                             <span className="text-sm">Line</span>
                           </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
                     </ToolTooltip>
 
                     <ToolTooltip label="Pen" isVisible={shouldShowTooltip("Pen")}>
@@ -1510,26 +1625,45 @@ export const Toolbar = ({
               <div className="flex items-center gap-x-1.5 relative z-10">
                 {/* Zoom Dropdown moderno */}
                 <ToolTooltip label="Zoom" isVisible={shouldShowTooltip("Zoom", "zoom")}>
-                  <DropdownMenu onOpenChange={(open) => {
-                    if (open) {
-                      addOpenDropdown("zoom");
-                    } else {
-                      removeOpenDropdown("zoom");
-                    }
-                  }}>
-                    <DropdownMenuTrigger asChild>
-                      <div 
-                        className="flex items-center gap-2 h-9 px-3 rounded-xl bg-white/90 hover:bg-white cursor-pointer transition-all duration-200 border border-transparent hover:border-slate-200 hover:shadow-sm hover:scale-[1.02] group"
-                        title="Select zoom level"
-                        onMouseEnter={() => handleHover("Zoom")}
-                        onMouseLeave={handleHoverEnd}
+                  <div
+                    onMouseEnter={() => {
+                      handleHover("Zoom");
+                      openHoverDropdown("zoom", setIsZoomMenuOpen);
+                    }}
+                    onMouseLeave={() => {
+                      handleHoverEnd();
+                      scheduleHoverClose("zoom", setIsZoomMenuOpen);
+                    }}
+                  >
+                    <DropdownMenu
+                      open={isZoomMenuOpen}
+                      onOpenChange={(open) => {
+                        setIsZoomMenuOpen(open);
+                        if (open) {
+                          addOpenDropdown("zoom");
+                        } else {
+                          removeOpenDropdown("zoom");
+                        }
+                      }}
+                    >
+                      <DropdownMenuTrigger asChild>
+                        <div 
+                          className="flex items-center gap-2 h-9 px-3 rounded-xl bg-white/90 hover:bg-white cursor-pointer transition-all duration-200 border border-transparent hover:border-slate-200 hover:shadow-sm hover:scale-[1.02] group"
+                          title="Select zoom level"
+                          onMouseEnter={() => handleHover("Zoom")}
+                          onMouseLeave={handleHoverEnd}
+                        >
+                          <ZoomIn className="h-4 w-4 text-slate-500 group-hover:text-slate-700 transition-colors duration-300" />
+                          <span className="text-sm font-semibold text-slate-700 min-w-[3ch] text-center tracking-wide">{zoomPercentage}%</span>
+                          <ChevronDown className="h-3 w-3 text-slate-400 group-hover:text-slate-600 transition-colors duration-300" />
+                        </div>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent
+                        align="center"
+                        className="w-32 bg-white/98 backdrop-blur-xl border border-slate-200/80 shadow-xl shadow-slate-200/40 rounded-xl p-2"
+                        onMouseEnter={() => openHoverDropdown("zoom", setIsZoomMenuOpen)}
+                        onMouseLeave={() => scheduleHoverClose("zoom", setIsZoomMenuOpen)}
                       >
-                        <ZoomIn className="h-4 w-4 text-slate-500 group-hover:text-slate-700 transition-colors duration-300" />
-                        <span className="text-sm font-semibold text-slate-700 min-w-[3ch] text-center tracking-wide">{zoomPercentage}%</span>
-                        <ChevronDown className="h-3 w-3 text-slate-400 group-hover:text-slate-600 transition-colors duration-300" />
-                      </div>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="center" className="w-32 bg-white/98 backdrop-blur-xl border border-slate-200/80 shadow-xl shadow-slate-200/40 rounded-xl p-2">
                       {zoomOptions.map((option) => (
                         <DropdownMenuItem
                           key={option.value}
@@ -1543,8 +1677,9 @@ export const Toolbar = ({
                           {option.label}
                         </DropdownMenuItem>
                       ))}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
                 </ToolTooltip>
                 
                 {centerOnLayers && (
@@ -1634,34 +1769,47 @@ export const Toolbar = ({
                     
                     {/* More Tools Dropdown */}
                     <ToolTooltip label="More Tools" isVisible={shouldShowTooltip("More Tools", "moreTools")}>
-                      <DropdownMenu onOpenChange={(open) => {
-                        if (open) {
-                          addOpenDropdown("moreTools");
-                        } else {
-                          removeOpenDropdown("moreTools");
-                        }
-                      }}>
-                        <DropdownMenuTrigger asChild>
-                          <button 
-                            className="relative w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-200 ease-out group border border-transparent backdrop-blur-sm bg-white/90 text-slate-600 hover:bg-white hover:text-slate-900 hover:border-slate-200 hover:shadow-sm hover:scale-[1.02] active:scale-95 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:ring-offset-2 touch-manipulation cursor-pointer"
-                            style={{
-                              WebkitTapHighlightColor: 'transparent',
-                            }}
-                            title="More Tools"
-                            onMouseEnter={() => handleHover("More Tools")}
-                            onMouseLeave={handleHoverEnd}
+                      <div
+                        onMouseEnter={() => {
+                          handleHover("More Tools");
+                          openHoverDropdown("moreTools", setIsMoreToolsMenuOpen);
+                        }}
+                        onMouseLeave={() => {
+                          handleHoverEnd();
+                          scheduleHoverClose("moreTools", setIsMoreToolsMenuOpen);
+                        }}
+                      >
+                        <DropdownMenu
+                          open={isMoreToolsMenuOpen}
+                          onOpenChange={(open) => {
+                            setIsMoreToolsMenuOpen(open);
+                            if (open) {
+                              addOpenDropdown("moreTools");
+                            } else {
+                              removeOpenDropdown("moreTools");
+                            }
+                          }}
+                        >
+                          <DropdownMenuTrigger asChild>
+                            <button 
+                              className="relative w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-200 ease-out group border border-transparent backdrop-blur-sm bg-white/90 text-slate-600 hover:bg-white hover:text-slate-900 hover:border-slate-200 hover:shadow-sm hover:scale-[1.02] active:scale-95 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:ring-offset-2 touch-manipulation cursor-pointer"
+                              style={{
+                                WebkitTapHighlightColor: 'transparent',
+                              }}
+                              title="More Tools"
+                              onMouseEnter={() => handleHover("More Tools")}
+                              onMouseLeave={handleHoverEnd}
+                            >
+                              <MoreHorizontal className="h-5 w-5 transition-all duration-300 group-hover:scale-110" />
+                            </button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent
+                            align="center"
+                            className="w-48 bg-white/98 backdrop-blur-xl border border-slate-200/80 shadow-xl shadow-slate-200/40 rounded-2xl p-3 mt-2"
+                            sideOffset={8}
+                            onMouseEnter={() => openHoverDropdown("moreTools", setIsMoreToolsMenuOpen)}
+                            onMouseLeave={() => scheduleHoverClose("moreTools", setIsMoreToolsMenuOpen)}
                           >
-                            <MoreHorizontal className="h-5 w-5 transition-all duration-300 group-hover:scale-110" />
-                          </button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="center" className="w-48 bg-white/98 backdrop-blur-xl border border-slate-200/80 shadow-xl shadow-slate-200/40 rounded-2xl p-3 mt-2" sideOffset={8}>
-                          <DropdownMenuItem
-                            onClick={() => onCreateTable?.()}
-                            className="flex items-center gap-3 rounded-xl px-3 py-2.5 transition-all duration-200 cursor-pointer hover:bg-slate-100/80 text-gray-700 hover:text-gray-900 hover:shadow-sm"
-                          >
-                            <TableIcon className="h-4 w-4" />
-                            <span className="text-sm">Table</span>
-                          </DropdownMenuItem>
                           {showBoardActions ? (
                             <>
                               <DropdownMenuSeparator className="my-2" />
@@ -1703,8 +1851,9 @@ export const Toolbar = ({
                               ) : null}
                             </>
                           ) : null}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
                     </ToolTooltip>
                   </div>
                 </>

@@ -4,6 +4,11 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { uploadFileMultipart } from "@/lib/upload/multipart";
+import {
+  compressImageFile,
+  createImagePreviewDataUrl,
+  isCompressibleImage,
+} from "@/lib/upload/imageCompression";
 import { Library } from "@/components/library/library";
 import { CollectionsView } from "@/components/library/collections";
 import { ReferenceDeleteConfirmation } from "@/components/library/ReferenceDeleteConfirmation";
@@ -72,6 +77,53 @@ const getObjectUrl = (file: File) => {
   } catch {
     return "";
   }
+};
+
+const dataUrlToFile = (dataUrl: string, fileName: string): File | null => {
+  try {
+    const [header, base64] = dataUrl.split(",");
+    if (!header || !base64) return null;
+    const mimeMatch = header.match(/data:([^;]+);base64/);
+    const mimeType = mimeMatch?.[1] || "application/octet-stream";
+    const binary = atob(base64);
+    const len = binary.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i += 1) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return new File([bytes], fileName, { type: mimeType, lastModified: Date.now() });
+  } catch {
+    return null;
+  }
+};
+
+const getAssetVariantUrl = (
+  asset: any,
+  key: "preview" | "thumb" | "original" | "hires"
+): string => {
+  const variant = asset?.variants?.[key];
+  if (!variant || typeof variant !== "object") return "";
+  const direct = typeof variant.url === "string" ? variant.url.trim() : "";
+  if (direct) return direct;
+  const publicUrl = typeof variant.publicUrl === "string" ? variant.publicUrl.trim() : "";
+  return publicUrl;
+};
+
+const toSafeBaseName = (raw: string) => {
+  const normalized = raw
+    .replace(/\.[^/.]+$/, "")
+    .replace(/[^\w\s-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return normalized || "image";
+};
+
+const extensionFromMime = (mimeType: string) => {
+  if (mimeType.includes("png")) return "png";
+  if (mimeType.includes("webp")) return "webp";
+  if (mimeType.includes("avif")) return "avif";
+  if (mimeType.includes("gif")) return "gif";
+  return "jpg";
 };
 
 const releaseObjectUrl = (url: string) => {
@@ -403,6 +455,7 @@ const LibraryPage: React.FC = () => {
     author: "",
   });
   const [isUploading, setIsUploading] = useState(false);
+  const [isBackfillingPreviews, setIsBackfillingPreviews] = useState(false);
   const stagedItemsRef = useRef<StagedItem[]>([]);
   const [sharedTagDraft, setSharedTagDraft] = useState("");
   const [itemTagDrafts, setItemTagDrafts] = useState<Record<string, string>>({});
@@ -421,6 +474,8 @@ const LibraryPage: React.FC = () => {
   const hoverPreviewElRef = useRef<HTMLDivElement | null>(null);
   const hoverClientPosRef = useRef({ x: -9999, y: -9999 });
   const isDraggingRef = useRef(false);
+  const isBackfillingPreviewsRef = useRef(false);
+  const attemptedPreviewBackfillIdsRef = useRef<Set<string>>(new Set());
 
   const createAsset = useMutation(api.assets.create);
   const patchDerived = useMutation(api.assets.patchDerived);
@@ -432,6 +487,14 @@ const LibraryPage: React.FC = () => {
   const addAssetsToCollection = useMutation(api.collections.addAssets);
 
   const assets = useQuery(api.assets.getUserLibrary, {});
+
+  const missingPreviewAssets = useMemo(() => {
+    if (!assets) return [];
+    return assets.filter((asset: any) => {
+      if (asset.type !== "image") return false;
+      return !getAssetVariantUrl(asset, "preview") && !getAssetVariantUrl(asset, "thumb");
+    });
+  }, [assets]);
 
   const uploadCollections = useMemo(() => {
     return (collections ?? []) as any[];
@@ -602,27 +665,97 @@ const LibraryPage: React.FC = () => {
         ...prev,
       ]);
       try {
-        const result = await uploadFileMultipart(item.file, {
+        const type = getAssetType(item.file);
+        let uploadFile = item.file;
+        let imagePreviewDataUrl: string | undefined;
+        let imagePreviewUploadUrl: string | undefined;
+        let imagePreviewMeta:
+          | { width: number; height: number; size: number; outputType: string }
+          | undefined;
+
+        if (type === "image") {
+          if (isCompressibleImage(item.file)) {
+            try {
+              const compressed = await compressImageFile(item.file, {
+                maxDimension: 3072,
+                quality: 0.5,
+              });
+              uploadFile = compressed.file;
+            } catch (compressionError) {
+              console.warn("Library image compression failed, using original file", compressionError);
+            }
+          }
+
+          try {
+            imagePreviewMeta = await createImagePreviewDataUrl(uploadFile, {
+              maxDimension: 512,
+              quality: 0.58,
+            });
+            imagePreviewDataUrl = imagePreviewMeta.dataUrl;
+          } catch (previewError) {
+            console.warn("Library image preview generation failed", previewError);
+          }
+        }
+
+        const result = await uploadFileMultipart(uploadFile, {
           context: "library",
           autoSaveToLibrary: true,
           onProgress: (progress) => setUploadProgress(id, progress),
         });
 
         setUploadStatus(id, "processing");
-        const type = getAssetType(item.file);
+        if (type === "image" && imagePreviewDataUrl) {
+          try {
+            const baseName = item.file.name.replace(/\.[^/.]+$/, "") || "image";
+            const previewFile = dataUrlToFile(imagePreviewDataUrl, `${baseName}-preview.webp`);
+            if (previewFile) {
+              const previewResult = await uploadFileMultipart(previewFile, {
+                context: "library",
+                autoSaveToLibrary: false,
+                concurrency: 2,
+              });
+              if (previewResult.success && previewResult.url) {
+                imagePreviewUploadUrl = previewResult.url;
+              }
+            }
+          } catch (previewUploadError) {
+            console.warn("Library preview upload failed; proceeding without variant", previewUploadError);
+          }
+        }
+
         const assetId = (await createAsset({
           title: item.title || item.file.name,
           fileUrl: result.url,
           fileName: item.file.name,
           type,
-          mimeType: item.file.type || undefined,
-          fileSize: item.file.size,
+          mimeType: uploadFile.type || item.file.type || undefined,
+          fileSize: uploadFile.size || item.file.size,
           source: "upload",
         })) as Id<"assets">;
 
         if (type === "image") {
           try {
-            const metadata = await extractImageMetadata(item.file);
+            const metadata = await extractImageMetadata(uploadFile);
+            const variants: Record<string, any> = {
+              original: {
+                url: result.url,
+                width: metadata.width,
+                height: metadata.height,
+                byteSize: uploadFile.size || item.file.size,
+                mimeType: uploadFile.type || item.file.type || undefined,
+              },
+            };
+            if (imagePreviewUploadUrl) {
+              const previewVariant = {
+                url: imagePreviewUploadUrl,
+                width: imagePreviewMeta?.width,
+                height: imagePreviewMeta?.height,
+                byteSize: imagePreviewMeta?.size,
+                mimeType: imagePreviewMeta?.outputType || "image/webp",
+              };
+              variants.preview = previewVariant;
+              variants.thumb = previewVariant;
+            }
             await patchDerived({
               id: assetId,
               width: metadata.width,
@@ -630,6 +763,8 @@ const LibraryPage: React.FC = () => {
               aspectRatio: metadata.aspectRatio,
               dominantColors: metadata.dominantColors,
               phash: metadata.phash,
+              blurDataUrl: imagePreviewDataUrl,
+              variants,
             });
           } catch (error) {
             console.warn("Image metadata extraction failed", error);
@@ -751,6 +886,129 @@ const LibraryPage: React.FC = () => {
     updateMetadata,
     sharedMeta,
   ]);
+
+  const backfillMissingPreviews = useCallback(
+    async (targets: any[], opts?: { silent?: boolean }) => {
+      if (isBackfillingPreviewsRef.current || targets.length === 0) return;
+      isBackfillingPreviewsRef.current = true;
+      setIsBackfillingPreviews(true);
+      try {
+        for (const asset of targets) {
+          const assetId = String(asset?._id ?? "");
+          if (assetId) {
+            attemptedPreviewBackfillIdsRef.current.add(assetId);
+          }
+        }
+
+        let successCount = 0;
+        let failedCount = 0;
+
+        for (const asset of targets) {
+          try {
+            const sourceUrl = typeof asset?.fileUrl === "string" ? asset.fileUrl : "";
+            if (!sourceUrl) {
+              throw new Error("Missing source URL");
+            }
+            const response = await fetch(sourceUrl, { cache: "force-cache" });
+            if (!response.ok) {
+              throw new Error(`Source download failed (${response.status})`);
+            }
+            const blob = await response.blob();
+            const blobType = (blob.type || asset?.mimeType || "").toLowerCase();
+            if (!blobType.startsWith("image/")) {
+              throw new Error(`Unsupported mime type "${blobType || "unknown"}"`);
+            }
+
+            const baseName = toSafeBaseName(String(asset?.fileName || asset?.title || "image"));
+            const sourceFile = new File([blob], `${baseName}.${extensionFromMime(blobType)}`, {
+              type: blobType || "image/jpeg",
+              lastModified: Date.now(),
+            });
+
+            const previewMeta = await createImagePreviewDataUrl(sourceFile, {
+              maxDimension: 512,
+              quality: 0.58,
+            });
+
+            const previewFile = dataUrlToFile(previewMeta.dataUrl, `${baseName}-preview.webp`);
+            if (!previewFile) {
+              throw new Error("Failed to encode preview file");
+            }
+            const uploadedPreview = await uploadFileMultipart(previewFile, {
+              context: "library",
+              autoSaveToLibrary: false,
+              concurrency: 2,
+            });
+            if (!uploadedPreview.success || !uploadedPreview.url) {
+              throw new Error("Preview upload failed");
+            }
+
+            const existingVariants =
+              asset?.variants && typeof asset.variants === "object" ? { ...asset.variants } : {};
+            const originalVariant = existingVariants.original ?? {
+              url: sourceUrl,
+              width: asset?.width,
+              height: asset?.height,
+              byteSize: asset?.fileSize,
+              mimeType: asset?.mimeType,
+            };
+
+            const nextVariants: Record<string, any> = {
+              ...existingVariants,
+              original: originalVariant,
+            };
+
+            const previewVariant = {
+              url: uploadedPreview.url,
+              width: previewMeta.width,
+              height: previewMeta.height,
+              byteSize: previewMeta.size,
+              mimeType: previewMeta.outputType || "image/webp",
+            };
+            nextVariants.preview = previewVariant;
+            nextVariants.thumb = previewVariant;
+
+            await patchDerived({
+              id: asset._id,
+              blurDataUrl: previewMeta.dataUrl,
+              variants: nextVariants,
+            });
+
+            successCount += 1;
+          } catch (error) {
+            failedCount += 1;
+            console.warn("Failed to backfill image preview variant", asset?._id, error);
+          }
+        }
+
+        if (!opts?.silent && successCount > 0) {
+          toast.success(
+            `Generated preview variants for ${successCount} image${successCount === 1 ? "" : "s"}.`
+          );
+        }
+        if (!opts?.silent && failedCount > 0) {
+          toast.error(
+            `Failed on ${failedCount} image${failedCount === 1 ? "" : "s"}. Check browser console for details.`
+          );
+        }
+      } finally {
+        isBackfillingPreviewsRef.current = false;
+        setIsBackfillingPreviews(false);
+      }
+    },
+    [patchDerived]
+  );
+
+  useEffect(() => {
+    if (!assets || isBackfillingPreviews) return;
+    const pendingTargets = (missingPreviewAssets as any[]).filter((asset) => {
+      const assetId = String(asset?._id ?? "");
+      if (!assetId) return false;
+      return !attemptedPreviewBackfillIdsRef.current.has(assetId);
+    });
+    if (pendingTargets.length === 0) return;
+    void backfillMissingPreviews(pendingTargets, { silent: true });
+  }, [assets, backfillMissingPreviews, isBackfillingPreviews, missingPreviewAssets]);
 
   const handleDrop = useCallback(
     (event: React.DragEvent<HTMLDivElement>) => {
@@ -1956,15 +2214,15 @@ const LibraryPage: React.FC = () => {
                       </PopoverContent>
                     </Popover>
 
-		                    <Button
-		                      type="button"
-		                      size="default"
-		                      className="library-unstyled h-10 flex-1 justify-center gap-2 border border-black bg-black text-slate-50 hover:bg-black/90 hover:text-slate-50 sm:flex-none"
-		                      onClick={() => setIsUploadModalOpen(true)}
-		                    >
-		                      <UploadCloud className="h-4 w-4 text-current" />
-		                      Upload
-		                    </Button>
+			                    <Button
+			                      type="button"
+			                      size="default"
+			                      className="library-unstyled h-10 flex-1 justify-center gap-2 border border-black bg-black text-slate-50 hover:bg-black/90 hover:text-slate-50 sm:flex-none"
+			                      onClick={() => setIsUploadModalOpen(true)}
+			                    >
+			                      <UploadCloud className="h-4 w-4 text-current" />
+			                      Upload
+			                    </Button>
 
                     <Button
                       type="button"

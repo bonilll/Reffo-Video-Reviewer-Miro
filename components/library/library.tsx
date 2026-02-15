@@ -39,6 +39,8 @@ type FilterState = {
   color: string | null;
 };
 
+type LibraryAssetType = "image" | "video" | "file";
+
 type LibraryProps = {
   userId?: string;
   orgId?: string;
@@ -51,6 +53,7 @@ type LibraryProps = {
   masonryColumns?: number | null;
   selectedItems?: Id<"assets">[];
   onSelectionChange?: (items: Id<"assets">[]) => void;
+  allowedTypes?: LibraryAssetType[];
   onFilteredDataChange?: (data: {
     filteredReferences: Doc<"assets">[];
     filters: FilterState;
@@ -259,6 +262,15 @@ const matchesSearch = (asset: Doc<"assets">, query: string) => {
   );
 };
 
+const getVariantUrl = (variant: any): string | undefined =>
+  variant?.url || variant?.publicUrl || undefined;
+
+const getAssetPreviewUrl = (asset: Doc<"assets">): string =>
+  getVariantUrl((asset as any).variants?.preview) ||
+  getVariantUrl((asset as any).variants?.thumb) ||
+  (asset as any).blurDataUrl ||
+  asset.fileUrl;
+
 const scoreTagMatch = (token: string, tags: string[], exactWeight: number, partialWeight: number) => {
   for (const tag of tags) {
     if (tag === token) return exactWeight;
@@ -330,11 +342,28 @@ export const Library: React.FC<LibraryProps> = ({
   masonryColumns,
   selectedItems,
   onSelectionChange,
+  allowedTypes,
   onFilteredDataChange,
 }) => {
+  const normalizedAllowedTypes = useMemo<LibraryAssetType[]>(() => {
+    const fallback: LibraryAssetType[] = ["image", "video", "file"];
+    if (!allowedTypes || allowedTypes.length === 0) return fallback;
+    const unique = Array.from(new Set(allowedTypes)).filter(
+      (type): type is LibraryAssetType => type === "image" || type === "video" || type === "file"
+    );
+    return unique.length > 0 ? unique : fallback;
+  }, [allowedTypes]);
+
+  const defaultFilterType: FilterState["type"] =
+    normalizedAllowedTypes.length === 1 ? normalizedAllowedTypes[0] : "all";
+  const typeFilterOptions: FilterState["type"][] =
+    normalizedAllowedTypes.length === 1
+      ? [normalizedAllowedTypes[0]]
+      : (["all", ...normalizedAllowedTypes] as FilterState["type"][]);
+
   const [filters, setFilters] = useState<FilterState>({
     search: searchQuery ?? "",
-    type: "all",
+    type: defaultFilterType,
     tagQuery: selectedTags?.join(", ") ?? "",
     color: null,
   });
@@ -375,6 +404,17 @@ export const Library: React.FC<LibraryProps> = ({
   }, [searchResults]);
   const updateMetadata = useMutation(api.assets.updateMetadata);
   const deleteAsset = useMutation(api.assets.deleteAsset);
+
+  useEffect(() => {
+    setFilters((prev) => {
+      const isCurrentTypeAllowed =
+        prev.type === "all"
+          ? defaultFilterType === "all"
+          : normalizedAllowedTypes.includes(prev.type as LibraryAssetType);
+      if (isCurrentTypeAllowed) return prev;
+      return { ...prev, type: defaultFilterType };
+    });
+  }, [defaultFilterType, normalizedAllowedTypes]);
 
   const selection = selectedItems ?? [];
   const selectionRef = useRef<Id<"assets">[]>(selection);
@@ -604,6 +644,7 @@ export const Library: React.FC<LibraryProps> = ({
         return { asset, score };
       })
       .filter(({ asset, score }) => {
+        if (!normalizedAllowedTypes.includes(asset.type as LibraryAssetType)) return false;
         if (filters.type !== "all" && asset.type !== filters.type) return false;
         if (filters.color) {
           const matchesColor = (asset.dominantColors ?? []).some(
@@ -626,11 +667,11 @@ export const Library: React.FC<LibraryProps> = ({
     });
 
     return sorted.map((entry) => entry.asset);
-  }, [allAssets, filters, tagFilters, searchTerm, searchBoostSet]);
+  }, [allAssets, filters, tagFilters, searchTerm, searchBoostSet, normalizedAllowedTypes]);
 
   const hasActiveFilters =
     Boolean(filters.search) ||
-    filters.type !== "all" ||
+    filters.type !== defaultFilterType ||
     Boolean(filters.tagQuery.trim()) ||
     Boolean(filters.color);
 
@@ -992,7 +1033,7 @@ export const Library: React.FC<LibraryProps> = ({
     setFilters((prev) => ({
       ...prev,
       search: "",
-      type: "all",
+      type: defaultFilterType,
       tagQuery: "",
       color: null,
     }));
@@ -1069,22 +1110,24 @@ export const Library: React.FC<LibraryProps> = ({
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-5">
-            <div className="space-y-2">
-              <p className="text-xs font-semibold uppercase text-gray-500">Type</p>
-              <div className="flex flex-wrap gap-2">
-                {(["all", "image", "video", "file"] as const).map((type) => (
-                  <Button
-                    key={type}
-                    type="button"
-                    size="sm"
-                    variant={filters.type === type ? "default" : "outline"}
-                    onClick={() => handleFilterChange("type", type)}
-                  >
-                    {type === "all" ? "All" : type.charAt(0).toUpperCase() + type.slice(1)}
-                  </Button>
-                ))}
+            {typeFilterOptions.length > 1 && (
+              <div className="space-y-2">
+                <p className="text-xs font-semibold uppercase text-gray-500">Type</p>
+                <div className="flex flex-wrap gap-2">
+                  {typeFilterOptions.map((type) => (
+                    <Button
+                      key={type}
+                      type="button"
+                      size="sm"
+                      variant={filters.type === type ? "default" : "outline"}
+                      onClick={() => handleFilterChange("type", type)}
+                    >
+                      {type === "all" ? "All" : type.charAt(0).toUpperCase() + type.slice(1)}
+                    </Button>
+                  ))}
+                </div>
               </div>
-            </div>
+            )}
             <div className="space-y-2">
               <p className="text-xs font-semibold uppercase text-gray-500">Tags</p>
               <Input
@@ -1627,6 +1670,7 @@ export const Library: React.FC<LibraryProps> = ({
         {filteredAssets.map((asset) => {
           const isSelected = selection.includes(asset._id);
           const mediaType = asset.type ?? "file";
+          const previewSrc = getAssetPreviewUrl(asset);
           const ratio = asset.width && asset.height ? asset.width / asset.height : 1;
           return (
             <div key={asset._id} className="library-masonry-item">
@@ -1660,7 +1704,7 @@ export const Library: React.FC<LibraryProps> = ({
                 <div className="w-full bg-gray-50" style={{ aspectRatio: `${ratio}` }}>
                   {mediaType === "image" ? (
                     <img
-                      src={asset.fileUrl}
+                      src={previewSrc}
                       alt={asset.title}
                       className="h-full w-full object-contain"
                       loading="lazy"
@@ -1670,6 +1714,7 @@ export const Library: React.FC<LibraryProps> = ({
                     <video
                       className="h-full w-full object-contain"
                       src={asset.fileUrl}
+                      poster={previewSrc}
                       preload="metadata"
                       muted
                       playsInline

@@ -104,8 +104,10 @@ type SelectionToolsProps = {
   embedded?: boolean;
 };
 
-const CONTROL_BUTTON_CLASSES =
-  "flex items-center gap-2 h-9 px-3 min-w-[170px] text-sm bg-white/90 text-slate-700 hover:bg-white hover:text-slate-900 rounded-xl border border-slate-200/80 transition-all duration-200 shadow-sm hover:shadow-sm";
+const CONTROL_BUTTON_COMPACT_CLASSES =
+  "flex items-center gap-1.5 h-8 px-2.5 min-w-0 text-xs bg-white/90 text-slate-700 hover:bg-white hover:text-slate-900 rounded-xl border border-slate-200/80 transition-all duration-200 shadow-sm hover:shadow-sm";
+const CONTROL_VALUE_BADGE_CLASSES =
+  "inline-flex items-center rounded-md bg-slate-100/90 px-1.5 py-0.5 text-[11px] font-mono font-semibold text-slate-600";
 const CONTROL_DROPDOWN_BASE =
   "absolute min-w-full bg-white/98 backdrop-blur-xl border border-slate-200/80 shadow-xl shadow-slate-200/40 rounded-2xl z-50 overflow-hidden";
 const CONTROL_DROPDOWN_MENU =
@@ -347,16 +349,16 @@ const PencilStrokeWidthSelector = memo(({
     <div ref={triggerRef} className="relative">
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className={`${CONTROL_BUTTON_CLASSES} justify-between`}
+        className={`${CONTROL_BUTTON_COMPACT_CLASSES} min-w-[92px] justify-between`}
         title="Stroke width"
       >
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           <div 
-            className="w-6 h-1 bg-slate-700 rounded"
-            style={{ height: `${Math.min(strokeWidth / 4, 6)}px` }}
+            className="rounded bg-slate-700"
+            style={{ width: `${Math.max(8, Math.min(strokeWidth / 2, 14))}px`, height: `${Math.min(strokeWidth / 4, 6)}px` }}
           />
-          <span className="font-medium text-slate-700">
-            {isPresetValue ? strokeOptions.find(opt => opt.value === strokeWidth)?.label : `${strokeWidth}px - Custom`}
+          <span className={CONTROL_VALUE_BADGE_CLASSES}>
+            {isPresetValue ? strokeWidth : `${strokeWidth}`}
           </span>
         </div>
         <ChevronDown className="w-3 h-3 text-slate-500" />
@@ -477,19 +479,16 @@ const StrokeWidthSelector = memo(({ selectedLayerIds }: { selectedLayerIds: stri
     <div ref={triggerRef} className="relative">
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className={`${CONTROL_BUTTON_CLASSES} justify-between`}
+        className={`${CONTROL_BUTTON_COMPACT_CLASSES} min-w-[92px] justify-between`}
         title="Stroke width"
       >
-        <span className="flex items-center gap-2">
+        <span className="flex items-center gap-1.5">
           <Minus className="w-4 h-4 text-slate-500" />
-          <span className="font-medium text-slate-700">Line Stroke</span>
-        </span>
-        <span className="flex items-center gap-2 text-xs text-slate-500">
-          <span className="font-mono">
+          <span className={CONTROL_VALUE_BADGE_CLASSES}>
             {isPresetValue ? strokeOptions.find(opt => opt.value === currentStrokeWidth)?.value : currentStrokeWidth}px
           </span>
-          <ChevronDown className="w-3 h-3 text-slate-500" />
         </span>
+        <ChevronDown className="w-3 h-3 text-slate-500" />
       </button>
       
       {isOpen && (
@@ -626,19 +625,16 @@ const FontSizeSelector = memo(({ selectedLayerIds, onDropdownChange, setLastUsed
     <div ref={triggerRef} className="relative">
       <button
         onClick={() => handleOpenChange(!isOpen)}
-        className={`${CONTROL_BUTTON_CLASSES} justify-between`}
+        className={`${CONTROL_BUTTON_COMPACT_CLASSES} min-w-[84px] justify-between`}
         title="Font size"
       >
-        <span className="flex items-center gap-2">
+        <span className="flex items-center gap-1.5">
           <Type className="w-4 h-4 text-slate-500" />
-          <span className="font-medium text-slate-700">size</span>
-        </span>
-        <span className="flex items-center gap-2 text-xs text-slate-500">
-          <span className="font-mono">
+          <span className={CONTROL_VALUE_BADGE_CLASSES}>
             {isPresetValue ? fontSizes.find(size => size.value === currentFontSize)?.value : currentFontSize}px
           </span>
-          <ChevronDown className="w-3 h-3 text-slate-500" />
         </span>
+        <ChevronDown className="w-3 h-3 text-slate-500" />
       </button>
       
       {isOpen && (
@@ -753,19 +749,16 @@ const FontWeightDropdown = memo(({ selectedLayerIds, onDropdownChange, setLastUs
           }
         }}
         onClick={() => handleOpenChange(!isOpen)}
-        className={`${CONTROL_BUTTON_CLASSES} justify-between ${currentFontWeight === "bold" ? "font-bold" : ""}`}
+        className={`${CONTROL_BUTTON_COMPACT_CLASSES} min-w-[78px] justify-between ${currentFontWeight === "bold" ? "font-bold" : ""}`}
         title="Font weight"
       >
-        <span className="flex items-center gap-2">
+        <span className="flex items-center gap-1.5">
           <Bold className="w-4 h-4 text-slate-500" />
-          <span className="font-medium text-slate-700">weight</span>
-        </span>
-        <span className="flex items-center gap-2 text-xs text-slate-500">
-          <span className="font-mono">
-            {currentFontWeight === "bold" ? "Bold" : "Regular"}
+          <span className={CONTROL_VALUE_BADGE_CLASSES}>
+            {currentFontWeight === "bold" ? "700" : "400"}
           </span>
-          <ChevronDown className="w-3 h-3 text-slate-500" />
         </span>
+        <ChevronDown className="w-3 h-3 text-slate-500" />
       </button>
       
       {isOpen && (
@@ -1053,12 +1046,12 @@ const TextControlsDropdown = memo(({ selectedLayerIds, onDropdownChange }: {
     <div ref={triggerRef} className="relative">
       <button
         onClick={() => handleOpenChange(!isOpen)}
-        className={`${CONTROL_BUTTON_CLASSES} justify-between`}
+        className={`${CONTROL_BUTTON_COMPACT_CLASSES} min-w-[72px] justify-between`}
         title="Text formatting"
       >
-        <span className="flex items-center gap-2">
+        <span className="flex items-center gap-1.5">
           <Type className="w-4 h-4 text-slate-500" />
-          <span className="font-medium text-slate-700">format</span>
+          <AlignCenter className="w-3.5 h-3.5 text-slate-500" />
         </span>
         <ChevronDown className="w-3 h-3 text-slate-500" />
       </button>
@@ -1134,12 +1127,12 @@ const CompactAlignmentDropdown = memo(({ selectedLayers, updateLayerPositions, o
         onClick={() => handleOpenChange(!isOpen)}
         onMouseEnter={() => onActionHover?.("Alignment & Distribution")}
         onMouseLeave={onActionHoverEnd}
-        className={`${CONTROL_BUTTON_CLASSES} justify-between`}
+        className={`${CONTROL_BUTTON_COMPACT_CLASSES} min-w-[82px] justify-between`}
         title="Alignment & Distribution"
       >
-        <span className="flex items-center gap-2">
+        <span className="flex items-center gap-1.5">
           <LayoutGrid className="w-4 h-4 text-slate-500" />
-          <span className="font-medium text-slate-700">Align & Distribute</span>
+          <span className={CONTROL_VALUE_BADGE_CLASSES}>{selectedLayers.length}</span>
         </span>
         <ChevronDown className="w-3 h-3 text-slate-500" />
       </button>
@@ -1505,6 +1498,8 @@ export const SelectionTools = memo(
     const currentFontLabel =
       FONT_FAMILIES.find((ff) => normalizeFontKey(ff.value) === currentFontKey)?.label ||
       (currentFontFamily ? currentFontFamily.split(",")[0].replace(/['"]/g, "") : "Mixed");
+    const currentFontShortLabel =
+      currentFontLabel.length > 8 ? `${currentFontLabel.slice(0, 8)}…` : currentFontLabel;
 
   // Helper: export selected frame using presets from main toolbar module
   const exportPresets = [
@@ -1858,6 +1853,30 @@ export const SelectionTools = memo(
         const type = layer.type;
         return type === "rectangle" || type === "ellipse" || type === "arrow" || type === "line" || type === "image" || type === "video" || type === "file";
       });
+    });
+    const shadowState = useStorage((root) => {
+      const supported = selection
+        .map((id) => root.layers.get(id))
+        .filter((layer) => {
+          if (!layer) return false;
+          const type = layer.type;
+          return (
+            type === "rectangle" ||
+            type === "ellipse" ||
+            type === "arrow" ||
+            type === "line" ||
+            type === "image" ||
+            type === "video" ||
+            type === "file"
+          );
+        });
+      if (supported.length === 0) return "off" as const;
+      const states = supported.map((layer) => ((layer as any).shadow === false ? false : true));
+      const allOn = states.every(Boolean);
+      const allOff = states.every((value) => !value);
+      if (allOn) return "on" as const;
+      if (allOff) return "off" as const;
+      return "mixed" as const;
     });
 
     // Check if any notes are selected and get note data
@@ -2355,10 +2374,10 @@ export const SelectionTools = memo(
           className={
             embedded
               ? "relative overflow-visible px-1 py-1"
-              : "border border-slate-200/80 bg-white/95 backdrop-blur-md rounded-2xl shadow-xl shadow-slate-200/40 px-3 py-2 mb-3 relative overflow-visible"
+              : "border border-slate-200/80 bg-white/95 backdrop-blur-md rounded-2xl shadow-xl shadow-slate-200/40 px-2.5 py-1.5 mb-3 relative overflow-visible"
           }
         >
-          <div className="flex items-center gap-x-2 gap-y-1.5 relative z-10 flex-wrap overflow-visible">{/* Overflow visible on flex container too */}
+          <div className="flex items-center gap-x-1.5 gap-y-1.5 relative z-10 flex-wrap overflow-visible">{/* Overflow visible on flex container too */}
                           {/* Style controls group - compact layout */}
             <div className="flex items-center gap-x-1.5">
               {/* Color control - show if elements are selected OR pencil is active */}
@@ -2394,10 +2413,15 @@ export const SelectionTools = memo(
                   >
                     <button
                       onClick={toggleShadow}
-                      className={`${CONTROL_BUTTON_CLASSES} font-medium`}
+                      className={`${CONTROL_BUTTON_COMPACT_CLASSES} min-w-[80px]`}
                       title="Toggle shadow"
                     >
-                      Shadows
+                      <span className="flex items-center gap-1.5">
+                        <Layers className="w-4 h-4 text-slate-500" />
+                        <span className={CONTROL_VALUE_BADGE_CLASSES}>
+                          {shadowState === "mixed" ? "--" : shadowState === "on" ? "On" : "Off"}
+                        </span>
+                      </span>
                     </button>
                   </div>
                 </SelectionTooltip>
@@ -2426,15 +2450,17 @@ export const SelectionTools = memo(
                     <div onMouseEnter={() => handleMouseEnter("Font")} onMouseLeave={handleMouseLeave}>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <button className={`${CONTROL_BUTTON_CLASSES} justify-between`}>
-                            <span className="flex items-center gap-2">
+                          <button className={`${CONTROL_BUTTON_COMPACT_CLASSES} min-w-[112px] justify-between`}>
+                            <span className="flex items-center gap-1.5">
                               <Type className="w-4 h-4 text-slate-500" />
-                              <span className="font-medium text-slate-700">font</span>
+                              <span
+                                className={CONTROL_VALUE_BADGE_CLASSES}
+                                style={{ fontFamily: currentFontFamily || undefined }}
+                              >
+                                {currentFontShortLabel}
+                              </span>
                             </span>
-                            <span className="flex items-center gap-2 text-xs text-slate-500">
-                              <span className="font-mono">{currentFontLabel}</span>
-                              <ChevronDown className="w-3 h-3 text-slate-500" />
-                            </span>
+                            <ChevronDown className="w-3 h-3 text-slate-500" />
                           </button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent className={`${CONTROL_DROPDOWN_MENU} w-44 p-3`} align="start" onCloseAutoFocus={(e) => e.preventDefault()}>
@@ -2650,33 +2676,28 @@ export const SelectionTools = memo(
                   >
                     <button
                       onClick={handleSaveToLibrary}
-                      className={`${CONTROL_BUTTON_CLASSES} min-w-[160px] justify-between ${
+                      className={`${CONTROL_BUTTON_COMPACT_CLASSES} min-w-[84px] ${
                         allSelectedSaved
                           ? "bg-slate-900 text-white border-slate-900 hover:bg-slate-900 hover:text-white"
                           : ""
                       }`}
                       disabled={isSavingToLibrary || allSelectedSaved}
                       aria-pressed={allSelectedSaved}
+                      title={allSelectedSaved ? "Already in library" : "Save to library"}
                     >
-                      <span className="flex items-center gap-2">
+                      <span className="flex items-center gap-1.5">
                         {allSelectedSaved ? (
                           <BookmarkCheck className="w-4 h-4 text-white" />
                         ) : (
                           <BookmarkPlus className="w-4 h-4 text-slate-500" />
                         )}
-                        <span className={`font-medium ${allSelectedSaved ? "text-white" : "text-slate-700"}`}>
-                          {allSelectedSaved ? "In library" : "Save to library"}
+                        <span className={`${CONTROL_VALUE_BADGE_CLASSES} ${allSelectedSaved ? "bg-white/20 text-white" : ""}`}>
+                          {allSelectedSaved ? "OK" : unsavedCount}
                         </span>
                       </span>
                       {isSavingToLibrary ? (
-                        <span className={`text-xs ${allSelectedSaved ? "text-white/70" : "text-slate-400"}`}>
-                          Saving…
-                        </span>
-                      ) : (
-                        <span className={`text-xs ${allSelectedSaved ? "text-white/70" : "text-slate-400"}`}>
-                          {allSelectedSaved ? "Saved" : unsavedCount}
-                        </span>
-                      )}
+                        <RefreshCw className={`w-3.5 h-3.5 animate-spin ${allSelectedSaved ? "text-white/80" : "text-slate-400"}`} />
+                      ) : null}
                     </button>
                   </div>
                 </SelectionTooltip>

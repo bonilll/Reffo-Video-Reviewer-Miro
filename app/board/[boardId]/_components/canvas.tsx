@@ -24,13 +24,10 @@ import {
   LayerType,
   Point,
   Side,
+  TableColumnType,
+  TableLayer,
   XYWH,
   TodoWidgetLayer,
-  TableLayer,
-  TableColumn,
-  TableRow,
-  TableCell,
-  TableColumnType,
 } from "@/types/canvas";
 import { useDisableScrollBounce } from "@/hooks/use-disable-scroll-bounce";
 import { useDeleteLayers } from "@/hooks/use-delete-layers";
@@ -56,7 +53,6 @@ import { GridConfig } from "./grid-settings";
 import { FrameContextMenu } from "./frame-context-menu";
 import { NoteConnectionPoints } from "./note-connection-points";
 import { ArrowSnapIndicators } from "./arrow-snap-indicators";
-import { TodoListSelectorModal } from "./todo-list-selector-modal";
 import { SnapGuidelines } from "./snap-guidelines";
 import {
   createMobileInputState,
@@ -377,12 +373,6 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
   // Mobile device detection
   const [isTouchDevice, setIsTouchDevice] = useState(false);
 
-  // Stato per la creazione del widget todo
-  const [showTodoListSelector, setShowTodoListSelector] = useState(false);
-
-  // Stato per la creazione delle tabelle
-
-
   useDisableScrollBounce();
   const history = useHistory();
   const canUndo = useCanUndo();
@@ -440,7 +430,18 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
   const insertLayer = useMutation(
     (
       { storage, setMyPresence },
-      layerType: LayerType.Ellipse | LayerType.Rectangle | LayerType.Text | LayerType.Note | LayerType.Arrow | LayerType.Line | LayerType.Frame | LayerType.Image | LayerType.Video | LayerType.File,
+      layerType:
+        | LayerType.Ellipse
+        | LayerType.Rectangle
+        | LayerType.Text
+        | LayerType.Note
+        | LayerType.Arrow
+        | LayerType.Line
+        | LayerType.Frame
+        | LayerType.Image
+        | LayerType.Video
+        | LayerType.File
+        | LayerType.Table,
       position: Point,
       endPosition?: Point,
       userInfo?: { name?: string },
@@ -493,6 +494,86 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
           autoResize: false,
           opacity: 1,
         });
+      } else if (layerType === LayerType.Table) {
+        const now = new Date().toISOString();
+        const columnShot = `col_${nanoid(6)}`;
+        const columnAnimStatus = `col_${nanoid(6)}`;
+        const columnLookStatus = `col_${nanoid(6)}`;
+        const columnAssignee = `col_${nanoid(6)}`;
+        const columnDueDate = `col_${nanoid(6)}`;
+        const columnPath = `col_${nanoid(6)}`;
+        const columnMedia = `col_${nanoid(6)}`;
+
+        const animOptions = [
+          { id: `opt_${nanoid(6)}`, label: "Pending", color: { r: 148, g: 163, b: 184 } },
+          { id: `opt_${nanoid(6)}`, label: "In Progress", color: { r: 59, g: 130, b: 246 } },
+          { id: `opt_${nanoid(6)}`, label: "Approved", color: { r: 34, g: 197, b: 94 } },
+        ];
+        const lookOptions = [
+          { id: `opt_${nanoid(6)}`, label: "Draft", color: { r: 168, g: 85, b: 247 } },
+          { id: `opt_${nanoid(6)}`, label: "Review", color: { r: 249, g: 115, b: 22 } },
+          { id: `opt_${nanoid(6)}`, label: "Final", color: { r: 34, g: 197, b: 94 } },
+        ];
+
+        const tableColumns: TableLayer["columns"] = [
+          { id: columnShot, name: "Shot", type: TableColumnType.Text, width: 280 },
+          { id: columnAnimStatus, name: "Anim Status", type: TableColumnType.MultiSelect, width: 300, options: animOptions },
+          { id: columnLookStatus, name: "Look Status", type: TableColumnType.Select, width: 260, options: lookOptions },
+          { id: columnAssignee, name: "Assignee", type: TableColumnType.Person, width: 260 },
+          { id: columnDueDate, name: "Date", type: TableColumnType.Date, width: 230 },
+          { id: columnPath, name: "Path", type: TableColumnType.Text, width: 320 },
+          { id: columnMedia, name: "Media", type: TableColumnType.Image, width: 280 },
+        ];
+
+        const baseRows = Array.from({ length: 6 }, (_, index) => ({
+          id: `row_${nanoid(8)}`,
+          createdAt: now,
+          updatedAt: now,
+          cells: [
+            { columnId: columnShot, value: index === 0 ? "Shot 001" : "" },
+            { columnId: columnAnimStatus, value: index === 0 ? [animOptions[0].id] : [] },
+            { columnId: columnLookStatus, value: index === 0 ? lookOptions[0].id : "" },
+            { columnId: columnAssignee, value: "" },
+            { columnId: columnDueDate, value: "" },
+            { columnId: columnPath, value: "" },
+            { columnId: columnMedia, value: "" },
+          ],
+        }));
+
+        const minimumWidth = tableColumns.reduce((acc, column) => acc + column.width, 0) + 64 + 56;
+        const minimumHeight = 44 + 46 + 40 + 44;
+
+        let tableX = position.x;
+        let tableY = position.y;
+        let tableWidth = Math.max(1420, minimumWidth);
+        let tableHeight = 500;
+
+        if (endPosition) {
+          tableX = Math.min(position.x, endPosition.x);
+          tableY = Math.min(position.y, endPosition.y);
+          tableWidth = Math.max(Math.abs(endPosition.x - position.x), minimumWidth);
+          tableHeight = Math.max(Math.abs(endPosition.y - position.y), minimumHeight);
+        }
+
+        layer = new LiveObject({
+          type: LayerType.Table,
+          x: tableX,
+          y: tableY,
+          width: tableWidth,
+          height: tableHeight,
+          fill: { r: 255, g: 255, b: 255 },
+          title: "Production Board",
+          columns: tableColumns,
+          rows: baseRows,
+          borderColor: { r: 226, g: 232, b: 240 },
+          borderWidth: 1,
+          headerColor: { r: 248, g: 250, b: 252 },
+          alternateRowColors: true,
+          showRowNumbers: true,
+          allowSorting: false,
+          allowFiltering: false,
+          opacity: 1,
+        } as TableLayer);
       } else if (layerType === LayerType.Arrow || layerType === LayerType.Line) {
         // Per frecce e linee, usiamo la posizione di partenza e di arrivo
         const startPoint = position;
@@ -1252,9 +1333,12 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
         return;
       }
 
-      // Verifica che canvasState.current sia valido
-      if (!canvasState.current || isNaN(canvasState.current.x) || isNaN(canvasState.current.y)) {
-        console.error("❌ TRANSLATE ERROR - Invalid canvasState.current:", canvasState.current);
+      const previousPoint = dragPreviewStartRef.current ?? canvasState.current;
+      // Use a mutable ref as primary drag source of truth to avoid stale React state
+      // between rapid pointermove events (prevents overshooting on multi-note drags).
+      if (!previousPoint || isNaN(previousPoint.x) || isNaN(previousPoint.y)) {
+        console.error("❌ TRANSLATE ERROR - Invalid drag start point:", previousPoint);
+        dragPreviewStartRef.current = point;
         return;
       }
 
@@ -1265,8 +1349,8 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
       }
 
       const offset = {
-        x: point.x - canvasState.current.x,
-        y: point.y - canvasState.current.y,
+        x: point.x - previousPoint.x,
+        y: point.y - previousPoint.y,
       };
 
       const liveLayers = storage.get("layers");
@@ -1565,6 +1649,7 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
         updateMindMapArrows(liveLayers, movedNotes);
       }
 
+      dragPreviewStartRef.current = point;
       setCanvasState({ mode: CanvasMode.Translating, current: point });
     },
     [canvasState, translateArrowLine, isTouchDevice],
@@ -1640,6 +1725,17 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
   const handleDrawingModeStart = useCallback(
     (point: Point) => {
       if (canvasState.mode === CanvasMode.Inserting) {
+        if (
+          canvasState.layerType !== LayerType.Arrow &&
+          canvasState.layerType !== LayerType.Line &&
+          canvasState.layerType !== LayerType.Rectangle &&
+          canvasState.layerType !== LayerType.Ellipse &&
+          canvasState.layerType !== LayerType.Frame &&
+          canvasState.layerType !== LayerType.Table
+        ) {
+          return;
+        }
+
         // Transition from Inserting to Drawing mode
         setCanvasState({
           mode: CanvasMode.Drawing,
@@ -3820,7 +3916,8 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
             canvasState.layerType === LayerType.Line ||
             canvasState.layerType === LayerType.Rectangle ||
             canvasState.layerType === LayerType.Ellipse ||
-            canvasState.layerType === LayerType.Frame) {
+            canvasState.layerType === LayerType.Frame ||
+            canvasState.layerType === LayerType.Table) {
           setCanvasState({
             mode: CanvasMode.Drawing,
             layerType: canvasState.layerType,
@@ -4668,67 +4765,52 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
     e.preventDefault();
   }, []);
 
-  // Funzione per creare un widget todo
-  const handleCreateTodoWidget = () => {
-    if (isViewer) {
-      return;
-    }
-    
-    setShowTodoListSelector(true);
-  };
-
-  // Funzione per creare il widget con la lista selezionata
-  const handleTodoListSelected = useMutation(
-    ({ storage, setMyPresence }, listId: string, listName: string) => {
+  const createTodoWidget = useMutation(
+    ({ storage, setMyPresence }, titleOverride?: string) => {
       const liveLayers = storage.get("layers");
       const liveLayerIds = storage.get("layerIds");
-      
-      // Calcola il centro della vista
       const centerX = window.innerWidth / 2;
       const centerY = window.innerHeight / 2;
-      
-      // Converti le coordinate dello schermo in coordinate del canvas
       const canvasX = (centerX - camera.x) / camera.scale;
       const canvasY = (centerY - camera.y) / camera.scale;
-      
-      // Crea il widget todo
       const layerId = nanoid();
-      
-      const defaultWidth = 320;
-      const defaultHeight = 400;
+      const defaultWidth = 520;
+      const defaultHeight = 520;
       const finalX = canvasX - defaultWidth / 2;
       const finalY = canvasY - defaultHeight / 2;
       if (Number.isNaN(finalX) || Number.isNaN(finalY)) {
         toast.error("Errore nella creazione del widget: coordinate non valide");
         return;
       }
-      
+
       const layer = new LiveObject({
         type: LayerType.TodoWidget,
-        x: finalX, // Centra il widget (320px / 2)
-        y: finalY, // Centra il widget (400px / 2)
+        x: finalX,
+        y: finalY,
         width: defaultWidth,
         height: defaultHeight,
-        fill: { r: 255, g: 255, b: 255 }, // Bianco
-        todoListId: listId,
-        title: listName,
+        fill: { r: 255, g: 255, b: 255 },
+        title: titleOverride || "Todo list",
         isMinimized: false,
-        showCompleted: false,
-        maxVisibleTasks: 10,
-        borderColor: { r: 229, g: 231, b: 235 }, // gray-200
+        showCompleted: true,
+        maxVisibleTasks: 200,
+        groups: [],
+        borderColor: { r: 226, g: 232, b: 240 },
         borderWidth: 1,
         opacity: 1,
       } as TodoWidgetLayer);
-      
+
       liveLayers.set(layerId, layer);
       liveLayerIds.push(layerId);
-      
-      // Seleziona il nuovo widget
       setMyPresence({ selection: [layerId] }, { addToHistory: true });
-      
     },
     [camera]
   );
+
+  const handleCreateTodoWidget = useCallback(() => {
+    if (isViewer) return;
+    createTodoWidget("Todo list");
+  }, [createTodoWidget, isViewer]);
   
   useEffect(() => {
     const checkTouch = () => {
@@ -4746,107 +4828,6 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
       window.removeEventListener('resize', checkTouch);
     };
   }, []);
-  const handleCreateTable = useMutation(
-    ({ storage, setMyPresence }) => {
-      if (isViewer) {
-        return;
-      }
-      
-      const liveLayers = storage.get("layers");
-      const liveLayerIds = storage.get("layerIds");
-      
-      // Calcola il centro della vista
-      const centerX = window.innerWidth / 2;
-      const centerY = window.innerHeight / 2;
-      
-      // Converti le coordinate dello schermo in coordinate del canvas
-      const canvasX = (centerX - camera.x) / camera.scale;
-      const canvasY = (centerY - camera.y) / camera.scale;
-      
-      // Crea una tabella di default con colonna numero
-      const defaultColumns: TableColumn[] = [
-        {
-          id: `col_${nanoid()}`,
-          name: "#",
-          type: TableColumnType.Number,
-          width: 60,
-          required: false
-        },
-        {
-          id: `col_${nanoid()}`,
-          name: "Colonna 1",
-          type: TableColumnType.Text,
-          width: 150,
-          required: false
-        }
-      ];
-      
-      // Crea 5 righe iniziali
-      const initialRows: TableRow[] = [];
-      for (let i = 0; i < 5; i++) {
-        const row: TableRow = {
-          id: `row_${nanoid()}`,
-          cells: [
-            {
-              columnId: defaultColumns[0].id,
-              value: i + 1 // Numero di riga
-            },
-            {
-              columnId: defaultColumns[1].id,
-              value: ""
-            }
-          ],
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        };
-        initialRows.push(row);
-      }
-      
-      // Crea la tabella
-      const layerId = nanoid();
-      const defaultWidth = 400;
-      const defaultHeight = 300;
-      
-      const finalX = canvasX - defaultWidth / 2;
-      const finalY = canvasY - defaultHeight / 2;
-      
-      if (isNaN(finalX) || isNaN(finalY)) {
-        console.error("❌ TABLE - Invalid coordinates calculated:", { finalX, finalY, canvasX, canvasY, camera });
-        toast.error("Errore nella creazione della tabella: coordinate non valide");
-        return;
-      }
-      
-      const layer = new LiveObject({
-        type: LayerType.Table,
-        x: finalX,
-        y: finalY,
-        width: defaultWidth,
-        height: defaultHeight,
-        fill: { r: 255, g: 255, b: 255 }, // Bianco
-        title: "Nuova Tabella",
-        columns: defaultColumns,
-        rows: initialRows,
-        borderColor: { r: 229, g: 231, b: 235 }, // gray-200
-        borderWidth: 1,
-        headerColor: { r: 249, g: 250, b: 251 }, // gray-50
-        alternateRowColors: true,
-        showRowNumbers: false,
-        allowSorting: true,
-        allowFiltering: true,
-        opacity: 1,
-      } as TableLayer);
-      
-      liveLayers.set(layerId, layer);
-      liveLayerIds.push(layerId);
-      
-      // Seleziona la nuova tabella
-      setMyPresence({ selection: [layerId] }, { addToHistory: true });
-      
-      toast.success("Tabella creata con successo!");
-    },
-    [camera, isViewer]
-  );
-
   // Add board-active class to body when component mounts
   useEffect(() => {
     document.body.classList.add('board-active');
@@ -4901,7 +4882,6 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
           onDeleteBoard={permissions.canDelete ? handleDeleteBoard : undefined}
           onBoardSettings={permissions.canAdmin ? handleBoardSettings : undefined}
           onCreateTodoWidget={handleCreateTodoWidget}
-          onCreateTable={handleCreateTable}
           showPermissionInfo={false}
           userRole={isViewer ? "viewer" : userRole}
         />
@@ -5360,19 +5340,6 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
           onDelete={handleDeleteFrame}
         />
       )}
-
-      {/* Todo List Selector Modal */}
-      <TodoListSelectorModal
-        isOpen={showTodoListSelector}
-        onClose={() => setShowTodoListSelector(false)}
-        onSelectList={(listId, listName) => {
-          handleTodoListSelected(listId, listName);
-          setShowTodoListSelector(false);
-        }}
-        projectId={projectId}
-      />
-
-      {/* Table Config Dialog */}
 
       </div>
     </main>

@@ -232,14 +232,44 @@ export type TodoWidgetLayer = {
   height: number;
   width: number;
   fill: Color; // Background color
-  todoListId: string; // ID della lista todo collegata
+  todoListId?: string; // Legacy: linked todo list ID
   title?: string; // Titolo personalizzato del widget
   isMinimized?: boolean; // Se il widget è minimizzato
   showCompleted?: boolean; // Se mostrare i task completati
   maxVisibleTasks?: number; // Numero massimo di task visibili
+  groups?: TodoWidgetGroup[];
   borderColor?: Color;
   borderWidth?: number;
   opacity?: number;
+};
+
+export type TodoWidgetSubtask = {
+  id: string;
+  text: string;
+  completed: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type TodoWidgetTask = {
+  id: string;
+  text: string;
+  completed: boolean;
+  createdAt: string;
+  updatedAt: string;
+  dueDate?: string;
+  assigneeId?: string;
+  collapsed?: boolean;
+  subtasks: TodoWidgetSubtask[];
+};
+
+export type TodoWidgetGroup = {
+  id: string;
+  title: string;
+  collapsed?: boolean;
+  createdAt: string;
+  updatedAt: string;
+  tasks: TodoWidgetTask[];
 };
 
 // Tipi per le colonne della tabella
@@ -249,7 +279,8 @@ export enum TableColumnType {
   Date = "date",
   Select = "select",
   MultiSelect = "multiSelect",
-  Image = "image"
+  Image = "image",
+  Person = "person",
 }
 
 export type TableSelectOption = {
@@ -344,6 +375,7 @@ export type CanvasState =
       layerType:
         | LayerType.Ellipse
         | LayerType.Rectangle
+        | LayerType.Text
         | LayerType.Note
         | LayerType.Arrow
         | LayerType.Line
@@ -361,7 +393,7 @@ export type CanvasState =
     }
   | {
       mode: CanvasMode.Drawing;
-      layerType: LayerType.Arrow | LayerType.Line | LayerType.Rectangle | LayerType.Ellipse | LayerType.Frame;
+      layerType: LayerType.Arrow | LayerType.Line | LayerType.Rectangle | LayerType.Ellipse | LayerType.Frame | LayerType.Table;
       origin: Point;
       current?: Point;
       frameFormat?: {

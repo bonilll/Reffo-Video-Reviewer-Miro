@@ -15,18 +15,22 @@ import { LayerType, ImageLayer, VideoLayer, FileLayer } from "@/types/canvas";
 import { useCamera } from "@/app/contexts/CameraContext";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 
+type AssetImportType = "image" | "video" | "file";
+
 interface LibraryModalProps {
   boardId: Id<"boards"> | string;
   userId: string;
   isOpen: boolean;
   onClose: () => void;
+  allowedTypes?: AssetImportType[];
 }
 
 export const LibraryModal = ({
   boardId,
   userId,
   isOpen,
-  onClose
+  onClose,
+  allowedTypes = ["image", "video", "file"],
 }: LibraryModalProps) => {
   const [selectedItems, setSelectedItems] = useState<Id<"assets">[]>([]);
   const [isImporting, setIsImporting] = useState(false);
@@ -49,10 +53,19 @@ export const LibraryModal = ({
     orgId: undefined 
   }) || [];
 
+  const allowedTypeSet = useMemo(() => new Set(allowedTypes), [allowedTypes]);
+  const isTypeAllowed = useCallback(
+    (type: string | undefined | null) =>
+      Boolean(type) && allowedTypeSet.has(type as AssetImportType),
+    [allowedTypeSet]
+  );
+
   // Calculate available references for import using useMemo
   const availableReferences = useMemo(() => {
-    return allReferences.filter(ref => selectedItems.includes(ref._id));
-  }, [allReferences, selectedItems]);
+    return allReferences.filter(
+      (ref) => selectedItems.includes(ref._id) && isTypeAllowed((ref as any).type)
+    );
+  }, [allReferences, selectedItems, isTypeAllowed]);
 
   // Reset selection when modal is closed
   useEffect(() => {
@@ -111,7 +124,8 @@ export const LibraryModal = ({
   };
 
   // Liveblocks mutations for adding elements to canvas
-  const insertImageLayer = useLibeblocksMutation(async ({ storage, setMyPresence }, imageUrl: string, title: string) => {
+  const insertImageLayer = useLibeblocksMutation(
+    async ({ storage, setMyPresence }, imageUrl: string, title: string, previewUrl?: string) => {
     
     const liveLayers = storage.get("layers");
     const liveLayerIds = storage.get("layerIds");
@@ -136,17 +150,18 @@ export const LibraryModal = ({
     
     
     const layerId = nanoid();
-    const layer = new LiveObject({
-      type: LayerType.Image,
-      x: centerPoint.x - width / 2, // Centra orizzontalmente
-      y: centerPoint.y - height / 2, // Centra verticalmente
-      width,
-      height,
-      url: imageUrl,
-      title: title,
-      fill: { r: 0, g: 0, b: 0 },
-      value: ""
-    } as ImageLayer);
+      const layer = new LiveObject({
+        type: LayerType.Image,
+        x: centerPoint.x - width / 2, // Centra orizzontalmente
+        y: centerPoint.y - height / 2, // Centra verticalmente
+        width,
+        height,
+        url: imageUrl,
+        previewUrl: previewUrl || undefined,
+        title: title,
+        fill: { r: 0, g: 0, b: 0 },
+        value: ""
+      } as ImageLayer);
 
 
     // Insert the layer using proper layering rules (images are non-frames, so they go at the end)
@@ -156,8 +171,10 @@ export const LibraryModal = ({
     // Select the newly added layer
     setMyPresence({ selection: [layerId] }, { addToHistory: true });
     
-    return layerId;
-  }, [getCameraViewCenter]);
+      return layerId;
+    },
+    [getCameraViewCenter]
+  );
 
   const insertVideoLayer = useLibeblocksMutation(async ({ storage, setMyPresence }, videoUrl: string, title: string, previewUrl?: string) => {
     
@@ -267,6 +284,9 @@ export const LibraryModal = ({
       for (const reference of availableReferences) {
         try {
           const ref = reference as any; // Temporary cast to access properties
+          if (!isTypeAllowed(ref.type)) {
+            continue;
+          }
           
           // Register the library import in the database first
           await registerLibraryImport({
@@ -279,12 +299,26 @@ export const LibraryModal = ({
           
           let layerId: string | undefined;
           if (ref.type === 'image') {
-            layerId = await insertImageLayer(ref.fileUrl, ref.title || ref.fileName || 'Image');
+            const refPreview =
+              ref.previewUrl ||
+              ref.variants?.preview?.url ||
+              ref.variants?.preview?.publicUrl ||
+              ref.variants?.thumb?.url ||
+              ref.variants?.thumb?.publicUrl ||
+              ref.blurDataUrl ||
+              undefined;
+            layerId = await insertImageLayer(
+              ref.fileUrl,
+              ref.title || ref.fileName || 'Image',
+              refPreview,
+            );
           } else if (ref.type === 'video') {
             const refPreview =
               ref.previewUrl ||
               ref.thumbnailUrl ||
+              ref.variants?.thumb?.url ||
               ref.variants?.thumb?.publicUrl ||
+              ref.variants?.preview?.url ||
               ref.variants?.preview?.publicUrl ||
               ref.blurDataUrl ||
               undefined;
@@ -324,12 +358,24 @@ export const LibraryModal = ({
       setIsImporting(false);
       // Non chiudere qui - la chiusura avviene solo in caso di successo
     }
-  }, [selectedItems, availableReferences, registerLibraryImport, insertImageLayer, insertVideoLayer, insertFileLayer, boardId, camera, onClose]);
+  }, [
+    selectedItems,
+    availableReferences,
+    registerLibraryImport,
+    insertImageLayer,
+    insertVideoLayer,
+    insertFileLayer,
+    boardId,
+    isTypeAllowed,
+    onClose,
+  ]);
 
   // Handle Select All
   const handleSelectAll = () => {
     // Use filtered references if available, otherwise use all references
-    const referencesToSelect = filteredData?.filteredReferences || allReferences;
+    const referencesToSelect = (filteredData?.filteredReferences || allReferences).filter((ref: any) =>
+      isTypeAllowed(ref?.type)
+    );
     const allReferenceIds = referencesToSelect.map(ref => ref._id);
     setSelectedItems(allReferenceIds);
   };
@@ -352,9 +398,9 @@ export const LibraryModal = ({
   return (
     <DialogPrimitive.Root open={isOpen} onOpenChange={onClose}>
       <DialogPrimitive.Portal>
-        <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm" />
+        <div className="fixed inset-0 z-[90] bg-background/80 backdrop-blur-sm" />
         <DialogPrimitive.Content 
-          className="w-screen h-screen max-w-none max-h-none p-0 m-0 rounded-none border-none fixed inset-0 z-50 overflow-hidden"
+          className="w-screen h-screen max-w-none max-h-none p-0 m-0 rounded-none border-none fixed inset-0 z-[91] overflow-hidden"
           style={{
             transform: 'none',
             top: '0',
@@ -382,7 +428,9 @@ export const LibraryModal = ({
                     Import from Library
                   </h2>
                   <p className="text-sm text-gray-500">
-                    Select references to add to your board
+                    {allowedTypes.length === 1 && allowedTypes[0] === "image"
+                      ? "Select images to add to your board"
+                      : "Select references to add to your board"}
                   </p>
                 </div>
                 
@@ -498,6 +546,7 @@ export const LibraryModal = ({
                 selectedItems={selectedItems}
                 onSelectionChange={setSelectedItems}
                 onFilteredDataChange={handleFilteredDataChange}
+                allowedTypes={allowedTypes}
               />
             </div>
           </div>
@@ -512,6 +561,7 @@ interface LibraryImportWrapperProps {
   userId: string;
   selectedItems: Id<"assets">[];
   onSelectionChange: (items: Id<"assets">[]) => void;
+  allowedTypes: AssetImportType[];
   onFilteredDataChange: (data: {
     filteredReferences: any[];
     filters: any;
@@ -520,7 +570,13 @@ interface LibraryImportWrapperProps {
   } | null) => void;
 }
 
-const LibraryImportWrapper = ({ userId, selectedItems, onSelectionChange, onFilteredDataChange }: LibraryImportWrapperProps) => {
+const LibraryImportWrapper = ({
+  userId,
+  selectedItems,
+  onSelectionChange,
+  onFilteredDataChange,
+  allowedTypes,
+}: LibraryImportWrapperProps) => {
   return (
     <div className="h-full w-full">
       <Library 
@@ -529,7 +585,8 @@ const LibraryImportWrapper = ({ userId, selectedItems, onSelectionChange, onFilt
         selectedItems={selectedItems}
         onSelectionChange={onSelectionChange}
         onFilteredDataChange={onFilteredDataChange}
+        allowedTypes={allowedTypes}
             />
           </div>
   );
-}; 
+};

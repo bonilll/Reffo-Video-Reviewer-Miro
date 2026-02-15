@@ -277,7 +277,9 @@ export default defineSchema({
   todoLists: defineTable({
     ownerId: v.id("users"),
     name: v.string(),
+    projectId: v.optional(v.id("projects")),
     createdAt: v.number(),
+    updatedAt: v.optional(v.number()),
     archived: v.optional(v.boolean()),
     color: v.optional(v.string()),
     groups: v.optional(v.array(v.any())),
@@ -290,6 +292,7 @@ export default defineSchema({
     text: v.string(),
     completed: v.optional(v.boolean()),
     createdAt: v.number(),
+    updatedAt: v.optional(v.number()),
     groupId: v.optional(v.string()),
   }).index("byList", ["listId"]),
 

@@ -18,8 +18,8 @@ import {
   ArrowLayer,
   LineLayer,
   FrameLayer,
-  TodoWidgetLayer,
   TableLayer,
+  TodoWidgetLayer,
   Layer,
   CanvasState,
   CanvasMode,
@@ -35,8 +35,8 @@ import { Path } from "./path";
 import { Arrow } from "./arrow";
 import { Line } from "./line";
 import { Frame } from "./frame";
-import { TodoWidget } from "./todo-widget";
 import { Table } from "./table";
+import { TodoWidget } from "./todo-widget";
 import { File } from "./file";
 import { VideoPlayer } from "./VideoPlayer";
 import { LayerContextMenu } from "@/components/review/LayerContextMenu";
@@ -1098,6 +1098,16 @@ const createVideoPreviewFromUrl = (url: string): Promise<string | undefined> => 
             selectionColor={selectionColor}
           />
         );
+      case LayerType.Table:
+        return (
+          <Table
+            id={id}
+            layer={layer as TableLayer}
+            onPointerDown={onLayerPointerDown}
+            selectionColor={selectionColor}
+            isSelected={isSelected}
+          />
+        );
       case LayerType.TodoWidget:
         const todoWidgetLayer = layer as TodoWidgetLayer;
 	        return (
@@ -1113,7 +1123,11 @@ const createVideoPreviewFromUrl = (url: string): Promise<string | undefined> => 
 	            }}
 	            className="overflow-hidden"
 	            onPointerDown={(e) => {
-	              // Gestisci il trascinamento direttamente sul foreignObject
+                const target = e.target as HTMLElement;
+                if (target.closest("[data-todo-interactive='true']")) {
+                  e.stopPropagation();
+                  return;
+                }
 	              onLayerPointerDown(e, id);
 	            }}
 	          >
@@ -1127,16 +1141,6 @@ const createVideoPreviewFromUrl = (url: string): Promise<string | undefined> => 
               />
             </div>
           </foreignObject>
-        );
-      case LayerType.Table:
-        return (
-          <Table
-            id={id}
-            layer={layer as TableLayer}
-            onPointerDown={onLayerPointerDown}
-            selectionColor={selectionColor}
-            isSelected={isSelected}
-          />
         );
       default:
         console.warn("Unknown layer type");

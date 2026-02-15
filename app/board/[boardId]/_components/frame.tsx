@@ -392,7 +392,7 @@ export const Frame = memo(({ id, layer, onPointerDown, onContextMenu, selectionC
       )}
 
       {/* CSS Animations */}
-      <style jsx>{`
+      <style>{`
         @keyframes dashSlide {
           0% { stroke-dashoffset: 0; }
           100% { stroke-dashoffset: 20; }
