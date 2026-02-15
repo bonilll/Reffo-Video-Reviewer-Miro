@@ -3464,15 +3464,21 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
   );
 
   useEffect(() => {
+    const isEditableElement = (element: Element | null) => {
+      if (!element) return false;
+      const htmlElement = element as HTMLElement;
+      return (
+        htmlElement.isContentEditable ||
+        htmlElement.hasAttribute("contenteditable") ||
+        htmlElement.tagName === "INPUT" ||
+        htmlElement.tagName === "TEXTAREA"
+      );
+    };
+
     function onKeyDown(e: KeyboardEvent) {
       // Controlla se siamo in modalità editing
       const activeElement = document.activeElement;
-      const isEditing = activeElement && (
-        activeElement.hasAttribute('contenteditable') ||
-        activeElement.tagName === 'INPUT' ||
-        activeElement.tagName === 'TEXTAREA' ||
-        (activeElement as HTMLElement).isContentEditable
-      );
+      const isEditing = isEditableElement(activeElement);
       
       // Track Shift key state
       if (e.key === 'Shift') {
@@ -3517,30 +3523,7 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
         }
         case "v": {
           if ((e.ctrlKey || e.metaKey) && !isEditing) {
-            // Paste layers from clipboard
-            e.preventDefault();
-            e.stopPropagation();
-            if (clipboard && clipboard.length > 0) {
-              pasteClipboardLayers();
-            } else {
-              void (async () => {
-                try {
-                  if (typeof navigator !== "undefined" && navigator.clipboard && "readText" in navigator.clipboard) {
-                    const text = await navigator.clipboard.readText();
-                    if (text && text.startsWith(BOARD_CLIPBOARD_PREFIX)) {
-                      const parsed = JSON.parse(text.slice(BOARD_CLIPBOARD_PREFIX.length));
-                      if (Array.isArray(parsed) && parsed.length > 0) {
-                        pasteClipboardLayers(parsed);
-                        setClipboard(parsed);
-                        return;
-                      }
-                    }
-                  }
-                } catch {}
-                // Fallback: no-op if we truly have nothing to paste.
-                pasteClipboardLayers();
-              })();
-            }
+            // Let the native paste event handle board payloads and clipboard images.
             break;
           }
           if (!e.ctrlKey && !e.metaKey && !isEditing) {
@@ -3767,14 +3750,51 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
       }
     }
 
+    function onPaste(e: ClipboardEvent) {
+      if (!e.clipboardData) return;
+      if (isEditableElement(document.activeElement)) return;
+
+      const hasImageFile = Array.from(e.clipboardData.items ?? []).some(
+        (item) => item.kind === "file" && item.type.startsWith("image/"),
+      );
+      if (hasImageFile) {
+        // Image paste is handled by UploadOverlay.
+        return;
+      }
+
+      const text = e.clipboardData.getData("text/plain");
+      if (text && text.startsWith(BOARD_CLIPBOARD_PREFIX)) {
+        try {
+          const parsed = JSON.parse(text.slice(BOARD_CLIPBOARD_PREFIX.length));
+          if (!Array.isArray(parsed) || parsed.length === 0) return;
+
+          e.preventDefault();
+          e.stopPropagation();
+          setClipboard(parsed);
+          pasteClipboardLayers(parsed);
+          return;
+        } catch {
+          // Ignore malformed clipboard payloads and let browser defaults handle them.
+        }
+      }
+
+      if (clipboard && clipboard.length > 0) {
+        e.preventDefault();
+        e.stopPropagation();
+        pasteClipboardLayers();
+      }
+    }
+
       document.addEventListener("keydown", onKeyDown);
       document.addEventListener("keyup", onKeyUp);
+      document.addEventListener("paste", onPaste);
 
     return () => {
         document.removeEventListener("keydown", onKeyDown);
         document.removeEventListener("keyup", onKeyUp);
+        document.removeEventListener("paste", onPaste);
     };
-  }, [deleteLayers, history, mySelection, canvasState.mode, setCanvasState, unselectLayers, copySelectedLayers, pasteClipboardLayers, selectAllLayers, smoothZoom, camera]);
+  }, [deleteLayers, history, mySelection, canvasState.mode, setCanvasState, unselectLayers, copySelectedLayers, pasteClipboardLayers, selectAllLayers, smoothZoom, camera, clipboard]);
 
   const selectionBounds = useSelectionBounds();
 

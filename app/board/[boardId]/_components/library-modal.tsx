@@ -2,7 +2,7 @@
 
 import React, { useState, useCallback, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
-import { X, Download, CheckSquare, Square, Filter } from "lucide-react";
+import { X, Download, CheckSquare, Square } from "lucide-react";
 import { Library } from "@/components/library/library";
 import { Id } from "@/convex/_generated/dataModel";
 import { useQuery, useMutation } from "convex/react";
@@ -445,24 +445,10 @@ export const LibraryModal = ({
                 </Button>
               </div>
               
-              {/* Middle section - Filters and selection (responsive) */}
+              {/* Middle section - Selection actions (responsive) */}
               <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 w-full md:w-auto">
-                {/* Filter and Selection buttons container */}
+                {/* Selection buttons container */}
                 <div className="library-modal-buttons flex items-center gap-2 w-full sm:w-auto">
-                  {/* Filter button */}
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => filteredData?.onFilterOpen()}
-                    className="library-modal-button flex items-center gap-2 px-3 py-2 rounded-lg border-gray-300 hover:bg-gray-50 text-gray-700 flex-1 sm:flex-none"
-                  >
-                    <Filter className="h-4 w-4" />
-                    <span className="text-sm">Filter</span>
-                    {filteredData?.hasActiveFilters && (
-                      <div className="w-2 h-2 rounded-full bg-gray-700"></div>
-                    )}
-                  </Button>
-                  
                   {/* Select All button */}
                   <Button 
                     variant="outline" 
@@ -540,7 +526,7 @@ export const LibraryModal = ({
             </div>
             
             {/* Library Content */}
-            <div className="flex-1 overflow-hidden w-full bg-white/30">
+            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain w-full bg-white/30">
               <LibraryImportWrapper
               userId={userId}
                 selectedItems={selectedItems}
@@ -578,10 +564,11 @@ const LibraryImportWrapper = ({
   allowedTypes,
 }: LibraryImportWrapperProps) => {
   return (
-    <div className="h-full w-full">
+    <div className="h-full w-full px-4 py-4 md:px-6 md:py-6">
       <Library 
         userId={userId}
         isImportMode={true}
+        areaSelectionEnabled={true}
         selectedItems={selectedItems}
         onSelectionChange={onSelectionChange}
         onFilteredDataChange={onFilteredDataChange}

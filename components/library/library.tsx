@@ -1102,7 +1102,7 @@ export const Library: React.FC<LibraryProps> = ({
       </div>
 
       <Dialog open={isFilterOpen} onOpenChange={setIsFilterOpen}>
-        <DialogContent className="sm:max-w-[520px] bg-white text-gray-900">
+        <DialogContent className="z-[120] sm:max-w-[520px] bg-white text-gray-900">
           <DialogHeader>
             <DialogTitle>Filters</DialogTitle>
             <DialogDescription className="sr-only">
@@ -1742,7 +1742,7 @@ export const Library: React.FC<LibraryProps> = ({
       </div>
 
       <Dialog open={Boolean(editingAsset)} onOpenChange={(open) => !open && setEditingAsset(null)}>
-        <DialogContent className="sm:max-w-[520px] bg-white text-gray-900">
+        <DialogContent className="z-[120] sm:max-w-[520px] bg-white text-gray-900">
           <DialogHeader>
             <DialogTitle>Edit reference</DialogTitle>
             <DialogDescription className="sr-only">

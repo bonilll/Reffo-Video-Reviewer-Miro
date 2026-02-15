@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useMutation } from "convex/react";
 import { toast } from "sonner";
 import { Upload, Image, Video, Check, AlertCircle, FileText, FileJson, FileType } from "lucide-react";
@@ -217,16 +217,16 @@ export const UploadOverlay = ({ boardId, userRole }: UploadOverlayProps) => {
     return "file";
   };
   
-  const handleDrop = async (files: FileList) => {
+  const handleDrop = useCallback(async (files: FileList | File[]) => {
     if (isViewer) {
       toast.error("You don't have permission to upload files.");
       return;
     }
     
-    if (!files || files.length === 0) return;
+    const filesArray = Array.isArray(files) ? files : Array.from(files ?? []);
+    if (filesArray.length === 0) return;
     
     // Throttling: processa massimo 2 file contemporaneamente per evitare race conditions
-    const filesArray = Array.from(files);
     const maxConcurrency = 2;
     
     // Funzione per processare un singolo file
@@ -442,11 +442,53 @@ export const UploadOverlay = ({ boardId, userRole }: UploadOverlayProps) => {
     
     // Avvia il processing con throttling
     await processFilesWithThrottling(filesArray);
-  };
+  }, [boardId, createMedia, handleFileUploaded, handleMediaUploaded, isViewer]);
   
   const { isDragging } = useDragDropUpload({
     onDrop: handleDrop,
   });
+
+  useEffect(() => {
+    if (!canUpload) return;
+
+    const isEditableElement = (element: Element | null) => {
+      if (!element) return false;
+      const htmlElement = element as HTMLElement;
+      return (
+        htmlElement.isContentEditable ||
+        htmlElement.hasAttribute("contenteditable") ||
+        htmlElement.tagName === "INPUT" ||
+        htmlElement.tagName === "TEXTAREA"
+      );
+    };
+
+    const handlePaste = (event: ClipboardEvent) => {
+      if (isEditableElement(document.activeElement)) {
+        return;
+      }
+
+      const items = event.clipboardData?.items;
+      if (!items || items.length === 0) return;
+
+      const imageFiles: File[] = [];
+      for (const item of Array.from(items)) {
+        if (item.kind !== "file" || !item.type.startsWith("image/")) continue;
+        const file = item.getAsFile();
+        if (file) imageFiles.push(file);
+      }
+
+      if (imageFiles.length === 0) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+      void handleDrop(imageFiles);
+    };
+
+    document.addEventListener("paste", handlePaste);
+    return () => {
+      document.removeEventListener("paste", handlePaste);
+    };
+  }, [canUpload, handleDrop]);
   
   useEffect(() => {
     const handleOpenPicker = () => fileInputRef.current?.click();
