@@ -1133,6 +1133,7 @@ const createVideoPreviewFromUrl = (url: string): Promise<string | undefined> => 
 	          >
             <div xmlns="http://www.w3.org/1999/xhtml" className="w-full h-full">
               <TodoWidget
+                widgetId={id}
                 layer={todoWidgetLayer}
                 onPropsChange={handlePropsChange}
                 isSelected={isSelected}

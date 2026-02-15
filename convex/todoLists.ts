@@ -68,7 +68,8 @@ export const getById = query({
     if (!user) return null;
 
     const list = await ctx.db.get(args.id);
-    if (!list || list.ownerId !== user._id) return null;
+    if (!list) return null;
+    if (list.ownerId !== user._id) return null;
 
     const { itemCount, completedCount } = countTasksFromGroups(normalizeGroups(list.groups));
     return {
