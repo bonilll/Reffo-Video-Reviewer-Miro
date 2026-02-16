@@ -67,7 +67,6 @@ import { colorToCSS } from "@/lib/utils";
 
 import { ColorPicker } from "./color-picker";
 import { MasonryGridDialog } from "@/components/MasonryGridDialog";
-import { ReviewSessionModal } from "@/components/review/ReviewSessionModal";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -76,8 +75,6 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 // Download icon already imported above
-
-const ENABLE_REVIEW = false;
 
 type SelectionToolsProps = {
   camera: Camera;
@@ -1407,8 +1404,6 @@ export const SelectionTools = memo(
     onManualFrameResize,
     // Mobile support
     isTouchDevice,
-    // Board ID for review mode
-    boardId,
     embedded = false
   }: SelectionToolsProps) => {
     const selection = useSelf((me) => me.presence.selection);
@@ -2061,46 +2056,6 @@ export const SelectionTools = memo(
     const hasFileAssets = selectedFileData.length > 0;
     const singleFileSelected = selectedFileData.length === 1;
 
-    // Review modal state
-    const [showReviewModal, setShowReviewModal] = useState(false);
-
-    // Get existing review sessions for selected media asset
-    const selectedAssetId = singleMediaSelected ? selectedMediaData[0].id : null;
-    const existingReviewSessions = useQuery(
-      api.review.getReviewSessionsForAsset,
-      selectedAssetId && boardId ? {
-        boardId: boardId as any,
-        primaryAssetId: selectedAssetId
-      } : "skip"
-    );
-
-    // Quick check for accessible sessions (more reactive)
-    const hasAccessibleReviewSessionsQuery = useQuery(
-      api.review.hasAccessibleReviewSessions,
-      selectedAssetId && boardId ? {
-        boardId: boardId as any,
-        primaryAssetId: selectedAssetId
-      } : "skip"
-    );
-
-    // Debug query to understand what's happening
-    const debugData = useQuery(
-      api.review.debugReviewSessionAccess,
-      selectedAssetId && boardId ? {
-        boardId: boardId as any,
-        primaryAssetId: selectedAssetId
-      } : "skip"
-    );
-
-    // Debug log when data changes
-    useEffect(() => {
-      if (debugData && selectedAssetId) {
-      }
-    }, [debugData, selectedAssetId]);
-
-    // Check if user can access any review sessions for this asset
-    const hasAccessibleReviewSessions = hasAccessibleReviewSessionsQuery || (existingReviewSessions && existingReviewSessions.length > 0);
-
     const setFill = useMutation(
       ({ storage }, fill: Color) => {
         const liveLayers = storage.get("layers");
@@ -2610,24 +2565,6 @@ export const SelectionTools = memo(
                 </SelectionTooltip>
               )}
 
-              {/* Review mode control for images and videos */}
-              {((hasMediaAssets && singleMediaSelected) || hasAccessibleReviewSessions) && boardId && (
-                <SelectionTooltip label="Open in Review Mode" isVisible={shouldShowSelectionTooltip("Open in Review Mode")}>
-                  <div 
-                    onMouseEnter={() => handleMouseEnter("Open in Review Mode")} 
-                    onMouseLeave={handleMouseLeave}
-                  >
-                    <button
-                      onClick={() => setShowReviewModal(true)}
-                      title="Open in Review Mode"
-                      className="w-9 h-9 bg-blue-600/10 rounded-xl flex items-center justify-center text-blue-700 font-semibold text-sm shadow-sm hover:shadow-md hover:scale-[1.03] transition-all duration-200 border border-blue-200"
-                    >
-                      R
-                    </button>
-                  </div>
-                </SelectionTooltip>
-              )}
-
               {/* Download button for all downloadable assets (files, images, videos) - JSON export removed */}
               {hasDownloadableAssets && (
                 <SelectionTooltip 
@@ -2796,23 +2733,6 @@ export const SelectionTools = memo(
             )}
           </div>
         </div>
-
-        {/* Review Session Modal */}
-        {ENABLE_REVIEW && showReviewModal && ((hasMediaAssets && singleMediaSelected) || hasAccessibleReviewSessions) && boardId && (
-          <ReviewSessionModal
-            isOpen={showReviewModal}
-            onClose={() => setShowReviewModal(false)}
-            boardId={boardId as any}
-            primaryAsset={singleMediaSelected ? {
-              id: selectedMediaData[0].id,
-              type: selectedMediaData[0].type,
-              url: selectedMediaData[0].url,
-              name: selectedMediaData[0].name
-            } : undefined}
-            availableAssets={[]}
-            existingSessions={existingReviewSessions || []}
-          />
-        )}
       </div>
     );
   },

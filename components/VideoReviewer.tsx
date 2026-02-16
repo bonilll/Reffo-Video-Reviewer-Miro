@@ -213,6 +213,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
   const deleteCommentMutation = useMutation(api.comments.remove);
   const updateCommentPositionMutation = useMutation(api.comments.updatePosition);
   const updateCommentTextMutation = useMutation(api.comments.updateText);
+  const updateCommentFrameMutation = useMutation((api.comments as any).updateFrame);
   const getDownloadUrlAction = useAction(api.storage.getDownloadUrl);
   const generateAnnotationAssetUploadUrl = useAction(api.storage.generateAnnotationAssetUploadUrl);
   const syncFriends = useMutation(api.shareGroups.syncFriendsFromGroups);
@@ -1570,6 +1571,60 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
       }
     })();
   }, [updateCommentTextMutation]);
+
+  const handleUpdateCommentFrame = useCallback(async (id: string, frame: number) => {
+    const nextFrame = Math.max(0, Math.round(frame));
+    const childrenByParent = new Map<string, string[]>();
+    comments.forEach((comment) => {
+      if (!comment.parentId) return;
+      const bucket = childrenByParent.get(comment.parentId) ?? [];
+      bucket.push(comment.id);
+      childrenByParent.set(comment.parentId, bucket);
+    });
+
+    const threadIds = new Set<string>([id]);
+    const queue = [id];
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      const children = childrenByParent.get(current) ?? [];
+      children.forEach((childId) => {
+        if (threadIds.has(childId)) return;
+        threadIds.add(childId);
+        queue.push(childId);
+      });
+    }
+
+    const previousFrames = new Map<string, number | undefined>();
+    comments.forEach((comment) => {
+      if (!threadIds.has(comment.id)) return;
+      previousFrames.set(comment.id, comment.frame);
+    });
+
+    setComments((prev) =>
+      prev.map((comment) =>
+        threadIds.has(comment.id)
+          ? { ...comment, frame: nextFrame, updatedAt: Date.now() }
+          : comment,
+      ),
+    );
+
+    try {
+      await updateCommentFrameMutation({
+        commentId: id as Id<'comments'>,
+        frame: nextFrame,
+      });
+    } catch (error) {
+      console.error('Failed to update comment frame', error);
+      setComments((prev) =>
+        prev.map((comment) =>
+          previousFrames.has(comment.id)
+            ? { ...comment, frame: previousFrames.get(comment.id) }
+            : comment,
+        ),
+      );
+      throw error;
+    }
+  }, [comments, updateCommentFrameMutation]);
   
   const handleUpdateCommentPosition = useCallback((id: string, newPosition: Point) => {
     // Optimistic update first to avoid UI delay
@@ -1613,9 +1668,11 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
 
   const jumpToFrame = (frame: number | undefined) => {
     if (isImageReview) return;
-    if (frame !== undefined) {
-      handleSeek(frame / video.fps);
-    }
+    if (frame === undefined || frame === null) return;
+    const safeFrame = Number(frame);
+    if (!Number.isFinite(safeFrame) || safeFrame < 0) return;
+    const safeFps = Math.max(1, Math.floor(Number(video.fps) || 24));
+    handleSeek(safeFrame / safeFps);
   };
 
   useEffect(() => {
@@ -2901,6 +2958,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
 	                  onAddComment={handleAddComment}
 	                  onToggleResolve={handleToggleCommentResolved}
 	                  onJumpToFrame={jumpToFrame}
+	                  onUpdateCommentFrame={handleUpdateCommentFrame}
 	                  activeCommentId={activeCommentId}
 	                  setActiveCommentId={setActiveCommentId}
 	                  onDeleteComment={handleDeleteComment}
@@ -2946,6 +3004,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
                   onAddComment={handleAddComment}
                   onToggleResolve={handleToggleCommentResolved}
                   onJumpToFrame={jumpToFrame}
+                  onUpdateCommentFrame={handleUpdateCommentFrame}
                   activeCommentId={activeCommentId}
                   setActiveCommentId={setActiveCommentId}
                   onDeleteComment={handleDeleteComment}

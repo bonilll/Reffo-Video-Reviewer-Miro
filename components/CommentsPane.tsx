@@ -6,6 +6,7 @@ import { api } from '../convex/_generated/api';
 import { splitMentionSegments } from '../utils/mentions';
 
 const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const INTERACTIVE_SELECTOR = 'button, input, textarea, select, a, [role="button"], [data-stop-frame-jump="true"]';
 
 interface CommentProps {
   comment: Comment;
@@ -21,16 +22,21 @@ interface CommentProps {
   highlightCommentId?: string | null;
   highlightTerm?: string | null;
   onSelectComment?: (id: string) => void;
+  onUpdateFrame: (id: string, frame: number) => Promise<void>;
 }
 
 const CommentItem: React.FC<CommentProps & { mentionOptions?: MentionOption[] }>
- = ({ comment, replies, onAddComment, onToggleResolve, onJumpToFrame, onDeleteComment, isActive, setActive, mentionOptions = [], isReply = false, isDark = true, highlightCommentId, highlightTerm, onSelectComment }) => {
+ = ({ comment, replies, onAddComment, onToggleResolve, onJumpToFrame, onDeleteComment, isActive, setActive, mentionOptions = [], isReply = false, isDark = true, highlightCommentId, highlightTerm, onSelectComment, onUpdateFrame }) => {
   const [showReply, setShowReply] = useState(false);
   const [replyText, setReplyText] = useState('');
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState(comment.text);
+  const [frameDraft, setFrameDraft] = useState(
+    comment.frame !== undefined && comment.frame !== null ? String(comment.frame) : '',
+  );
+  const [isSavingFrame, setIsSavingFrame] = useState(false);
   const [quickReply, setQuickReply] = useState('');
   const [saving, setSaving] = useState(false);
   const [showReplies, setShowReplies] = useState(false);
@@ -85,6 +91,41 @@ const CommentItem: React.FC<CommentProps & { mentionOptions?: MentionOption[] }>
   useEffect(() => {
     setEditText(comment.text);
   }, [comment.text]);
+
+  useEffect(() => {
+    setFrameDraft(comment.frame !== undefined && comment.frame !== null ? String(comment.frame) : '');
+  }, [comment.frame, comment.id]);
+
+  const commitFrameUpdate = async () => {
+    if (isReply || comment.frame === undefined || comment.frame === null || isSavingFrame) return;
+    const trimmed = frameDraft.trim();
+    if (!trimmed) {
+      setFrameDraft(String(comment.frame));
+      return;
+    }
+    const nextFrame = Number.parseInt(trimmed, 10);
+    if (!Number.isFinite(nextFrame) || nextFrame < 0) {
+      setFrameDraft(String(comment.frame));
+      return;
+    }
+    if (nextFrame === comment.frame) return;
+
+    setIsSavingFrame(true);
+    try {
+      await onUpdateFrame(comment.id, nextFrame);
+    } catch {
+      setFrameDraft(String(comment.frame));
+    } finally {
+      setIsSavingFrame(false);
+    }
+  };
+
+  const handleCommentClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    const target = event.target as HTMLElement;
+    if (target.closest(INTERACTIVE_SELECTOR)) return;
+    setActive();
+    onJumpToFrame(comment.frame);
+  };
 
   const shouldHighlight = highlightCommentId ? comment.id === highlightCommentId : false;
   const effectiveHighlight = shouldHighlight && highlightTerm ? highlightTerm.trim() : null;
@@ -212,7 +253,7 @@ const CommentItem: React.FC<CommentProps & { mentionOptions?: MentionOption[] }>
         className={`${isReply ? 'p-2' : 'p-3'} border-b ${isDark ? 'border-white/10' : 'border-gray-200/60'} transition-colors ${
           isActive ? (isDark ? 'bg-white/10' : 'bg-gray-50') : (isDark ? 'hover:bg-white/5' : 'hover:bg-gray-50/60')
         } ${highlightRingClass}`}
-        onClick={setActive}
+        onClick={handleCommentClick}
     >
       <div className="flex items-start gap-2.5">
         <img
@@ -303,9 +344,34 @@ const CommentItem: React.FC<CommentProps & { mentionOptions?: MentionOption[] }>
           )}
           <div className={`flex flex-wrap items-center gap-2 text-[11px] mt-2 ${isDark ? 'text-white/60' : 'text-gray-500'}`}>
             {!isReply && comment.frame !== undefined && (
-              <button onClick={() => onJumpToFrame(comment.frame)} className={isDark ? 'hover:text-white' : 'hover:text-gray-900'}>
-                Frame {comment.frame}
-              </button>
+              <div className={`inline-flex items-center gap-1 rounded-full px-2 py-1 ${isDark ? 'bg-white/10' : 'bg-gray-100'}`} data-stop-frame-jump="true">
+                <span className={isDark ? 'text-white/70' : 'text-gray-600'}>Frame</span>
+                <input
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={frameDraft}
+                  onChange={(event) => setFrameDraft(event.target.value)}
+                  onBlur={() => {
+                    void commitFrameUpdate();
+                  }}
+                  onClick={(event) => event.stopPropagation()}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault();
+                      void commitFrameUpdate();
+                    }
+                    if (event.key === 'Escape') {
+                      event.preventDefault();
+                      setFrameDraft(String(comment.frame));
+                    }
+                  }}
+                  disabled={isSavingFrame}
+                  className={`h-5 w-14 rounded-md border-0 bg-transparent px-1 text-xs focus:outline-none ${
+                    isDark ? 'text-white focus:ring-1 focus:ring-white/30' : 'text-gray-900 focus:ring-1 focus:ring-gray-400/40'
+                  }`}
+                />
+              </div>
             )}
             {!isReply && (
               <button onClick={() => setShowReply((s) => !s)} className={isDark ? 'hover:text-white' : 'hover:text-gray-900'}>Reply</button>
@@ -375,13 +441,14 @@ const CommentItem: React.FC<CommentProps & { mentionOptions?: MentionOption[] }>
       {!isReply && replies.length > 0 && showReplies && (
         <div className={`ml-6 mt-4 pl-4 border-l space-y-3 ${isDark ? 'border-white/10' : 'border-gray-200'}`}>
           {replies.map(reply => (
-            <CommentItem 
+             <CommentItem 
               key={reply.id} 
               comment={reply}
               replies={[]}
               onAddComment={onAddComment} 
               onToggleResolve={onToggleResolve}
               onJumpToFrame={onJumpToFrame}
+              onUpdateFrame={onUpdateFrame}
               onDeleteComment={onDeleteComment}
               isActive={highlightCommentId ? reply.id === highlightCommentId : false}
               setActive={() => onSelectComment?.(reply.id)}
@@ -442,6 +509,7 @@ interface CommentsPaneProps {
   onAddComment: (text: string, parentId?: string) => void;
   onToggleResolve: (id: string) => void;
   onJumpToFrame: (frame: number | undefined) => void;
+  onUpdateCommentFrame: (commentId: string, frame: number) => Promise<void>;
   activeCommentId: string | null;
   setActiveCommentId: (id: string | null) => void;
   onDeleteComment: (id: string) => void;
@@ -451,7 +519,7 @@ interface CommentsPaneProps {
   mentionOptions?: MentionOption[];
 }
 
-const CommentsPane: React.FC<CommentsPaneProps> = ({ comments, currentFrame, onAddComment, onToggleResolve, onJumpToFrame, activeCommentId, setActiveCommentId, onDeleteComment, isDark = true, highlightCommentId = null, highlightTerm = null, mentionOptions = [] }) => {
+const CommentsPane: React.FC<CommentsPaneProps> = ({ comments, currentFrame, onAddComment, onToggleResolve, onJumpToFrame, onUpdateCommentFrame, activeCommentId, setActiveCommentId, onDeleteComment, isDark = true, highlightCommentId = null, highlightTerm = null, mentionOptions = [] }) => {
   const [newCommentText, setNewCommentText] = useState('');
   type Filter = 'active' | 'all' | 'open' | 'resolved';
   const FILTER_STORAGE_KEY = 'videoreviewer:commentsFilter';
@@ -486,7 +554,9 @@ const CommentsPane: React.FC<CommentsPaneProps> = ({ comments, currentFrame, onA
       }
     });
 
-    return rootComments.sort((a,b) => (a.frame || Infinity) - (b.frame || Infinity));
+    return rootComments.sort(
+      (a, b) => (a.frame ?? Number.POSITIVE_INFINITY) - (b.frame ?? Number.POSITIVE_INFINITY),
+    );
   }, [comments]);
   
   const filteredComments = useMemo(() => {
@@ -584,17 +654,18 @@ const CommentsPane: React.FC<CommentsPaneProps> = ({ comments, currentFrame, onA
                 comment={comment}
                 replies={comment.replies}
                 onAddComment={onAddComment}
-             onToggleResolve={onToggleResolve}
-             onJumpToFrame={onJumpToFrame}
-             onDeleteComment={onDeleteComment}
-             isActive={comment.id === activeCommentId}
-             setActive={() => setActiveCommentId(comment.id)}
-            mentionOptions={mentionOptions}
-            isDark={isDark}
-            highlightCommentId={highlightCommentId ?? null}
-            highlightTerm={highlightTerm ?? null}
-            onSelectComment={setActiveCommentId}
-         />
+                onToggleResolve={onToggleResolve}
+                onJumpToFrame={onJumpToFrame}
+                onUpdateFrame={onUpdateCommentFrame}
+                onDeleteComment={onDeleteComment}
+                isActive={comment.id === activeCommentId}
+                setActive={() => setActiveCommentId(comment.id)}
+                mentionOptions={mentionOptions}
+                isDark={isDark}
+                highlightCommentId={highlightCommentId ?? null}
+                highlightTerm={highlightTerm ?? null}
+                onSelectComment={setActiveCommentId}
+             />
           </div>
         ))}
       </div>

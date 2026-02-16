@@ -58,7 +58,9 @@ export function ReviewCommentsSidebar({
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
   const [isUpdating, setIsUpdating] = useState(false);
+  const [isUpdatingFrame, setIsUpdatingFrame] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [frameDrafts, setFrameDrafts] = useState<Record<string, string>>({});
 
   const resolveComment = useMutation(api.review.resolveComment);
   const createComment = useMutation(api.review.createComment);
@@ -231,6 +233,99 @@ export function ReviewCommentsSidebar({
       .join('')
       .toUpperCase()
       .slice(0, 2);
+  };
+
+  const getDraftFrameValue = (commentId: string, frameNumber?: number) => {
+    if (frameDrafts[commentId] !== undefined) {
+      return frameDrafts[commentId];
+    }
+    if (typeof frameNumber === "number" && Number.isFinite(frameNumber)) {
+      return String(frameNumber);
+    }
+    return "";
+  };
+
+  const handleFrameDraftChange = (commentId: string, value: string) => {
+    setFrameDrafts((prev) => ({ ...prev, [commentId]: value }));
+  };
+
+  const handleFrameUpdate = async (comment: ReviewComment, replies: ReviewComment[]) => {
+    const draftValue = getDraftFrameValue(comment._id, comment.frameNumber).trim();
+    if (draftValue.length === 0) {
+      setFrameDrafts((prev) => {
+        const { [comment._id]: _, ...rest } = prev;
+        return rest;
+      });
+      return;
+    }
+
+    const nextFrame = Number.parseInt(draftValue, 10);
+    if (!Number.isFinite(nextFrame) || nextFrame < 0) {
+      setFrameDrafts((prev) => ({
+        ...prev,
+        [comment._id]:
+          typeof comment.frameNumber === "number" && Number.isFinite(comment.frameNumber)
+            ? String(comment.frameNumber)
+            : "",
+      }));
+      return;
+    }
+
+    if (nextFrame === comment.frameNumber) {
+      setFrameDrafts((prev) => {
+        const { [comment._id]: _, ...rest } = prev;
+        return rest;
+      });
+      return;
+    }
+
+    setIsUpdatingFrame(true);
+    try {
+      const threadItems = [comment, ...replies];
+      const updates = threadItems.map((item) =>
+        updateComment({
+          commentId: item._id as any,
+          content: item.content,
+          frameNumber: nextFrame,
+          frameTimestamp: item.frameTimestamp,
+          position: item.position,
+        } as any)
+      );
+      await Promise.all(updates);
+      setFrameDrafts((prev) => {
+        const { [comment._id]: _, ...rest } = prev;
+        return rest;
+      });
+    } catch (error) {
+      console.error("Error updating comment frame:", error);
+      setFrameDrafts((prev) => ({
+        ...prev,
+        [comment._id]:
+          typeof comment.frameNumber === "number" && Number.isFinite(comment.frameNumber)
+            ? String(comment.frameNumber)
+            : "",
+      }));
+    } finally {
+      setIsUpdatingFrame(false);
+    }
+  };
+
+  const handleCommentBoxClick = (
+    event: any,
+    frameNumber?: number,
+  ) => {
+    if (frameNumber === undefined || frameNumber === null) return;
+
+    const target = event.target as HTMLElement;
+    if (
+      target.closest(
+        'button, input, textarea, select, a, [role="button"], [data-stop-frame-jump="true"]',
+      )
+    ) {
+      return;
+    }
+
+    onFrameJump?.(frameNumber);
   };
 
   if (!showComments) {
@@ -421,6 +516,7 @@ export function ReviewCommentsSidebar({
                 <div 
                   key={main._id} 
                   className={`${themeClasses.card} rounded-lg border transition-all duration-300 hover:shadow-md`}
+                  onClick={(event) => handleCommentBoxClick(event, main.frameNumber)}
                 >
                   {/* Main Comment - Compact */}
                   <div className="p-3">
@@ -449,14 +545,37 @@ export function ReviewCommentsSidebar({
                             {/* Metadata - Compact */}
                             <div className="flex items-center gap-1.5">
                               {main.frameNumber !== undefined && (
-                                <Badge 
-                                  variant="outline" 
-                                  className={`text-xs ${themeClasses.badge.frame}`}
-                                  onClick={() => onFrameJump && onFrameJump(main.frameNumber!)}
+                                <div
+                                  className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs ${themeClasses.badge.frame}`}
+                                  data-stop-frame-jump="true"
+                                  title="Change frame number and press Enter"
                                 >
-                                  <MapPin className="h-2.5 w-2.5 mr-0.5" />
-                                  Frame {main.frameNumber}
-                                </Badge>
+                                  <MapPin className="h-2.5 w-2.5" />
+                                  <span className="text-[10px] uppercase tracking-wide opacity-70">Frame</span>
+                                  <Input
+                                    type="number"
+                                    min={0}
+                                    step={1}
+                                    value={getDraftFrameValue(main._id, main.frameNumber)}
+                                    onChange={(e) => handleFrameDraftChange(main._id, e.target.value)}
+                                    onBlur={() => handleFrameUpdate(main, replies)}
+                                    onClick={(e) => e.stopPropagation()}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter") {
+                                        e.preventDefault();
+                                        void handleFrameUpdate(main, replies);
+                                      } else if (e.key === "Escape") {
+                                        e.preventDefault();
+                                        setFrameDrafts((prev) => {
+                                          const { [main._id]: _, ...rest } = prev;
+                                          return rest;
+                                        });
+                                      }
+                                    }}
+                                    disabled={isUpdatingFrame}
+                                    className={`h-5 w-16 px-1 text-xs border-0 bg-transparent focus-visible:ring-1 focus-visible:ring-gray-500/40`}
+                                  />
+                                </div>
                               )}
                               
                               <Badge 
@@ -523,7 +642,7 @@ export function ReviewCommentsSidebar({
                                 size="sm"
                                 onClick={() => handleSaveEdit(main._id)}
                                 disabled={!editText.trim() || isUpdating}
-                                className="gap-1 text-xs"
+                                className="gap-1 text-xs bg-gray-900 text-white hover:bg-gray-800 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-gray-200"
                               >
                                 {isUpdating ? (
                                   <>
@@ -714,7 +833,7 @@ export function ReviewCommentsSidebar({
                                       size="sm"
                                       onClick={() => handleSaveEdit(reply._id)}
                                       disabled={!editText.trim() || isUpdating}
-                                      className="gap-1 text-xs h-6"
+                                      className="gap-1 text-xs h-6 bg-gray-900 text-white hover:bg-gray-800 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-gray-200"
                                     >
                                       {isUpdating ? (
                                         <>

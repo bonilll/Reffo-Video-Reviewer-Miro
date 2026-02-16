@@ -39,10 +39,7 @@ import { Table } from "./table";
 import { TodoWidget } from "./todo-widget";
 import { File } from "./file";
 import { VideoPlayer } from "./VideoPlayer";
-import { LayerContextMenu } from "@/components/review/LayerContextMenu";
 import { Id } from "@/convex/_generated/dataModel";
-import { useQuery } from "convex/react";
-import { api } from "@/convex/_generated/api";
 import { MediaDrawingOverlay } from "./media-drawing-overlay";
 
 type LayerPreviewProps = {
@@ -254,8 +251,8 @@ const createVideoPreviewFromUrl = (url: string): Promise<string | undefined> => 
   return job;
 };
 
-	export const LayerPreview = memo(
-	  ({ id, onLayerPointerDown, onLayerContextMenu, selectionColor, lastUsedColor, camera, cameraRef, lodBucket = "high", canvasState, boardId, backgroundColor = "#f5f5f5", onDrawingStart, onDrawingContinue, onDrawingEnd, onDrawingModeStart, onDrawingModeMove, onDrawingModeEnd, onCommentClick, runtimeMode = "desktop" }: LayerPreviewProps) => {
+export const LayerPreview = memo(
+	  ({ id, onLayerPointerDown, onLayerContextMenu, selectionColor, lastUsedColor, camera, cameraRef, lodBucket = "high", canvasState, backgroundColor = "#f5f5f5", onDrawingStart, onDrawingContinue, onDrawingEnd, onDrawingModeStart, onDrawingModeMove, onDrawingModeEnd, onCommentClick, runtimeMode = "desktop" }: LayerPreviewProps) => {
 	    const layer = useStorage((root) => root.layers.get(id));
 	    const selection = useSelf((me) => me.presence.selection);
 	    const [isDraggingOverTable, setIsDraggingOverTable] = useState(false);
@@ -267,14 +264,6 @@ const createVideoPreviewFromUrl = (url: string): Promise<string | undefined> => 
 	    
 	    // Determina se questo layer è selezionato
 	    const isSelected = selection.includes(id);
-
-    // Query sessioni di review per l'asset corrente (sempre chiamata per rispettare le regole degli hook)
-    const reviewSessions = useQuery(
-      api.review.getReviewSessionsForAsset,
-      boardId ? { boardId: boardId as any, primaryAssetId: id } : "skip"
-    );
-
-    const isReviewed = Array.isArray(reviewSessions) && reviewSessions.length > 0;
 
     // Mutation per aggiornare le proprietà del layer
     const updateLayerProps = useMutation(
@@ -826,26 +815,6 @@ const createVideoPreviewFromUrl = (url: string): Promise<string | undefined> => 
                 cameraRef={cameraRef}
               />
               
-              {!useImageLOD && isReviewed && (
-                <div 
-                  className="absolute top-2 right-2 bg-white text-black text-[9px] font-semibold px-2.5 py-1 rounded-full shadow-sm border border-gray-200 flex items-center gap-1 animate-pulse-glow cursor-pointer hover:shadow-md transition-shadow"
-                  style={{
-                    animation: 'pulse-glow 2s ease-in-out infinite'
-                  }}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (reviewSessions && reviewSessions.length > 0) {
-                      const latestSession = reviewSessions[0];
-                      window.location.href = `/review/${latestSession._id}`;
-                    }
-                  }}
-                >
-                  <svg className="w-2.5 h-2.5" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                  </svg>
-                  Review
-                </div>
-              )}
             </div>
           </foreignObject>
         );
@@ -1023,26 +992,6 @@ const createVideoPreviewFromUrl = (url: string): Promise<string | undefined> => 
                 cameraRef={cameraRef}
               />
                 
-                {!useVideoLOD && isReviewed && (
-                  <div 
-                    className="absolute top-2 right-2 bg-white text-black text-[9px] font-semibold px-2.5 py-1 rounded-full shadow-sm border border-gray-200 flex items-center gap-1 animate-pulse-glow cursor-pointer hover:shadow-md transition-shadow"
-                    style={{
-                      animation: 'pulse-glow 2s ease-in-out infinite'
-                    }}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (reviewSessions && reviewSessions.length > 0) {
-                        const latestSession = reviewSessions[0];
-                        window.location.href = `/review/${latestSession._id}`;
-                      }
-                    }}
-                  >
-                    <svg className="w-2.5 h-2.5" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                    </svg>
-                    Review
-                  </div>
-                )}
               </div>
             </div>
           </foreignObject>

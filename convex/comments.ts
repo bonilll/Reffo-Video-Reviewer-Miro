@@ -383,6 +383,49 @@ export const updatePosition = mutation({
   },
 });
 
+export const updateFrame = mutation({
+  args: {
+    commentId: v.id("comments"),
+    frame: v.number(),
+  },
+  async handler(ctx, { commentId, frame }) {
+    const user = await getCurrentUserOrThrow(ctx);
+    const comment = await ctx.db.get(commentId);
+    if (!comment) {
+      throw new ConvexError("NOT_FOUND");
+    }
+
+    if (!(await canCommentOnVideo(ctx, user._id, comment.videoId))) {
+      throw new ConvexError("FORBIDDEN");
+    }
+
+    const nextFrame = Math.max(0, Math.floor(frame));
+    const updatedAt = Date.now();
+    const toUpdate = new Set([commentId]);
+    const queue = [commentId];
+
+    while (queue.length > 0) {
+      const currentId = queue.shift()!;
+      const replies = await ctx.db
+        .query("comments")
+        .withIndex("byParent", (q) => q.eq("parentId", currentId))
+        .collect();
+      for (const reply of replies) {
+        if (!toUpdate.has(reply._id)) {
+          toUpdate.add(reply._id);
+          queue.push(reply._id);
+        }
+      }
+    }
+
+    await Promise.all(
+      Array.from(toUpdate).map((id) =>
+        ctx.db.patch(id, { frame: nextFrame, updatedAt }),
+      ),
+    );
+  },
+});
+
 export const remove = mutation({
   args: {
     commentId: v.id("comments"),
