@@ -30,6 +30,7 @@ import type * as maintenance from "../maintenance.js";
 import type * as media from "../media.js";
 import type * as notifications from "../notifications.js";
 import type * as projects from "../projects.js";
+import type * as publicMural from "../publicMural.js";
 import type * as qdrant from "../qdrant.js";
 import type * as render from "../render.js";
 import type * as review from "../review.js";
@@ -85,6 +86,7 @@ declare const fullApi: ApiFromModules<{
   media: typeof media;
   notifications: typeof notifications;
   projects: typeof projects;
+  publicMural: typeof publicMural;
   qdrant: typeof qdrant;
   render: typeof render;
   review: typeof review;

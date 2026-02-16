@@ -10,19 +10,29 @@ interface UseCameraPersistenceProps {
   boardId: string;
   camera: Camera;
   onCameraLoad?: (camera: Camera) => void;
+  enabled?: boolean;
 }
 
 export const useCameraPersistence = ({ 
   boardId, 
   camera, 
-  onCameraLoad 
+  onCameraLoad,
+  enabled = true,
 }: UseCameraPersistenceProps) => {
   const hasCameraLoaded = useRef(false);
+  if (!enabled) {
+    hasCameraLoaded.current = true;
+  }
   
   // Query to get saved camera position
-  const savedCamera = useQuery(api.board.getBoardCamera, { 
-    id: boardId as Id<"boards"> 
-  });
+  const savedCamera = useQuery(
+    api.board.getBoardCamera,
+    enabled
+      ? {
+          id: boardId as Id<"boards">,
+        }
+      : "skip"
+  );
   
   // Mutation to save camera position
   const saveCameraMutation = useMutation(api.board.saveBoardCamera);
@@ -48,19 +58,21 @@ export const useCameraPersistence = ({
   
   // Load saved camera position on component mount
   useEffect(() => {
+    if (!enabled) return;
     if (savedCamera && !hasCameraLoaded.current && onCameraLoad) {
       onCameraLoad(savedCamera);
       hasCameraLoaded.current = true;
     }
-  }, [savedCamera, onCameraLoad]);
+  }, [enabled, savedCamera, onCameraLoad]);
   
   // Save camera position when it changes
   useEffect(() => {
     // Only save if camera has been loaded to avoid overwriting with initial values
+    if (!enabled) return;
     if (hasCameraLoaded.current) {
       debouncedSaveCamera(camera);
     }
-  }, [camera, debouncedSaveCamera]);
+  }, [enabled, camera, debouncedSaveCamera]);
   
   // Cleanup debounced function on unmount
   useEffect(() => {

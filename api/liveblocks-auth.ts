@@ -1,5 +1,6 @@
 import { Liveblocks } from "@liveblocks/node";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { randomUUID } from "node:crypto";
 
 type JsonBody = {
   room?: unknown;
@@ -24,16 +25,20 @@ const readJsonBody = async (req: any): Promise<JsonBody> => {
 
 const convexQuery = async <T>(
   baseUrl: string,
-  token: string,
   path: string,
-  args: Record<string, unknown>
+  args: Record<string, unknown>,
+  token?: string | null
 ): Promise<T> => {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
   const response = await fetch(`${baseUrl}/api/query`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
+    headers,
     body: JSON.stringify({
       path,
       format: "convex_encoded_json",
@@ -59,6 +64,15 @@ const getBearerToken = (req: any) => {
   return match?.[1] ?? null;
 };
 
+const getGuestId = (req: any) => {
+  const raw = req.headers?.["x-reffo-guest-id"];
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  if (typeof value !== "string") return null;
+  const cleaned = value.trim();
+  if (!/^[a-zA-Z0-9_-]{6,80}$/.test(cleaned)) return null;
+  return cleaned;
+};
+
 const decodeJwtSub = (token: string): string | null => {
   // We use Convex as the authoritative validator for the token. This is only to
   // extract the subject to use as the Liveblocks user id.
@@ -78,7 +92,7 @@ const setCors = (req: any, res: any) => {
   res.setHeader("Access-Control-Allow-Origin", origin);
   res.setHeader("Vary", "Origin");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Reffo-Guest-Id");
 };
 
 export const config = {
@@ -125,15 +139,6 @@ export default async function handler(req: IncomingMessage & any, res: ServerRes
       return;
     }
 
-    const token = getBearerToken(req);
-    if (!token) {
-      res.statusCode = 401;
-      res.setHeader("Content-Type", "application/json");
-      res.setHeader("Cache-Control", "no-store");
-      res.end(JSON.stringify({ error: "UNAUTHORIZED" }));
-      return;
-    }
-
     let body: JsonBody;
     try {
       body = await readJsonBody(req);
@@ -154,19 +159,15 @@ export default async function handler(req: IncomingMessage & any, res: ServerRes
       return;
     }
 
-    // Validate auth + permissions through Convex (same token used by the client).
-    const [user, permissions] = await Promise.all([
-      convexQuery<any>(CONVEX_URL, token, "users:current", {}),
-      convexQuery<any>(CONVEX_URL, token, "boards:getBoardPermissions", { boardId: room }),
-    ]);
+    const token = getBearerToken(req);
 
-    if (!user) {
-      res.statusCode = 401;
-      res.setHeader("Content-Type", "application/json");
-      res.setHeader("Cache-Control", "no-store");
-      res.end(JSON.stringify({ error: "UNAUTHORIZED" }));
-      return;
-    }
+    // Always validate board permissions first. Public mural rooms can be accessed without auth.
+    const permissions = await convexQuery<any>(
+      CONVEX_URL,
+      "boards:getBoardPermissions",
+      { boardId: room },
+      token
+    );
 
     if (!permissions?.resourceExists) {
       res.statusCode = 404;
@@ -185,12 +186,34 @@ export default async function handler(req: IncomingMessage & any, res: ServerRes
     }
 
     const liveblocks = new Liveblocks({ secret: LIVEBLOCKS_SECRET_KEY });
-    const liveblocksUserId = decodeJwtSub(token) ?? String(user._id);
+
+    let liveblocksUserId: string;
+    let userName = "Guest";
+    let userPicture: string | undefined;
+
+    if (token) {
+      const user = await convexQuery<any>(CONVEX_URL, "users:current", {}, token);
+      if (!user) {
+        res.statusCode = 401;
+        res.setHeader("Content-Type", "application/json");
+        res.setHeader("Cache-Control", "no-store");
+        res.end(JSON.stringify({ error: "UNAUTHORIZED" }));
+        return;
+      }
+      liveblocksUserId = decodeJwtSub(token) ?? String(user._id);
+      userName = user.name ?? user.email ?? "User";
+      userPicture = user.avatar ?? undefined;
+    } else {
+      const guestId = getGuestId(req) ?? randomUUID().replace(/-/g, "");
+      liveblocksUserId = `public-${guestId}`;
+      userName = "Guest";
+      userPicture = undefined;
+    }
 
     const session = liveblocks.prepareSession(liveblocksUserId, {
       userInfo: {
-        name: user.name ?? user.email ?? "User",
-        picture: user.avatar ?? undefined,
+        name: userName,
+        picture: userPicture,
       },
     });
 

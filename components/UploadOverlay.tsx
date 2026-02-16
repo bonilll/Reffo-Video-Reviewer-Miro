@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useMutation } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { toast } from "sonner";
 import { Upload, Image, Video, Check, AlertCircle, FileText, FileJson, FileType } from "lucide-react";
 
@@ -48,6 +48,8 @@ export const UploadOverlay = ({ boardId, userRole }: UploadOverlayProps) => {
   const { camera } = useCamera();
   const autoSaveToLibrary = false;
   const createMedia = useMutation(api.media.create);
+  const boardDoc = useQuery(api.board.get, { id: boardId as Id<"boards"> });
+  const isPublicMural = Boolean(boardDoc?.isPublicMural);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const isViewer = userRole === "viewer";
   
@@ -105,10 +107,11 @@ export const UploadOverlay = ({ boardId, userRole }: UploadOverlayProps) => {
             return {};
           }
 
-          const maxDimension = 360;
+          const maxDimension = isPublicMural ? 280 : 360;
           const scale = Math.min(maxDimension / width, maxDimension / height, 1);
           const targetWidth = Math.max(1, Math.round(width * scale));
           const targetHeight = Math.max(1, Math.round(height * scale));
+          const jpegQuality = isPublicMural ? 0.58 : 0.74;
 
           const canvas = document.createElement("canvas");
           canvas.width = targetWidth;
@@ -139,9 +142,9 @@ export const UploadOverlay = ({ boardId, userRole }: UploadOverlayProps) => {
             brightness = null;
           }
 
-          const dataUrl = canvas.toDataURL("image/jpeg", 0.74);
+          const dataUrl = canvas.toDataURL("image/jpeg", jpegQuality);
           const blob = await new Promise<Blob | undefined>((resolveBlob) => {
-            canvas.toBlob((value) => resolveBlob(value ?? undefined), "image/jpeg", 0.74);
+            canvas.toBlob((value) => resolveBlob(value ?? undefined), "image/jpeg", jpegQuality);
           });
           return { dataUrl, blob, brightness };
         };
@@ -254,9 +257,16 @@ export const UploadOverlay = ({ boardId, userRole }: UploadOverlayProps) => {
         let compressionMeta: UploadState["meta"] = { wasCompressed: false };
 
         if (file.type.startsWith("image/")) {
+          const imageCompressionOptions = isPublicMural
+            ? { maxDimension: 1920, quality: 0.4 }
+            : { maxDimension: 3072, quality: 0.5 };
+          const previewCompressionOptions = isPublicMural
+            ? { maxDimension: 220, quality: 0.4 }
+            : { maxDimension: 256, quality: 0.5 };
+
           if (isCompressibleImage(file)) {
             try {
-              const result = await compressImageFile(file, { maxDimension: 3072, quality: 0.5 });
+              const result = await compressImageFile(file, imageCompressionOptions);
               uploadFile = result.file;
               compressionMeta = {
                 wasCompressed: true,
@@ -273,7 +283,7 @@ export const UploadOverlay = ({ boardId, userRole }: UploadOverlayProps) => {
           // Generate LOD preview for all raster images, including GIF.
           if ((uploadFile.type || file.type).toLowerCase() !== "image/svg+xml") {
             try {
-              const preview = await createImagePreviewDataUrl(uploadFile, { maxDimension: 256, quality: 0.5 });
+              const preview = await createImagePreviewDataUrl(uploadFile, previewCompressionOptions);
               previewUrl = preview.dataUrl;
             } catch (previewError) {
               console.warn("⚠️ Preview generation failed:", previewError);

@@ -58,6 +58,7 @@ export default defineSchema({
     ownerId: v.id("users"),
     ownerName: v.optional(v.string()),
     projectId: v.optional(v.id("projects")),
+    isPublicMural: v.optional(v.boolean()),
     imageUrl: v.optional(v.string()),
     isArchived: v.optional(v.boolean()),
     camera: v.optional(
@@ -72,7 +73,8 @@ export default defineSchema({
   })
     .index("byOwner", ["ownerId"])
     .index("byProject", ["projectId"])
-    .index("byOwnerProject", ["ownerId", "projectId"]),
+    .index("byOwnerProject", ["ownerId", "projectId"])
+    .index("byPublicMural", ["isPublicMural"]),
 
   boardSharing: defineTable({
     boardId: v.id("boards"),

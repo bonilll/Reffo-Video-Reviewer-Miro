@@ -18,6 +18,7 @@ const MAX_SHOWN_OTHER_USERS = 3;
 type ParticipantsProps = {
   boardId: string;
   onOpenShare?: () => void;
+  publicHomeMode?: boolean;
 };
 
 const getInitials = (name?: string) =>
@@ -36,19 +37,42 @@ const roleBadgeClasses = (role: "owner" | "editor" | "viewer") => {
   return "bg-slate-100 text-slate-700 border-slate-200";
 };
 
-export const Participants = ({ boardId, onOpenShare }: ParticipantsProps) => {
+export const Participants = ({
+  boardId,
+  onOpenShare,
+  publicHomeMode = false,
+}: ParticipantsProps) => {
   const users = useOthers();
   const currentUser = useSelf();
   const hasMoreUsers = users.length > MAX_SHOWN_OTHER_USERS;
+  const authUser = useQuery(api.users.current, {});
+  const canInspectSharing = Boolean(authUser?._id);
 
   const sharingInfo = useQuery(
     api.boards.getBoardSharing,
-    boardId ? { id: boardId as Id<"boards"> } : "skip"
+    canInspectSharing && boardId ? { id: boardId as Id<"boards"> } : "skip"
   );
   const sharingState =
-    sharingInfo === undefined ? "loading" : sharingInfo === null ? "error" : "ready";
+    !canInspectSharing
+      ? "unavailable"
+      : sharingInfo === undefined
+        ? "loading"
+        : sharingInfo === null
+          ? "error"
+          : "ready";
 
   const totalOnline = users.length + (currentUser ? 1 : 0);
+
+  if (publicHomeMode) {
+    return (
+      <div className="absolute top-4 right-4 z-40 flex items-center gap-2 rounded-2xl border border-slate-200/70 bg-white/90 px-3 py-2 shadow-xl shadow-slate-200/40 backdrop-blur-md">
+        <span className="inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+        <span className="text-xs font-semibold text-slate-700">
+          {totalOnline} active
+        </span>
+      </div>
+    );
+  }
 
   return (
     <div className="absolute top-4 right-4 z-40 flex items-center gap-3 rounded-2xl border border-slate-200/70 bg-white/90 px-3 py-2 shadow-xl shadow-slate-200/40 backdrop-blur-md">
@@ -115,7 +139,7 @@ export const Participants = ({ boardId, onOpenShare }: ParticipantsProps) => {
                 <p className="text-xs text-slate-500">Who can view or edit</p>
               </div>
             </div>
-            {sharingInfo?.isOwner ? (
+            {canInspectSharing && sharingInfo?.isOwner ? (
               <Badge variant="secondary" className="bg-blue-600/10 text-blue-700">
                 Owner
               </Badge>
@@ -123,6 +147,12 @@ export const Participants = ({ boardId, onOpenShare }: ParticipantsProps) => {
           </div>
 
           <div className="mt-4 space-y-3">
+            {sharingState === "unavailable" && (
+              <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-3 py-3 text-xs text-slate-500">
+                Public mural access controls are hidden for guest users.
+              </div>
+            )}
+
             {sharingState === "loading" && (
               <div className="space-y-2">
                 <div className="h-16 rounded-xl bg-slate-100/80 animate-pulse" />
@@ -212,12 +242,14 @@ export const Participants = ({ boardId, onOpenShare }: ParticipantsProps) => {
             )}
           </div>
 
-          <button
-            onClick={() => onOpenShare?.()}
-            className="mt-4 w-full rounded-xl border border-slate-200/80 bg-white px-4 py-2 text-xs font-semibold text-slate-900 transition-all duration-200 hover:bg-slate-50"
-          >
-            Manage access
-          </button>
+          {canInspectSharing ? (
+            <button
+              onClick={() => onOpenShare?.()}
+              className="mt-4 w-full rounded-xl border border-slate-200/80 bg-white px-4 py-2 text-xs font-semibold text-slate-900 transition-all duration-200 hover:bg-slate-50"
+            >
+              Manage access
+            </button>
+          ) : null}
         </PopoverContent>
       </Popover>
     </div>

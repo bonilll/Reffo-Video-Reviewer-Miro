@@ -11,6 +11,26 @@ const getConvexAuthToken = async () => {
   return await session.getToken({ template: "convex" });
 };
 
+const PUBLIC_GUEST_KEY = "reffo:public-guest-id";
+
+const getOrCreateGuestId = () => {
+  if (typeof window === "undefined") return null;
+  try {
+    const cached = window.localStorage.getItem(PUBLIC_GUEST_KEY);
+    if (cached && /^[a-zA-Z0-9_-]{6,80}$/.test(cached)) {
+      return cached;
+    }
+    const generated =
+      typeof window.crypto !== "undefined" && "randomUUID" in window.crypto
+        ? window.crypto.randomUUID().replace(/-/g, "")
+        : `${Date.now()}${Math.random().toString(36).slice(2, 10)}`;
+    window.localStorage.setItem(PUBLIC_GUEST_KEY, generated);
+    return generated;
+  } catch {
+    return null;
+  }
+};
+
 const getAuthEndpointUrl = () => {
   const env = import.meta.env;
   // Production: prefer same-origin auth (Vercel `/api/*`) to avoid depending on
@@ -40,15 +60,17 @@ const client = createClient({
   throttle: 16,
   authEndpoint: async (room) => {
     const token = await getConvexAuthToken();
-    if (!token) {
-      throw new Error(
-        "Missing Clerk token for Convex. Check CLERK_JWT_TEMPLATE=convex and Clerk template configuration."
-      );
-    }
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
     };
-    headers.Authorization = `Bearer ${token}`;
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    } else {
+      const guestId = getOrCreateGuestId();
+      if (guestId) {
+        headers["X-Reffo-Guest-Id"] = guestId;
+      }
+    }
     const response = await fetch(getAuthEndpointUrl(), {
       method: "POST",
       headers,

@@ -13,9 +13,15 @@ type InfoProps = {
   boardId: string;
   projectId?: string | null;
   compactMobile?: boolean;
+  publicHomeMode?: boolean;
 };
 
-export const Info = ({ boardId, projectId, compactMobile = false }: InfoProps) => {
+export const Info = ({
+  boardId,
+  projectId,
+  compactMobile = false,
+  publicHomeMode = false,
+}: InfoProps) => {
   const { onOpen } = useRenameModal();
   const data = useQuery(api.board.get, {
     id: boardId as Id<"boards">,
@@ -24,6 +30,29 @@ export const Info = ({ boardId, projectId, compactMobile = false }: InfoProps) =
   if (!data) return <InfoSkeleton />;
 
   const projectHref = projectId ? `/project/${projectId}` : "/workspaces";
+  const boardTitle = publicHomeMode ? "The Mural" : data.title;
+
+  if (publicHomeMode) {
+    return (
+      <div className="absolute top-4 left-4 z-40 flex items-center gap-2 rounded-2xl border border-slate-200/70 bg-white/90 px-3 py-2 shadow-xl shadow-slate-200/40 backdrop-blur-md">
+        <div className="flex items-center gap-2 rounded-xl border border-slate-200/70 bg-white/90 px-2 py-1.5 shadow-sm">
+          <div className="relative h-5 w-5">
+            <Image src="/logo.svg" alt="Reffo Logo" fill className="object-contain" />
+          </div>
+          <span className="text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+            Reffo
+          </span>
+        </div>
+        <div className="h-6 w-px bg-slate-200/80" />
+        <div className="inline-flex items-center gap-2 rounded-xl border border-slate-200/70 bg-slate-50/80 px-3 py-1.5 text-sm font-semibold text-slate-800">
+          <span className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">
+            Board
+          </span>
+          <span className="max-w-[220px] truncate">{boardTitle}</span>
+        </div>
+      </div>
+    );
+  }
 
   if (compactMobile) {
     return (
@@ -41,7 +70,7 @@ export const Info = ({ boardId, projectId, compactMobile = false }: InfoProps) =
             <Image src="/logo.svg" alt="Reffo Logo" fill className="object-contain" />
           </div>
           <div className="min-w-0">
-            <p className="truncate text-sm font-semibold text-slate-900">{data.title}</p>
+            <p className="truncate text-sm font-semibold text-slate-900">{boardTitle}</p>
           </div>
         </div>
       </div>
@@ -93,7 +122,7 @@ export const Info = ({ boardId, projectId, compactMobile = false }: InfoProps) =
           <span className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">
             Board
           </span>
-          <span className="max-w-[220px] truncate">{data.title}</span>
+          <span className="max-w-[220px] truncate">{boardTitle}</span>
           <Pencil className="h-3.5 w-3.5 text-slate-400 transition-colors duration-200 group-hover:text-slate-600" />
         </button>
       </div>

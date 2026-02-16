@@ -328,12 +328,12 @@ const Dashboard: React.FC<DashboardProps> = ({
   const [sharingModalOpen, setSharingModalOpen] = useState(false);
   const [isDragActive, setIsDragActive] = useState(false);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>(() => {
-    if (typeof window === 'undefined') return 'grid';
+    if (typeof window === 'undefined') return 'list';
     try {
       const stored = window.localStorage.getItem(PROJECTS_VIEW_MODE_STORAGE_KEY);
-      return stored === 'list' || stored === 'grid' ? (stored as 'grid' | 'list') : 'grid';
+      return stored === 'list' || stored === 'grid' ? (stored as 'grid' | 'list') : 'list';
     } catch {
-      return 'grid';
+      return 'list';
     }
   });
   const [searchTerm, setSearchTerm] = useState('');

@@ -48,6 +48,10 @@ async function getBoardAccess(
 export const get = query({
   args: { id: v.id("boards") },
   handler: async (ctx, args) => {
+    const board = await ctx.db.get(args.id);
+    if (!board) return null;
+    if (board.isPublicMural) return board;
+
     const user = await getCurrentUserDoc(ctx);
     if (!user) return null;
     const access = await getBoardAccess(ctx, args.id, user);
@@ -81,6 +85,12 @@ export const updateImage = mutation({
 export const getBoardCamera = query({
   args: { id: v.id("boards") },
   handler: async (ctx, args) => {
+    const board = await ctx.db.get(args.id);
+    if (!board) return null;
+    if (board.isPublicMural) {
+      return board.camera ?? { x: 0, y: 0, scale: 1 };
+    }
+
     const user = await getCurrentUserDoc(ctx);
     if (!user) return null;
     const access = await getBoardAccess(ctx, args.id, user);
@@ -99,6 +109,17 @@ export const saveBoardCamera = mutation({
     }),
   },
   handler: async (ctx, args) => {
+    const board = await ctx.db.get(args.id);
+    if (!board) throw new ConvexError("BOARD_NOT_FOUND");
+
+    if (board.isPublicMural) {
+      await ctx.db.patch(args.id, {
+        camera: args.camera,
+        updatedAt: Date.now(),
+      });
+      return { success: true };
+    }
+
     const user = await getCurrentUserOrThrow(ctx);
     const access = await getBoardAccess(ctx, args.id, user);
     if (!access) throw new ConvexError("FORBIDDEN");

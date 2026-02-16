@@ -5,7 +5,7 @@ import { httpAction } from "../_generated/server";
 const buildCorsHeaders = (origin: string | null) => ({
   "Access-Control-Allow-Origin": origin ?? "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Reffo-Guest-Id",
 });
 
 export const liveblocksAuth = httpAction(async (ctx, request) => {
@@ -47,23 +47,6 @@ export const liveblocksAuth = httpAction(async (ctx, request) => {
       }),
       {
         status: 400,
-        headers: {
-          ...corsHeaders,
-          "Content-Type": "application/json",
-        },
-      }
-    );
-  }
-
-  const identity = await ctx.auth.getUserIdentity();
-  if (!identity) {
-    return new Response(
-      JSON.stringify({
-        error: "Unauthorized",
-        details: "Authentication required",
-      }),
-      {
-        status: 401,
         headers: {
           ...corsHeaders,
           "Content-Type": "application/json",
@@ -125,22 +108,41 @@ export const liveblocksAuth = httpAction(async (ctx, request) => {
     );
   }
 
-  const userName =
-    identity.name ??
-    identity.nickname ??
-    identity.preferredUsername ??
-    identity.email ??
-    "User";
+  const identity = await ctx.auth.getUserIdentity();
+  const guestHeader = request.headers.get("x-reffo-guest-id");
+  const generatedGuestId =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID().replace(/-/g, "")
+      : `${Date.now()}${Math.random().toString(36).slice(2, 10)}`;
+  const guestId =
+    guestHeader && /^[a-zA-Z0-9_-]{6,80}$/.test(guestHeader.trim())
+      ? guestHeader.trim()
+      : generatedGuestId;
 
   try {
-    // Prefer the app-level profile avatar (supports custom avatarSource), then fall back to Clerk.
-    const currentUser = await ctx.runQuery(api.users.current, {});
+    let userId = `public-${guestId}`;
+    let userName = "Guest";
+    let picture: string | undefined;
+
+    if (identity) {
+      const currentUser = await ctx.runQuery(api.users.current, {});
+      userId = identity.subject;
+      userName =
+        currentUser?.name ??
+        identity.name ??
+        identity.nickname ??
+        identity.preferredUsername ??
+        identity.email ??
+        "User";
+      picture = currentUser?.avatar ?? identity.pictureUrl ?? undefined;
+    }
+
     const { status, body } = await ctx.runAction(api.liveblocks.authorize, {
       room,
       user: {
-        id: identity.subject,
-        name: currentUser?.name ?? userName,
-        picture: currentUser?.avatar ?? identity.pictureUrl ?? undefined,
+        id: userId,
+        name: userName,
+        picture,
       },
     });
 

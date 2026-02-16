@@ -5,6 +5,7 @@ import {
   internalAction,
 } from "./_generated/server";
 import { api } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 import {
   S3Client,
   PutObjectCommand,
@@ -85,6 +86,58 @@ type UploadContext = "review" | "board" | "library";
 const sanitizePathSegment = (value: string) =>
   value.replace(/[^a-zA-Z0-9_-]/g, "");
 
+const ensureMultipartWriteAccess = async (
+  ctx: any,
+  boardId?: string | null
+) => {
+  const identity = await ctx.auth.getUserIdentity();
+
+  if (!identity && !boardId) {
+    throw new ConvexError("NOT_AUTHENTICATED");
+  }
+
+  if (!boardId) {
+    return;
+  }
+
+  let permissions;
+  try {
+    permissions = await ctx.runQuery(api.boards.getBoardPermissions, {
+      boardId: boardId as Id<"boards">,
+    });
+  } catch {
+    throw new ConvexError("INVALID_BOARD_ID");
+  }
+
+  if (!permissions?.resourceExists || !permissions.canWrite) {
+    throw new ConvexError("FORBIDDEN");
+  }
+};
+
+const ensureBoardContextWriteAccess = async (
+  ctx: any,
+  context?: UploadContext,
+  contextId?: string | null
+) => {
+  if (context !== "board") {
+    return;
+  }
+  if (!contextId) {
+    throw new ConvexError("MISSING_CONTEXT_ID");
+  }
+  let permissions;
+  try {
+    permissions = await ctx.runQuery(api.boards.getBoardPermissions, {
+      boardId: contextId as Id<"boards">,
+    });
+  } catch {
+    throw new ConvexError("INVALID_BOARD_ID");
+  }
+  if (!permissions?.resourceExists || !permissions.canWrite) {
+    throw new ConvexError("FORBIDDEN");
+  }
+};
+
 const buildStorageKey = (
   userId: string,
   options?: { context?: UploadContext; contextId?: string; fileName?: string },
@@ -162,16 +215,24 @@ export const generateVideoUploadUrl = action({
     contextId: v.optional(v.string()),
   },
   async handler(ctx, { contentType, fileName, context, contextId }) {
+    await ensureBoardContextWriteAccess(ctx, context, contextId ?? null);
+
     const identity = await ctx.auth.getUserIdentity();
-    if (!identity) {
-      throw new ConvexError("NOT_AUTHENTICATED");
+    let userId: string;
+
+    if (identity) {
+      const current = await ctx.runQuery(api.users.current, {});
+      if (!current?._id) {
+        throw new ConvexError("NOT_PROVISIONED");
+      }
+      userId = current._id as string;
+    } else {
+      if (!(context === "board" && contextId)) {
+        throw new ConvexError("NOT_AUTHENTICATED");
+      }
+      userId = "public-mural";
     }
 
-    const current = await ctx.runQuery(api.users.current, {});
-    if (!current?._id) {
-      throw new ConvexError("NOT_PROVISIONED");
-    }
-    const userId = current._id as string;
     const storageKey = buildStorageKey(userId, {
       context,
       contextId,
@@ -205,11 +266,22 @@ export const createMultipartUpload = action({
     contextId: v.optional(v.string()),
   },
   async handler(ctx, { contentType, fileName, context, contextId }) {
+    await ensureBoardContextWriteAccess(ctx, context, contextId ?? null);
+
     const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new ConvexError("NOT_AUTHENTICATED");
-    const current = await ctx.runQuery(api.users.current, {});
-    if (!current?._id) throw new ConvexError("NOT_PROVISIONED");
-    const userId = current._id as string;
+    let userId: string;
+
+    if (identity) {
+      const current = await ctx.runQuery(api.users.current, {});
+      if (!current?._id) throw new ConvexError("NOT_PROVISIONED");
+      userId = current._id as string;
+    } else {
+      if (!(context === "board" && contextId)) {
+        throw new ConvexError("NOT_AUTHENTICATED");
+      }
+      userId = "public-mural";
+    }
+
     const storageKey = buildStorageKey(userId, {
       context,
       contextId,
@@ -228,8 +300,10 @@ export const getMultipartUploadUrls = action({
     uploadId: v.string(),
     partNumbers: v.array(v.number()),
     contentType: v.string(),
+    boardId: v.optional(v.string()),
   },
-  async handler(_ctx, { storageKey, uploadId, partNumbers, contentType }) {
+  async handler(ctx, { storageKey, uploadId, partNumbers, contentType, boardId }) {
+    await ensureMultipartWriteAccess(ctx, boardId ?? null);
     const urls = await Promise.all(
       partNumbers.map(async (n) => {
         const cmd = new UploadPartCommand({ Bucket: BUCKET, Key: storageKey, UploadId: uploadId, PartNumber: n, ContentMD5: undefined, Body: undefined, ContentLength: undefined, ChecksumAlgorithm: undefined, ChecksumCRC32: undefined, ChecksumCRC32C: undefined, ChecksumSHA1: undefined, ChecksumSHA256: undefined, SSECustomerAlgorithm: undefined, SSECustomerKey: undefined, SSECustomerKeyMD5: undefined, RequestPayer: undefined, ExpectedBucketOwner: undefined });
@@ -246,8 +320,10 @@ export const completeMultipartUpload = action({
     storageKey: v.string(),
     uploadId: v.string(),
     parts: v.array(v.object({ ETag: v.string(), PartNumber: v.number() })),
+    boardId: v.optional(v.string()),
   },
-  async handler(_ctx, { storageKey, uploadId, parts }) {
+  async handler(ctx, { storageKey, uploadId, parts, boardId }) {
+    await ensureMultipartWriteAccess(ctx, boardId ?? null);
     const cmd = new CompleteMultipartUploadCommand({
       Bucket: BUCKET,
       Key: storageKey,
@@ -260,8 +336,9 @@ export const completeMultipartUpload = action({
 });
 
 export const abortMultipartUpload = action({
-  args: { storageKey: v.string(), uploadId: v.string() },
-  async handler(_ctx, { storageKey, uploadId }) {
+  args: { storageKey: v.string(), uploadId: v.string(), boardId: v.optional(v.string()) },
+  async handler(ctx, { storageKey, uploadId, boardId }) {
+    await ensureMultipartWriteAccess(ctx, boardId ?? null);
     const cmd = new AbortMultipartUploadCommand({ Bucket: BUCKET, Key: storageKey, UploadId: uploadId });
     await s3Client.send(cmd);
     return { aborted: true };

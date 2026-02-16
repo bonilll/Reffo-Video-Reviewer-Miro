@@ -17,17 +17,6 @@ const jsonResponse = (status: number, body: unknown, origin: string | null) =>
     },
   });
 
-const ensureAuthenticated = async (ctx: any, origin: string | null) => {
-  const identity = await ctx.auth.getUserIdentity();
-  if (!identity) {
-    return {
-      identity: null,
-      response: jsonResponse(401, { error: "Unauthorized", details: "Authentication required" }, origin),
-    };
-  }
-  return { identity, response: null };
-};
-
 const ensureBoardWriteAccess = async (
   ctx: any,
   boardId: string | null,
@@ -60,6 +49,30 @@ const ensureBoardWriteAccess = async (
   return { ok: true, response: null };
 };
 
+const ensureMultipartAccess = async (
+  ctx: any,
+  boardId: string | null,
+  origin: string | null
+) => {
+  const identity = await ctx.auth.getUserIdentity();
+
+  if (!identity && !boardId) {
+    return {
+      ok: false,
+      response: jsonResponse(401, { error: "Unauthorized", details: "Authentication required" }, origin),
+    };
+  }
+
+  if (boardId) {
+    const permissionCheck = await ensureBoardWriteAccess(ctx, boardId, origin);
+    if (permissionCheck.response) {
+      return { ok: false, response: permissionCheck.response };
+    }
+  }
+
+  return { ok: true, response: null };
+};
+
 const parseJson = async (request: Request, origin: string | null) => {
   try {
     return { data: await request.json(), response: null };
@@ -80,9 +93,6 @@ export const initMultipartUpload = httpAction(async (ctx, request) => {
   if (request.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: buildCorsHeaders(origin) });
   }
-
-  const auth = await ensureAuthenticated(ctx, origin);
-  if (auth.response) return auth.response;
 
   const parsed = await parseJson(request, origin);
   if (parsed.response) return parsed.response;
@@ -110,13 +120,14 @@ export const initMultipartUpload = httpAction(async (ctx, request) => {
       ? payload.context
       : null;
   const contextId = typeof payload.contextId === "string" ? payload.contextId : null;
+  const permissionBoardId = boardId ?? (context === "board" ? contextId : null);
 
   if (!fileName || !fileSize || fileSize <= 0) {
     return jsonResponse(400, { error: "Bad Request", details: "Missing or invalid file metadata" }, origin);
   }
 
-  const permissionCheck = await ensureBoardWriteAccess(ctx, boardId, origin);
-  if (permissionCheck.response) return permissionCheck.response;
+  const accessCheck = await ensureMultipartAccess(ctx, permissionBoardId, origin);
+  if (accessCheck.response) return accessCheck.response;
 
   let result: { uploadId: string; storageKey: string; publicUrl: string };
   try {
@@ -159,9 +170,6 @@ export const signMultipartUploadPart = httpAction(async (ctx, request) => {
     return new Response(null, { status: 204, headers: buildCorsHeaders(origin) });
   }
 
-  const auth = await ensureAuthenticated(ctx, origin);
-  if (auth.response) return auth.response;
-
   const parsed = await parseJson(request, origin);
   if (parsed.response) return parsed.response;
 
@@ -170,16 +178,21 @@ export const signMultipartUploadPart = httpAction(async (ctx, request) => {
     uploadId?: unknown;
     partNumber?: unknown;
     contentType?: unknown;
+    boardId?: unknown;
   };
 
   const key = typeof payload.key === "string" ? payload.key : null;
   const uploadId = typeof payload.uploadId === "string" ? payload.uploadId : null;
   const partNumber = typeof payload.partNumber === "number" ? payload.partNumber : null;
   const contentType = typeof payload.contentType === "string" ? payload.contentType : "";
+  const boardId = typeof payload.boardId === "string" ? payload.boardId : null;
 
   if (!key || !uploadId || !partNumber) {
     return jsonResponse(400, { error: "Bad Request", details: "Missing multipart identifiers" }, origin);
   }
+
+  const accessCheck = await ensureMultipartAccess(ctx, boardId, origin);
+  if (accessCheck.response) return accessCheck.response;
 
   let result: { urls: Array<{ partNumber: number; url: string }> };
   try {
@@ -188,6 +201,7 @@ export const signMultipartUploadPart = httpAction(async (ctx, request) => {
       uploadId,
       partNumbers: [partNumber],
       contentType,
+      boardId: boardId ?? undefined,
     });
   } catch (error) {
     const details = error instanceof Error ? error.message : String(error);
@@ -208,9 +222,6 @@ export const completeMultipartUploadRequest = httpAction(async (ctx, request) =>
     return new Response(null, { status: 204, headers: buildCorsHeaders(origin) });
   }
 
-  const auth = await ensureAuthenticated(ctx, origin);
-  if (auth.response) return auth.response;
-
   const parsed = await parseJson(request, origin);
   if (parsed.response) return parsed.response;
 
@@ -230,8 +241,8 @@ export const completeMultipartUploadRequest = httpAction(async (ctx, request) =>
     return jsonResponse(400, { error: "Bad Request", details: "Missing completion data" }, origin);
   }
 
-  const permissionCheck = await ensureBoardWriteAccess(ctx, boardId, origin);
-  if (permissionCheck.response) return permissionCheck.response;
+  const accessCheck = await ensureMultipartAccess(ctx, boardId, origin);
+  if (accessCheck.response) return accessCheck.response;
 
   const mappedParts = parts
     .filter((p) => typeof p.partNumber === "number" && typeof p.eTag === "string")
@@ -247,6 +258,7 @@ export const completeMultipartUploadRequest = httpAction(async (ctx, request) =>
       storageKey: key,
       uploadId,
       parts: mappedParts,
+      boardId: boardId ?? undefined,
     });
   } catch (error) {
     const details = error instanceof Error ? error.message : String(error);
@@ -262,22 +274,27 @@ export const abortMultipartUploadRequest = httpAction(async (ctx, request) => {
     return new Response(null, { status: 204, headers: buildCorsHeaders(origin) });
   }
 
-  const auth = await ensureAuthenticated(ctx, origin);
-  if (auth.response) return auth.response;
-
   const parsed = await parseJson(request, origin);
   if (parsed.response) return parsed.response;
 
-  const payload = parsed.data as { key?: unknown; uploadId?: unknown };
+  const payload = parsed.data as { key?: unknown; uploadId?: unknown; boardId?: unknown };
   const key = typeof payload.key === "string" ? payload.key : null;
   const uploadId = typeof payload.uploadId === "string" ? payload.uploadId : null;
+  const boardId = typeof payload.boardId === "string" ? payload.boardId : null;
 
   if (!key || !uploadId) {
     return jsonResponse(400, { error: "Bad Request", details: "Missing multipart identifiers" }, origin);
   }
 
+  const accessCheck = await ensureMultipartAccess(ctx, boardId, origin);
+  if (accessCheck.response) return accessCheck.response;
+
   try {
-    await ctx.runAction(api.storage.abortMultipartUpload, { storageKey: key, uploadId });
+    await ctx.runAction(api.storage.abortMultipartUpload, {
+      storageKey: key,
+      uploadId,
+      boardId: boardId ?? undefined,
+    });
   } catch (error) {
     const details = error instanceof Error ? error.message : String(error);
     return jsonResponse(500, { error: "UPLOAD_ABORT_FAILED", details }, origin);

@@ -30,6 +30,7 @@ import TermsOfUse from './components/legal/TermsOfUse';
 import { CookieSettingsTrigger } from './components/legal/CookieSettingsTrigger';
 import { LanguageSwitcher } from './components/legal/LanguageSwitcher';
 import { BoardPageWrapper } from './components/board/BoardPageWrapper';
+import { AuthLanding } from './components/marketing/AuthLanding';
 // Lottie assets as static URLs to ensure they are included in Vite build
 import lottieLoaderRaw from './assets/animations/Loader.json?raw';
 import lottieImageLoaderRaw from './assets/animations/imageloader.json?raw';
@@ -944,7 +945,7 @@ const App: React.FC = () => {
   useEffect(() => {
     const defaultTitle = "Reffo";
     const defaultDescription =
-      "Fast, focused video feedback for teams. Review, collaborate, and ship faster with Reffo.";
+      "Reffo unifies reference library, collective board, and image or video review in one workflow for design teams and agencies.";
     const canonicalPath =
       route.name === "legal"
         ? route.page === "privacy"
@@ -1230,58 +1231,15 @@ const App: React.FC = () => {
             </div>
           </div>
         ) : (
-          <div className="min-h-screen flex items-center justify-center bg-gray-50 px-6 py-12">
-            <div className="w-full max-w-xl space-y-8">
-              <div className="text-center">
-                <div className="mx-auto mb-2 flex items-center justify-center gap-2">
-                  <img src={logo} alt="Reffo" className="h-8 w-auto" />
-                  <h1 className="text-2xl font-semibold text-gray-900 sm:text-3xl">Reffo</h1>
-                </div>
-                <p className="text-sm text-gray-600 sm:text-base">Fast, focused video feedback for teams.</p>
-              </div>
-              <div className="mx-auto w-full max-w-md rounded-2xl border border-gray-200 bg-white p-6 shadow-2xl">
-                <div className="space-y-3">
-                  <button
-                    onClick={handleGoogleSignIn}
-                    className="w-full inline-flex items-center justify-center gap-3 rounded-full border border-gray-900 bg-white px-6 py-3 text-sm font-semibold text-gray-900 transition hover:bg-gray-50"
-                  >
-                    <img src={googleLogo} alt="Google" className="h-5 w-5" />
-                    Continue with Google
-                  </button>
-                  {renderEmailAuthSection()}
-                </div>
-                <p className="mt-4 text-center text-xs text-gray-500">
-                  By continuing you agree to our{' '}
-                  <button onClick={() => navigate('/terms')} className="underline">
-                    {consentText.footer.terms}
-                  </button>{' '}
-                  and{' '}
-                  <button onClick={() => navigate('/privacy')} className="underline">
-                    {consentText.footer.privacy}
-                  </button>
-                  .
-                </p>
-              </div>
-              <div className="hidden md:grid md:grid-cols-2 md:gap-4">
-                <div className="rounded-2xl border border-gray-200 bg-white p-4 text-sm text-gray-600">
-                  <p className="text-xs uppercase text-gray-500">Trusted workflows</p>
-                  <p className="mt-1 text-gray-700">Import, comment, and ship faster with a pipeline built for editors, directors, and producers.</p>
-                </div>
-                <div className="rounded-2xl border border-gray-200 bg-white p-4 text-sm text-gray-600">
-                  <p className="text-xs uppercase text-gray-500">Launch ready</p>
-                  <p className="mt-1 text-gray-700">Invite your crew in minutes and keep feedback in sync across every project.</p>
-                </div>
-              </div>
-              <footer className="flex flex-col items-center gap-2 text-center text-xs text-gray-500">
-                <button onClick={() => navigate('/privacy')} className="underline underline-offset-2">{consentText.footer.privacy}</button>
-                {' · '}
-                <button onClick={() => navigate('/cookie-policy')} className="underline underline-offset-2">{consentText.footer.cookies}</button>
-                {' · '}
-                <button onClick={() => navigate('/terms')} className="underline underline-offset-2">{consentText.footer.terms}</button>
-                <LanguageSwitcher compact />
-              </footer>
-            </div>
-          </div>
+          <AuthLanding
+            logoSrc={logo}
+            googleLogoSrc={googleLogo}
+            onGoogleSignIn={handleGoogleSignIn}
+            renderEmailAuthSection={() => renderEmailAuthSection()}
+            footerCopy={consentText.footer}
+            onNavigate={navigate}
+            languageSwitcher={<LanguageSwitcher compact />}
+          />
         )}
       </SignedOut>
       <SignedIn>

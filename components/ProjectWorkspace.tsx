@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useEffect, useCallback, useRef } from 'react';
 import { nanoid } from 'nanoid';
-import { Film, PlayCircle, ArrowLeft, X, AlertTriangle, Info, LayoutGrid, Plus, MoreHorizontal, Pencil, Trash2, UploadCloud } from 'lucide-react';
+import { Film, PlayCircle, ArrowLeft, X, AlertTriangle, Info, LayoutGrid, Plus, MoreHorizontal, Pencil, Trash2, UploadCloud, ChevronDown, ChevronRight } from 'lucide-react';
 import { Video, Project, ContentShare, Board } from '../types';
 import { useThemePreference } from '../useTheme';
 import { useQuery, useMutation, useAction } from 'convex/react';
@@ -105,15 +105,18 @@ function formatDuration(seconds?: number) {
   return `${mins}:${secs.toString().padStart(2, '0')}`;
 }
 
-const getViewModeStorageKey = (projectId: string) => `projectworkspace:view-mode:${projectId}`;
+const REVIEW_VIEW_MODE_STORAGE_KEY = 'projectworkspace:review-view-mode';
+const BOARD_VIEW_MODE_STORAGE_KEY = 'projectworkspace:board-view-mode';
+const getRecentOpenedStorageKey = (projectId: string) => `projectworkspace:recent-opened:${projectId}`;
+const getRecentExpandedStorageKey = (projectId: string) => `projectworkspace:recent-expanded:${projectId}`;
 
 const loadStoredViewMode = (key: string): 'grid' | 'list' => {
-  if (typeof window === 'undefined') return 'grid';
+  if (typeof window === 'undefined') return 'list';
   try {
     const stored = window.localStorage.getItem(key);
-    return stored === 'list' || stored === 'grid' ? (stored as 'grid' | 'list') : 'grid';
+    return stored === 'list' || stored === 'grid' ? (stored as 'grid' | 'list') : 'list';
   } catch {
-    return 'grid';
+    return 'list';
   }
 };
 
@@ -121,6 +124,56 @@ const persistViewMode = (key: string, mode: 'grid' | 'list') => {
   if (typeof window === 'undefined') return;
   try {
     window.localStorage.setItem(key, mode);
+  } catch {
+    // ignore storage errors
+  }
+};
+
+type RecentOpenedMap = Record<string, number>;
+
+const loadRecentOpenedMap = (key: string): RecentOpenedMap => {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const result: RecentOpenedMap = {};
+    Object.entries(parsed).forEach(([itemKey, value]) => {
+      const num = typeof value === 'number' ? value : Number(value);
+      if (Number.isFinite(num) && num > 0) {
+        result[itemKey] = num;
+      }
+    });
+    return result;
+  } catch {
+    return {};
+  }
+};
+
+const persistRecentOpenedMap = (key: string, map: RecentOpenedMap) => {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(key, JSON.stringify(map));
+  } catch {
+    // ignore storage errors
+  }
+};
+
+const loadRecentExpanded = (key: string): boolean => {
+  if (typeof window === 'undefined') return true;
+  try {
+    const stored = window.localStorage.getItem(key);
+    if (stored === null) return true;
+    return stored === '1';
+  } catch {
+    return true;
+  }
+};
+
+const persistRecentExpanded = (key: string, expanded: boolean) => {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(key, expanded ? '1' : '0');
   } catch {
     // ignore storage errors
   }
@@ -196,8 +249,11 @@ const ProjectWorkspace: React.FC<{
   onDismissHighlight,
 }) => {
   const isDark = useThemePreference(theme);
-  const viewModeKey = getViewModeStorageKey(project.id);
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>(() => loadStoredViewMode(viewModeKey));
+  const reviewViewModeKey = REVIEW_VIEW_MODE_STORAGE_KEY;
+  const boardViewModeKey = BOARD_VIEW_MODE_STORAGE_KEY;
+  const recentOpenedKey = getRecentOpenedStorageKey(project.id);
+  const recentExpandedKey = getRecentExpandedStorageKey(project.id);
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>(() => loadStoredViewMode(reviewViewModeKey));
   const [videoToRename, setVideoToRename] = useState<Video | null>(null);
   const [videoToMove, setVideoToMove] = useState<Video | null>(null);
   const [videoToDelete, setVideoToDelete] = useState<Video | null>(null);
@@ -208,7 +264,9 @@ const ProjectWorkspace: React.FC<{
   const [newBoardTitle, setNewBoardTitle] = useState('');
   const [isCreatingBoard, setIsCreatingBoard] = useState(false);
   const [activeTab, setActiveTab] = useState<'review' | 'boards'>('boards');
-  const [boardViewMode, setBoardViewMode] = useState<'grid' | 'list'>('grid');
+  const [boardViewMode, setBoardViewMode] = useState<'grid' | 'list'>(() => loadStoredViewMode(boardViewModeKey));
+  const [recentOpenedMap, setRecentOpenedMap] = useState<RecentOpenedMap>(() => loadRecentOpenedMap(recentOpenedKey));
+  const [recentExpanded, setRecentExpanded] = useState<boolean>(() => loadRecentExpanded(recentExpandedKey));
   const [boardToRename, setBoardToRename] = useState<Board | null>(null);
   const [boardToDelete, setBoardToDelete] = useState<Board | null>(null);
   const [boardRenameValue, setBoardRenameValue] = useState('');
@@ -224,12 +282,36 @@ const ProjectWorkspace: React.FC<{
   const [isUploading, setIsUploading] = useState(false);
 
   useEffect(() => {
-    setViewMode(loadStoredViewMode(viewModeKey));
-  }, [viewModeKey]);
+    setViewMode(loadStoredViewMode(reviewViewModeKey));
+  }, [reviewViewModeKey]);
 
   useEffect(() => {
-    persistViewMode(viewModeKey, viewMode);
-  }, [viewMode, viewModeKey]);
+    persistViewMode(reviewViewModeKey, viewMode);
+  }, [viewMode, reviewViewModeKey]);
+
+  useEffect(() => {
+    setBoardViewMode(loadStoredViewMode(boardViewModeKey));
+  }, [boardViewModeKey]);
+
+  useEffect(() => {
+    persistViewMode(boardViewModeKey, boardViewMode);
+  }, [boardViewMode, boardViewModeKey]);
+
+  useEffect(() => {
+    setRecentOpenedMap(loadRecentOpenedMap(recentOpenedKey));
+  }, [recentOpenedKey]);
+
+  useEffect(() => {
+    persistRecentOpenedMap(recentOpenedKey, recentOpenedMap);
+  }, [recentOpenedMap, recentOpenedKey]);
+
+  useEffect(() => {
+    setRecentExpanded(loadRecentExpanded(recentExpandedKey));
+  }, [recentExpandedKey]);
+
+  useEffect(() => {
+    persistRecentExpanded(recentExpandedKey, recentExpanded);
+  }, [recentExpanded, recentExpandedKey]);
 
   useEffect(() => {
     setHighlightVisible(Boolean(highlightMessage));
@@ -298,15 +380,61 @@ const ProjectWorkspace: React.FC<{
     }));
   }, [boardsQuery]);
 
-  const recentBoards = useMemo(() => {
-    const getTime = (board: Board) => {
-      const source = board.updatedAt ?? board.createdAt;
-      return source ? Date.parse(source) : 0;
-    };
-    return [...boards].sort((a, b) => getTime(b) - getTime(a)).slice(0, 3);
-  }, [boards]);
+  const getIsoMs = useCallback((value?: string) => {
+    if (!value) return 0;
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }, []);
 
-  const recentReviews = useMemo(() => projectVideos.slice(0, 3), [projectVideos]);
+  const rememberRecentOpen = useCallback((kind: 'board' | 'review', id: string) => {
+    const itemKey = `${kind}:${id}`;
+    const now = Date.now();
+    setRecentOpenedMap((prev) => ({ ...prev, [itemKey]: now }));
+  }, []);
+
+  const openBoard = useCallback((boardId: string) => {
+    rememberRecentOpen('board', boardId);
+    onOpenBoard?.(boardId);
+  }, [onOpenBoard, rememberRecentOpen]);
+
+  const openReview = useCallback(async (video: Video) => {
+    rememberRecentOpen('review', video.id);
+    await onStartReview(video);
+  }, [onStartReview, rememberRecentOpen]);
+
+  const recentItems = useMemo(() => {
+    const boardItems = boards.map((board, index) => {
+      const itemKey = `board:${board.id}`;
+      return {
+        kind: 'board' as const,
+        id: board.id,
+        itemKey,
+        title: board.title,
+        timestamp: recentOpenedMap[itemKey] ?? getIsoMs(board.updatedAt ?? board.createdAt),
+        board,
+        fallbackUrl: fallbackBoardCovers[index % fallbackBoardCovers.length],
+      };
+    });
+
+    const reviewItems = projectVideos.map((video) => {
+      const itemKey = `review:${video.id}`;
+      return {
+        kind: 'review' as const,
+        id: video.id,
+        itemKey,
+        title: video.title,
+        timestamp: recentOpenedMap[itemKey] ?? getIsoMs(video.lastReviewedAt ?? video.uploadedAt),
+        video,
+      };
+    });
+
+    return [...boardItems, ...reviewItems]
+      .sort((a, b) => {
+        if (b.timestamp !== a.timestamp) return b.timestamp - a.timestamp;
+        return a.title.localeCompare(b.title);
+      })
+      .slice(0, 6);
+  }, [boards, projectVideos, recentOpenedMap, getIsoMs]);
 
   const handleRename = useCallback(
     async (video: Video, title: string) => {
@@ -432,8 +560,8 @@ const ProjectWorkspace: React.FC<{
       const boardId = await createBoard({ title, projectId: project.id as any });
       setNewBoardTitle('');
       pushToast('success', 'Board created');
-      if (boardId && onOpenBoard) {
-        onOpenBoard(boardId as unknown as string);
+      if (boardId) {
+        openBoard(boardId as unknown as string);
       }
     } catch (error) {
       console.error('Failed to create board', error);
@@ -441,7 +569,7 @@ const ProjectWorkspace: React.FC<{
     } finally {
       setIsCreatingBoard(false);
     }
-  }, [newBoardTitle, isCreatingBoard, createBoard, project.id, onOpenBoard, pushToast]);
+  }, [newBoardTitle, isCreatingBoard, createBoard, project.id, openBoard, pushToast]);
 
   const handleRenameBoard = useCallback(async () => {
     if (!boardToRename) return;
@@ -851,7 +979,7 @@ const ProjectWorkspace: React.FC<{
       }
 
       pushToast('success', 'Upload complete. Opening reviewer.');
-      await onStartReview(created);
+      await openReview(created);
     } catch (error) {
       console.error(error);
       pushToast('error', error instanceof Error ? error.message : 'Failed to complete upload.');
@@ -864,96 +992,118 @@ const ProjectWorkspace: React.FC<{
 
   return (
     <div className="space-y-6 library-skin">
-      <header className="library-panel flex flex-wrap items-center justify-between gap-4 p-4">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={onBack}
-            className="rounded-full border border-gray-200 bg-white p-2 text-gray-600 hover:text-gray-900"
-            aria-label="Back"
-          >
-            <ArrowLeft size={18} />
-          </button>
-          <div>
-            <h1 className="text-xl font-semibold text-gray-900">{project.name}</h1>
-            <p className="text-sm text-gray-600">
-              {projectVideos.length} review{projectVideos.length === 1 ? '' : 's'}
-            </p>
+      <header className="library-panel space-y-5 p-4">
+        <div className="relative flex min-h-[48px] items-center">
+          <div className="min-w-0 flex items-center gap-3 pr-4">
+            <button
+              onClick={onBack}
+              className="rounded-full border border-gray-200 bg-white p-2 text-gray-600 hover:text-gray-900"
+              aria-label="Back"
+            >
+              <ArrowLeft size={18} />
+            </button>
+            <div className="min-w-0">
+              <h1 className="truncate text-xl font-semibold text-gray-900">{project.name}</h1>
+              <p className="truncate text-sm text-gray-600">
+                {projectVideos.length} review{projectVideos.length === 1 ? '' : 's'}
+              </p>
+            </div>
+          </div>
+          <div className="pointer-events-none absolute inset-x-0 flex justify-center">
+            <div className="pointer-events-auto inline-flex items-center gap-1 rounded-full border border-gray-200 bg-gray-50 p-1 shadow-sm">
+              <button
+                onClick={() => setActiveTab('boards')}
+                className={[
+                  'inline-flex items-center gap-2 rounded-full px-6 py-2 text-sm font-semibold transition',
+                  activeTab === 'boards'
+                    ? 'bg-white text-gray-900 shadow-sm'
+                    : 'text-gray-600 hover:text-gray-900 hover:bg-white/70',
+                ].join(' ')}
+              >
+                <LayoutGrid className="h-4 w-4" />
+                Boards
+              </button>
+              <button
+                onClick={() => setActiveTab('review')}
+                className={[
+                  'inline-flex items-center gap-2 rounded-full px-6 py-2 text-sm font-semibold transition',
+                  activeTab === 'review'
+                    ? 'bg-white text-gray-900 shadow-sm'
+                    : 'text-gray-600 hover:text-gray-900 hover:bg-white/70',
+                ].join(' ')}
+              >
+                <PlayCircle className="h-4 w-4" />
+                Reviews
+              </button>
+            </div>
           </div>
         </div>
-        <div className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white p-1 shadow-sm">
-          <button
-            onClick={() => setActiveTab('boards')}
-            className={`tab-button inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-xs font-semibold transition ${
-              activeTab === 'boards' ? 'tab-button-active shadow' : 'tab-button-inactive'
-            }`}
-          >
-            <LayoutGrid size={14} />
-            Boards
-          </button>
-          <button
-            onClick={() => setActiveTab('review')}
-            className={`tab-button inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-xs font-semibold transition ${
-              activeTab === 'review' ? 'tab-button-active shadow' : 'tab-button-inactive'
-            }`}
-          >
-            <PlayCircle size={14} />
-            Reviews
-          </button>
-        </div>
+
         <div className="w-full">
           <div className="flex items-center justify-between px-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-            <span>Recently updated</span>
+            <span>Recently opened</span>
+            <button
+              onClick={() => setRecentExpanded((prev) => !prev)}
+              className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-gray-600 normal-case tracking-normal hover:text-gray-900"
+              aria-expanded={recentExpanded}
+              aria-label={recentExpanded ? 'Collapse recent items' : 'Expand recent items'}
+            >
+              {recentExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+              {recentExpanded ? 'Hide' : 'Show'}
+            </button>
           </div>
-          <div className="mt-2 flex flex-wrap items-center gap-4 rounded-2xl border border-gray-200 bg-white/70 px-4 py-4">
-            {recentBoards.map((board, index) => (
-              <button
-                key={board.id}
-                onClick={() => onOpenBoard?.(board.id)}
-                className="library-unstyled group relative h-[120px] w-[220px] overflow-hidden rounded-2xl border border-gray-200 bg-gray-900 text-left shadow-sm transition hover:border-gray-300 hover:shadow-md sm:h-[130px] sm:w-[240px]"
-                title={board.title}
-              >
-                <div className="absolute inset-0">
-                  <BoardThumbnail
-                    board={board}
-                    fallbackUrl={fallbackBoardCovers[index % fallbackBoardCovers.length]}
-                  />
-                </div>
-                <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
-                <div className="relative z-10 flex h-full flex-col justify-between p-3">
-                  <span className="inline-flex w-fit items-center rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-800">
-                    Board
-                  </span>
-                  <span className="max-w-[200px] truncate text-sm font-semibold text-slate-50">
-                    {board.title}
-                  </span>
-                </div>
-              </button>
-            ))}
-            {recentReviews.map((video) => (
-              <button
-                key={video.id}
-                onClick={() => onStartReview(video)}
-                className="library-unstyled group relative h-[120px] w-[220px] overflow-hidden rounded-2xl border border-gray-200 bg-gray-900 text-left shadow-sm transition hover:border-gray-300 hover:shadow-md sm:h-[130px] sm:w-[240px]"
-                title={video.title}
-              >
-                <div className="absolute inset-0">
-                  <Thumbnail video={video} />
-                </div>
-                <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
-                <div className="relative z-10 flex h-full flex-col justify-between p-3">
-                  <span className="inline-flex w-fit items-center rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-800">
-                    Review
-                  </span>
-                  <span className="max-w-[200px] truncate text-sm font-semibold text-slate-50">
-                    {video.title}
-                  </span>
-                </div>
-              </button>
-            ))}
-            {recentBoards.length === 0 && recentReviews.length === 0 && (
-              <span className="text-xs text-gray-500">No recent items yet.</span>
-            )}
-          </div>
+          {recentExpanded && (
+            <div className="mt-2 flex flex-wrap items-center gap-4 rounded-2xl border border-gray-200 bg-white/70 px-4 py-4">
+              {recentItems.map((item) =>
+                item.kind === 'board' ? (
+                  <button
+                    key={item.itemKey}
+                    onClick={() => openBoard(item.id)}
+                    className="library-unstyled group relative h-[120px] w-[220px] overflow-hidden rounded-2xl border border-gray-200 bg-gray-900 text-left shadow-sm transition hover:border-gray-300 hover:shadow-md sm:h-[130px] sm:w-[240px]"
+                    title={item.board.title}
+                  >
+                    <div className="absolute inset-0">
+                      <BoardThumbnail board={item.board} fallbackUrl={item.fallbackUrl} />
+                    </div>
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
+                    <div className="relative z-10 flex h-full flex-col justify-between p-3">
+                      <span className="inline-flex w-fit items-center rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-800">
+                        Board
+                      </span>
+                      <span className="max-w-[200px] truncate text-sm font-semibold text-slate-50">
+                        {item.board.title}
+                      </span>
+                    </div>
+                  </button>
+                ) : (
+                  <button
+                    key={item.itemKey}
+                    onClick={() => {
+                      void openReview(item.video);
+                    }}
+                    className="library-unstyled group relative h-[120px] w-[220px] overflow-hidden rounded-2xl border border-gray-200 bg-gray-900 text-left shadow-sm transition hover:border-gray-300 hover:shadow-md sm:h-[130px] sm:w-[240px]"
+                    title={item.video.title}
+                  >
+                    <div className="absolute inset-0">
+                      <Thumbnail video={item.video} />
+                    </div>
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
+                    <div className="relative z-10 flex h-full flex-col justify-between p-3">
+                      <span className="inline-flex w-fit items-center rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-800">
+                        Review
+                      </span>
+                      <span className="max-w-[200px] truncate text-sm font-semibold text-slate-50">
+                        {item.video.title}
+                      </span>
+                    </div>
+                  </button>
+                ),
+              )}
+              {recentItems.length === 0 && (
+                <span className="text-xs text-gray-500">No recent items yet.</span>
+              )}
+            </div>
+          )}
         </div>
         <input
           type="file"
@@ -1051,14 +1201,16 @@ const ProjectWorkspace: React.FC<{
                     <div
                       key={video.id}
                       className="group relative cursor-pointer overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm"
-                      onClick={() => onStartReview(video)}
+                      onClick={() => {
+                        void openReview(video);
+                      }}
                     >
                       <div className="relative aspect-video">
                         <Thumbnail video={video} />
                         <button
                           onClick={(event) => {
                             event.stopPropagation();
-                            onStartReview(video);
+                            void openReview(video);
                           }}
                           className="absolute bottom-2 right-2 rounded-full bg-white/90 p-2 text-gray-700 opacity-90 hover:bg-gray-100 shadow-sm"
                           title="Open"
@@ -1124,13 +1276,15 @@ const ProjectWorkspace: React.FC<{
                         <tr
                           key={video.id}
                           className="cursor-pointer border-t border-gray-200 hover:bg-gray-50"
-                          onClick={() => onStartReview(video)}
+                          onClick={() => {
+                            void openReview(video);
+                          }}
                           role="button"
                           tabIndex={0}
                           onKeyDown={(event) => {
                             if (event.key === 'Enter' || event.key === ' ') {
                               event.preventDefault();
-                              onStartReview(video);
+                              void openReview(video);
                             }
                           }}
                         >
@@ -1245,7 +1399,7 @@ const ProjectWorkspace: React.FC<{
                 <div
                   key={board.id}
                   className="group relative cursor-pointer overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm"
-                  onClick={() => onOpenBoard?.(board.id)}
+                  onClick={() => openBoard(board.id)}
                 >
                   <div className="relative aspect-video">
                     <BoardThumbnail
@@ -1255,7 +1409,7 @@ const ProjectWorkspace: React.FC<{
                     <button
                       onClick={(event) => {
                         event.stopPropagation();
-                        onOpenBoard?.(board.id);
+                        openBoard(board.id);
                       }}
                       className="absolute bottom-2 right-2 rounded-full bg-white/90 p-2 text-gray-700 opacity-90 hover:bg-gray-100 shadow-sm"
                       title="Open"
@@ -1334,13 +1488,13 @@ const ProjectWorkspace: React.FC<{
                     <tr
                       key={board.id}
                       className="cursor-pointer border-t border-gray-200 hover:bg-gray-50"
-                      onClick={() => onOpenBoard?.(board.id)}
+                      onClick={() => openBoard(board.id)}
                       role="button"
                       tabIndex={0}
                       onKeyDown={(event) => {
                         if (event.key === 'Enter' || event.key === ' ') {
                           event.preventDefault();
-                          onOpenBoard?.(board.id);
+                          openBoard(board.id);
                         }
                       }}
                     >

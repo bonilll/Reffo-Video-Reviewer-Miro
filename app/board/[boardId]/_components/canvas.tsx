@@ -129,6 +129,7 @@ export type CanvasProps = {
   userRole?: string;
   onOpenShare?: () => void;
   runtimeMode?: "desktop" | "mobile";
+  publicHomeMode?: boolean;
 };
 
 // Componente SelectionNet semplice
@@ -144,7 +145,13 @@ const SelectionNet = ({ origin, current }: { origin: Point; current: Point }) =>
   );
 };
 
-export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop" }: CanvasProps) => {
+export const Canvas = ({
+  boardId,
+  userRole,
+  onOpenShare,
+  runtimeMode = "desktop",
+  publicHomeMode = false,
+}: CanvasProps) => {
   const isMobileRuntime = runtimeMode === "mobile";
   const layerIds = useStorage((root) => root.layerIds);
   const pencilDraft = useSelf((me) => me.presence.pencilDraft);
@@ -284,9 +291,11 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
   } | null>(null);
   
   // Integrazione persistenza camera con Convex
-  const { savedCamera, hasCameraLoaded } = useCameraPersistence({
+  const cameraPersistenceEnabled = !publicHomeMode;
+  const { hasCameraLoaded } = useCameraPersistence({
     boardId,
     camera,
+    enabled: cameraPersistenceEnabled,
     onCameraLoad: (loadedCamera) => {
       setCamera(loadedCamera);
     }
@@ -297,11 +306,11 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
 
   // SINCRONIZZAZIONE: aggiorna il context ogni volta che la camera locale cambia
   useEffect(() => {
-    // Solo sincronizza dopo che la camera è stata caricata da Convex
-    if (hasCameraLoaded) {
+    // Homepage public mural does not persist camera, so it is always ready.
+    if (cameraPersistenceEnabled ? hasCameraLoaded : true) {
       setContextCamera(camera);
     }
-  }, [camera, setContextCamera, hasCameraLoaded]);
+  }, [camera, setContextCamera, hasCameraLoaded, cameraPersistenceEnabled]);
 
 
 
@@ -4866,9 +4875,18 @@ export const Canvas = ({ boardId, userRole, onOpenShare, runtimeMode = "desktop"
         } ${isTouchDevice ? 'mobile-canvas' : ''}`}
         style={{ backgroundColor: gridConfig.backgroundColor }}
       >
-      <Info boardId={boardId} projectId={projectId} compactMobile={isMobileBoardUI} />
+      <Info
+        boardId={boardId}
+        projectId={projectId}
+        compactMobile={isMobileBoardUI}
+        publicHomeMode={publicHomeMode}
+      />
       {!isMobileBoardUI && (
-        <Participants boardId={boardId} onOpenShare={onOpenShare} />
+        <Participants
+          boardId={boardId}
+          onOpenShare={onOpenShare}
+          publicHomeMode={publicHomeMode}
+        />
       )}
       {!isMobileBoardUI && (
         <SecureToolbar

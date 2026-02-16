@@ -40,17 +40,17 @@ const getApiBase = () => {
 
 const fetchMultipart = async (path: string, body: unknown) => {
   const token = await getConvexAuthToken();
-  if (!token) {
-    throw new Error("Missing Clerk token for upload. Check CLERK_JWT_TEMPLATE=convex and Clerk configuration.");
-  }
   const base = getApiBase();
   const url = base ? `${base}${path}` : path;
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+  };
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
   const res = await fetch(url, {
     method: "POST",
-    headers: {
-      "content-type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
+    headers,
     body: JSON.stringify(body),
   });
   if (!res.ok) {
@@ -74,7 +74,13 @@ export async function initMultipart(params: {
   return fetchMultipart("/api/upload/multipart/init", params);
 }
 
-export async function signPart(params: { key: string; uploadId: string; partNumber: number; contentType: string }): Promise<{ url: string }> {
+export async function signPart(params: {
+  key: string;
+  uploadId: string;
+  partNumber: number;
+  contentType: string;
+  boardId?: string;
+}): Promise<{ url: string }> {
   return fetchMultipart("/api/upload/multipart/sign-part", params);
 }
 
@@ -94,7 +100,7 @@ export async function completeMultipart(params: {
   return fetchMultipart("/api/upload/multipart/complete", params);
 }
 
-export async function abortMultipart(params: { key: string; uploadId: string }) {
+export async function abortMultipart(params: { key: string; uploadId: string; boardId?: string }) {
   return fetchMultipart("/api/upload/multipart/abort", params);
 }
 
@@ -191,7 +197,13 @@ export async function uploadFileMultipart(
       const uploadPromise = (async () => {
         // Usa upload diretto a S3/MinIO tramite presigned URL
         // Questo bypassa Next.js ed evita il limite di 4.5MB
-        const { url } = await signPart({ key: init.key, uploadId: init.uploadId, partNumber: currentPartNumber, contentType });
+        const { url } = await signPart({
+          key: init.key,
+          uploadId: init.uploadId,
+          partNumber: currentPartNumber,
+          contentType,
+          boardId: opts.boardId,
+        });
         
         const eTag = await uploadPartWithRetry(url, blob, contentType, currentPartNumber);
         parts.push({ partNumber: currentPartNumber, eTag });
@@ -238,7 +250,9 @@ export async function uploadFileMultipart(
     return completedResult;
   } catch (e) {
     console.error(`❌ Upload failed, aborting multipart upload:`, e);
-    try { await abortMultipart({ key: init.key, uploadId: init.uploadId }); } catch {}
+    try {
+      await abortMultipart({ key: init.key, uploadId: init.uploadId, boardId: opts.boardId });
+    } catch {}
     throw e;
   }
 }

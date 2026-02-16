@@ -22,6 +22,11 @@
   
 }
 
+/* Homepage-only public mural adjustments */
+.public-mural-home .toolbar-container {
+  bottom: calc(5.75rem + env(safe-area-inset-bottom, 0px)) !important;
+}
+
 /* White thumb for range sliders used in editor */
 .range-thumb-white::-webkit-slider-thumb {
   -webkit-appearance: none;

@@ -5,6 +5,10 @@ import { getCurrentUserDoc, getCurrentUserOrThrow } from "./utils/auth";
 
 type BoardRole = "owner" | "editor" | "viewer";
 
+const PUBLIC_MURAL_SYSTEM_CLERK_ID = "__public_mural_system__";
+const PUBLIC_MURAL_SYSTEM_EMAIL = "public-mural@reffo.local";
+const PUBLIC_MURAL_SYSTEM_NAME = "Reffo Public Mural";
+
 async function getBoardRole(
   ctx: any,
   boardId: Id<"boards">,
@@ -35,6 +39,28 @@ async function getBoardRole(
   return null;
 }
 
+const getOrCreatePublicMuralSystemUser = async (ctx: any) => {
+  const existing = await ctx.db
+    .query("users")
+    .withIndex("byClerkId", (q: any) => q.eq("clerkId", PUBLIC_MURAL_SYSTEM_CLERK_ID))
+    .unique();
+
+  if (existing) {
+    return existing;
+  }
+
+  const now = Date.now();
+  const userId = await ctx.db.insert("users", {
+    clerkId: PUBLIC_MURAL_SYSTEM_CLERK_ID,
+    email: PUBLIC_MURAL_SYSTEM_EMAIL,
+    name: PUBLIC_MURAL_SYSTEM_NAME,
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  return await ctx.db.get(userId);
+};
+
 export const create = mutation({
   args: {
     boardId: v.id("boards"),
@@ -47,10 +73,26 @@ export const create = mutation({
     isFromLibrary: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
-    const user = await getCurrentUserOrThrow(ctx);
-    const role = await getBoardRole(ctx, args.boardId, user);
-    if (!role) throw new ConvexError("FORBIDDEN");
-    if (role === "viewer") throw new ConvexError("READ_ONLY");
+    const board = await ctx.db.get(args.boardId);
+    if (!board) {
+      throw new ConvexError("BOARD_NOT_FOUND");
+    }
+
+    let user = await getCurrentUserDoc(ctx);
+    if (!board.isPublicMural) {
+      if (!user) {
+        throw new ConvexError("NOT_AUTHENTICATED");
+      }
+      const role = await getBoardRole(ctx, args.boardId, user);
+      if (!role) throw new ConvexError("FORBIDDEN");
+      if (role === "viewer") throw new ConvexError("READ_ONLY");
+    } else if (!user) {
+      user = await getOrCreatePublicMuralSystemUser(ctx);
+    }
+
+    if (!user) {
+      throw new ConvexError("NOT_PROVISIONED");
+    }
 
     const now = Date.now();
     const mediaId = await ctx.db.insert("media", {
@@ -123,6 +165,16 @@ export const getByBoard = query({
     boardId: v.id("boards"),
   },
   handler: async (ctx, args) => {
+    const board = await ctx.db.get(args.boardId);
+    if (!board) return [];
+
+    if (board.isPublicMural) {
+      return await ctx.db
+        .query("media")
+        .withIndex("byBoard", (q) => q.eq("boardId", args.boardId))
+        .collect();
+    }
+
     const user = await getCurrentUserDoc(ctx);
     if (!user) return [];
 

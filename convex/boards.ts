@@ -298,9 +298,8 @@ export const getBoardPermissions = query({
     boardId: v.id("boards"),
   },
   handler: async (ctx, args): Promise<BoardPermissionResult> => {
-    const user = await getCurrentUserDoc(ctx);
-
-    if (!user) {
+    const board = await ctx.db.get(args.boardId);
+    if (!board) {
       return {
         canRead: false,
         canWrite: false,
@@ -313,8 +312,22 @@ export const getBoardPermissions = query({
       };
     }
 
-    const board = await ctx.db.get(args.boardId);
-    if (!board) {
+    if (board.isPublicMural) {
+      return {
+        canRead: true,
+        canWrite: true,
+        canShare: false,
+        canDelete: false,
+        canAdmin: false,
+        userRole: "editor",
+        resourceExists: true,
+        projectId: board.projectId ?? null,
+      };
+    }
+
+    const user = await getCurrentUserDoc(ctx);
+
+    if (!user) {
       return {
         canRead: false,
         canWrite: false,
@@ -322,8 +335,8 @@ export const getBoardPermissions = query({
         canDelete: false,
         canAdmin: false,
         userRole: null,
-        resourceExists: false,
-        projectId: null,
+        resourceExists: true,
+        projectId: board.projectId ?? null,
       };
     }
 
