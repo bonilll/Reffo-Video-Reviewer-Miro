@@ -47,6 +47,11 @@ export function AuthLanding({
   footerCopy,
   onNavigate,
 }: AuthLandingProps) {
+  const supportEmail =
+    ((import.meta as any)?.env?.VITE_SUPPORT_EMAIL as string | undefined) || "support@reffo.studio";
+  const abuseEmail =
+    ((import.meta as any)?.env?.VITE_ABUSE_EMAIL as string | undefined) || "abuse@reffo.studio";
+
   const legalLabels = useMemo(
     () => ({
       privacy: footerCopy.privacy || "Privacy Policy",
@@ -147,7 +152,7 @@ export function AuthLanding({
 
       <div className="pointer-events-none absolute left-1/2 top-4 z-50 hidden w-[min(44rem,calc(100vw-24rem))] -translate-x-1/2 md:block">
         <div className="rounded-2xl border border-slate-200/80 bg-white/90 px-5 py-2 text-center text-sm font-medium text-slate-700 shadow-xl shadow-slate-200/40 backdrop-blur-md">
-          The Mural is an open public board where anyone can share favorite design pieces, post freely, and build ideas together in real time.
+          The Mural is an open public board. Do not post unlawful content or third-party confidential data. Report violations to {abuseEmail}.
         </div>
       </div>
 
@@ -218,6 +223,9 @@ export function AuthLanding({
 
           <button
             type="button"
+            onClick={() => {
+              window.location.href = `mailto:${supportEmail}?subject=${encodeURIComponent('Reffo support request')}`;
+            }}
             className="inline-flex items-center gap-2 rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
           >
             <Mail className="h-4 w-4" />

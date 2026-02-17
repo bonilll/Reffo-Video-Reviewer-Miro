@@ -5,7 +5,7 @@ import { getServicesByCategory } from '../../legal/services';
 
 const ServiceList: React.FC<{ services?: string[] }> = ({ services }) => {
   if (!services || services.length === 0) {
-    return <p className="text-xs text-gray-500">TODO – list third-party services in this category.</p>;
+    return <p className="text-xs text-gray-500">No services are currently active in this category.</p>;
   }
   return (
     <ul className="list-disc pl-5 text-xs text-gray-600">

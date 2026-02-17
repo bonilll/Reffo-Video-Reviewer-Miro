@@ -22,20 +22,18 @@ import type { Id } from './convex/_generated/dataModel';
 import logo from './assets/logo.svg';
 import googleLogo from './assets/google.svg';
 import { useThemePreference, ThemePref } from './useTheme';
-import { Bell, Menu, X } from 'lucide-react';
+import { Bell, Loader2, Menu, X } from 'lucide-react';
 import { useConsent } from './contexts/ConsentContext';
 import PrivacyPolicy from './components/legal/PrivacyPolicy';
 import CookiePolicy from './components/legal/CookiePolicy';
 import TermsOfUse from './components/legal/TermsOfUse';
 import { CookieSettingsTrigger } from './components/legal/CookieSettingsTrigger';
 import { LanguageSwitcher } from './components/legal/LanguageSwitcher';
+import { LEGAL_DOCUMENT_VERSIONS } from './legal/legalContent';
 import { BoardPageWrapper } from './components/board/BoardPageWrapper';
 import { AuthLanding } from './components/marketing/AuthLanding';
-// Lottie assets as static URLs to ensure they are included in Vite build
-import lottieLoaderRaw from './assets/animations/Loader.json?raw';
-import lottieImageLoaderRaw from './assets/animations/imageloader.json?raw';
-const lottieLoader = `data:application/json;charset=utf-8,${encodeURIComponent(lottieLoaderRaw as unknown as string)}`;
-const lottieImageLoader = `data:application/json;charset=utf-8,${encodeURIComponent(lottieImageLoaderRaw as unknown as string)}`;
+
+type LegalDocumentType = keyof typeof LEGAL_DOCUMENT_VERSIONS;
 
 type UploadPayload = {
   storageKey: string;
@@ -65,6 +63,16 @@ type Route =
   | { name: 'share'; token: string }
   | { name: 'legal'; page: LegalPage }
   | { name: 'edit'; id: string };
+
+const REQUIRED_LEGAL_DOCUMENTS: Array<{
+  type: LegalDocumentType;
+  version: string;
+  path: '/privacy' | '/cookie-policy' | '/terms';
+}> = [
+  { type: 'privacy_policy', version: LEGAL_DOCUMENT_VERSIONS.privacy_policy, path: '/privacy' },
+  { type: 'cookie_policy', version: LEGAL_DOCUMENT_VERSIONS.cookie_policy, path: '/cookie-policy' },
+  { type: 'terms_of_use', version: LEGAL_DOCUMENT_VERSIONS.terms_of_use, path: '/terms' },
+];
 
 type NotificationRecord = {
   id: string;
@@ -232,11 +240,17 @@ const App: React.FC = () => {
   const [pendingVerificationEmail, setPendingVerificationEmail] = useState<string | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
   const [authLoading, setAuthLoading] = useState(false);
+  const [authLegalAccepted, setAuthLegalAccepted] = useState(false);
+  const [authAgeConfirmed, setAuthAgeConfirmed] = useState(false);
+  const [acceptingLegalInAuth, setAcceptingLegalInAuth] = useState(false);
+  const [legalGateAccepted, setLegalGateAccepted] = useState(false);
+  const [legalGateError, setLegalGateError] = useState<string | null>(null);
+  const [legalGateLoading, setLegalGateLoading] = useState(false);
   const MIRO_SESSION_STORAGE_KEY = 'reffo_miro_session_id'; // legacy, no longer used
   const { isSignedIn } = useUser();
   const { signIn, isLoaded: isSignInLoaded } = useSignIn();
   const { signUp, isLoaded: isSignUpLoaded } = useSignUp();
-  const { setActive } = useClerk();
+  const { setActive, signOut } = useClerk();
   // Access potential UI helpers in a version-tolerant way
   const clerkAny = useClerk() as any;
   const consent = useConsent();
@@ -249,6 +263,10 @@ const App: React.FC = () => {
   const sharedProjectsQuery = useQuery(api.shares.projectsSharedWithMe, currentUser ? {} : undefined);
   const sharedVideosQuery = useQuery(api.shares.videosSharedWithMe, currentUser ? {} : undefined);
   const notifications = useQuery(api.notifications.list, {}) as NotificationRecord[] | undefined;
+  const legalAcceptances = useQuery(
+    api.compliance.getLegalAcceptances,
+    isSignedIn ? { visitorId: consent.visitorId ?? undefined } : undefined
+  ) as Record<string, { documentVersion: string; acceptedAt: number }> | undefined;
 
   // Build projects/videos and quick lookup maps before using in notifications
   const projects: Project[] = useMemo(() => {
@@ -376,7 +394,39 @@ const App: React.FC = () => {
   const markNotificationRead = useMutation(api.notifications.markRead);
   const markAllNotificationsRead = useMutation(api.notifications.markAllRead);
   const recordShareAccess = useMutation(api.notifications.recordShareAccess);
+  const acceptLegalDocument = useMutation(api.compliance.acceptLegalDocument);
   const hasUnreadNotifications = useMemo(() => notifications?.some((n) => !n.readAt) ?? false, [notifications]);
+
+  const acceptLegalDocuments = useCallback(
+    async (docs: Array<{ type: LegalDocumentType; version: string }>) => {
+      for (const doc of docs) {
+        await acceptLegalDocument({
+          documentType: doc.type,
+          documentVersion: doc.version,
+          visitorId: consent.visitorId ?? undefined,
+          userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : undefined,
+        });
+      }
+    },
+    [acceptLegalDocument, consent.visitorId],
+  );
+
+  const missingLegalDocuments = useMemo(() => {
+    if (!isSignedIn || !currentUser || !legalAcceptances) return [] as typeof REQUIRED_LEGAL_DOCUMENTS;
+    return REQUIRED_LEGAL_DOCUMENTS.filter((doc) => {
+      const acceptance = legalAcceptances[doc.type];
+      return acceptance?.documentVersion !== doc.version;
+    });
+  }, [isSignedIn, currentUser, legalAcceptances]);
+
+  const shouldShowLegalGate =
+    Boolean(
+      isSignedIn &&
+      currentUser &&
+      legalAcceptances !== undefined &&
+      missingLegalDocuments.length > 0 &&
+      route.name !== 'legal'
+    );
 
   const handleCreateProject = useCallback(
     async (name: string) => {
@@ -522,7 +572,15 @@ const App: React.FC = () => {
 
   
 
-  const dataLoading = Boolean(currentUser) && (projectsQuery === undefined || videosQuery === undefined);
+  const legalDataLoading = Boolean(isSignedIn && currentUser && legalAcceptances === undefined);
+  const dataLoading = Boolean(currentUser) && (projectsQuery === undefined || videosQuery === undefined || legalDataLoading);
+
+  useEffect(() => {
+    if (shouldShowLegalGate) return;
+    setLegalGateAccepted(false);
+    setLegalGateError(null);
+    setLegalGateLoading(false);
+  }, [shouldShowLegalGate]);
 
   // Legacy Miro/OAuth popup flows removed for a simpler, robust login.
 
@@ -567,6 +625,16 @@ const App: React.FC = () => {
   }, [route]);
   // Removed popup-based OAuth; rely on standard redirect flows.
 
+  const recordAuthLegalAcceptance = useCallback(async () => {
+    const docs = REQUIRED_LEGAL_DOCUMENTS.map((doc) => ({ type: doc.type, version: doc.version }));
+    setAcceptingLegalInAuth(true);
+    try {
+      await acceptLegalDocuments(docs);
+    } finally {
+      setAcceptingLegalInAuth(false);
+    }
+  }, [acceptLegalDocuments]);
+
   const handleGoogleSignIn = useCallback(async () => {
     const oauthParams = {
       strategy: 'oauth_google' as const,
@@ -582,6 +650,14 @@ const App: React.FC = () => {
       setAuthError(null);
       setAuthLoading(true);
 
+      if (shouldUseSignUpFlow) {
+        if (!authLegalAccepted || !authAgeConfirmed) {
+          setAuthError('To create an account you must accept Terms/Privacy/Cookie Policy and confirm you are at least 14 years old.');
+          return;
+        }
+        await recordAuthLegalAcceptance();
+      }
+
       // When user is on sign-up mode, start from signUp resource.
       // This makes the "register with Google" intent explicit.
       if (shouldUseSignUpFlow) {
@@ -593,15 +669,29 @@ const App: React.FC = () => {
     } catch (err) {
       console.error('Google auth redirect failed', err);
       setAuthError(getClerkErrorMessage(err));
+    } finally {
       setAuthLoading(false);
     }
-  }, [authMode, isSignInLoaded, signIn, isSignUpLoaded, signUp]);
+  }, [
+    authMode,
+    isSignInLoaded,
+    signIn,
+    isSignUpLoaded,
+    signUp,
+    authLegalAccepted,
+    authAgeConfirmed,
+    recordAuthLegalAcceptance,
+  ]);
 
   const handleSwitchAuthMode = useCallback((mode: 'signin' | 'signup') => {
     setAuthMode(mode);
     setAuthError(null);
     setVerificationCode('');
     setPendingVerificationEmail(null);
+    if (mode !== 'signup') {
+      setAuthLegalAccepted(false);
+      setAuthAgeConfirmed(false);
+    }
   }, []);
 
   const handleEmailSignIn = useCallback(async () => {
@@ -649,9 +739,14 @@ const App: React.FC = () => {
       setAuthError('Passwords must match.');
       return;
     }
+    if (!authLegalAccepted || !authAgeConfirmed) {
+      setAuthError('To create an account you must accept Terms/Privacy/Cookie Policy and confirm you are at least 14 years old.');
+      return;
+    }
     setAuthLoading(true);
     setAuthError(null);
     try {
+      await recordAuthLegalAcceptance();
       await signUp.create({ emailAddress, password: authPassword });
       await signUp.prepareEmailAddressVerification({ strategy: 'email_code' });
       setPendingVerificationEmail(emailAddress);
@@ -662,7 +757,16 @@ const App: React.FC = () => {
     } finally {
       setAuthLoading(false);
     }
-  }, [authEmail, authPassword, authConfirmPassword, isSignUpLoaded, signUp]);
+  }, [
+    authEmail,
+    authPassword,
+    authConfirmPassword,
+    isSignUpLoaded,
+    signUp,
+    authLegalAccepted,
+    authAgeConfirmed,
+    recordAuthLegalAcceptance,
+  ]);
 
   const handleEmailVerification = useCallback(async () => {
     if (!isSignUpLoaded || !signUp) return;
@@ -697,6 +801,24 @@ const App: React.FC = () => {
     }
   }, [isSignUpLoaded, signUp]);
 
+  const handleAcceptLatestLegal = useCallback(async () => {
+    if (!legalGateAccepted) {
+      setLegalGateError('You need to accept the latest legal documents to continue.');
+      return;
+    }
+    if (missingLegalDocuments.length === 0) return;
+    setLegalGateLoading(true);
+    setLegalGateError(null);
+    try {
+      await acceptLegalDocuments(missingLegalDocuments.map((doc) => ({ type: doc.type, version: doc.version })));
+      setLegalGateAccepted(false);
+    } catch (error) {
+      setLegalGateError(getClerkErrorMessage(error));
+    } finally {
+      setLegalGateLoading(false);
+    }
+  }, [legalGateAccepted, missingLegalDocuments, acceptLegalDocuments]);
+
   const handleAuthSubmit = useCallback(
     (event: React.FormEvent<HTMLFormElement>) => {
       event.preventDefault();
@@ -725,7 +847,7 @@ const App: React.FC = () => {
     const submitDisabled = authMode === 'signin'
       ? !authEmail.trim() || !authPassword || authLoading
       : authMode === 'signup'
-        ? !authEmail.trim() || !authPassword || !authConfirmPassword || authLoading
+        ? !authEmail.trim() || !authPassword || !authConfirmPassword || !authLegalAccepted || !authAgeConfirmed || authLoading || acceptingLegalInAuth
         : false;
     const verificationDisabled = authLoading || verificationCode.trim().length === 0;
     const sectionSpacing = compact ? 'mt-4 space-y-3' : 'mt-6 space-y-4';
@@ -796,23 +918,61 @@ const App: React.FC = () => {
                 />
               </div>
               {authMode === 'signup' && (
-                <div className="space-y-1">
-                  <label className={compact ? 'text-xs text-gray-600' : 'text-sm text-gray-700'} htmlFor={`auth-confirm-${compact ? 'compact' : 'full'}`}>
-                    Confirm password
+                <div className="space-y-3">
+                  <div className="space-y-1">
+                    <label className={compact ? 'text-xs text-gray-600' : 'text-sm text-gray-700'} htmlFor={`auth-confirm-${compact ? 'compact' : 'full'}`}>
+                      Confirm password
+                    </label>
+                    <input
+                      id={`auth-confirm-${compact ? 'compact' : 'full'}`}
+                      type="password"
+                      autoComplete="new-password"
+                      className={inputClass}
+                      value={authConfirmPassword}
+                      onChange={(e) => setAuthConfirmPassword(e.target.value)}
+                      placeholder="Repeat password"
+                    />
+                  </div>
+                  <label className="flex items-start gap-2 text-xs text-gray-600">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 h-4 w-4 rounded border-gray-300"
+                      checked={authLegalAccepted}
+                      onChange={(e) => setAuthLegalAccepted(e.target.checked)}
+                    />
+                    <span>
+                      I accept the{' '}
+                      <button type="button" onClick={() => navigate('/terms')} className="underline underline-offset-2">
+                        {consentText.footer.terms}
+                      </button>
+                      ,{' '}
+                      <button type="button" onClick={() => navigate('/privacy')} className="underline underline-offset-2">
+                        {consentText.footer.privacy}
+                      </button>{' '}
+                      and{' '}
+                      <button type="button" onClick={() => navigate('/cookie-policy')} className="underline underline-offset-2">
+                        {consentText.footer.cookies}
+                      </button>
+                      .
+                    </span>
                   </label>
-                  <input
-                    id={`auth-confirm-${compact ? 'compact' : 'full'}`}
-                    type="password"
-                    autoComplete="new-password"
-                    className={inputClass}
-                    value={authConfirmPassword}
-                    onChange={(e) => setAuthConfirmPassword(e.target.value)}
-                    placeholder="Repeat password"
-                  />
+                  <label className="flex items-start gap-2 text-xs text-gray-600">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 h-4 w-4 rounded border-gray-300"
+                      checked={authAgeConfirmed}
+                      onChange={(e) => setAuthAgeConfirmed(e.target.checked)}
+                    />
+                    <span>I confirm I am at least 14 years old and legally allowed to use this service.</span>
+                  </label>
                 </div>
               )}
               <button type="submit" className={buttonClass} disabled={submitDisabled}>
-                {authLoading ? 'Please wait…' : authMode === 'signin' ? 'Sign in with email' : 'Create free account'}
+                {authLoading || acceptingLegalInAuth
+                  ? 'Please wait…'
+                  : authMode === 'signin'
+                    ? 'Sign in with email'
+                    : 'Create free account'}
               </button>
             </>
           )}
@@ -865,9 +1025,10 @@ const App: React.FC = () => {
   );
 
   const renderLegalPage = () => {
+    const pageToRender: LegalPage = route.name === 'legal' ? route.page : legalPage;
     let Component: React.ReactNode = null;
-    if (legalPage === 'privacy') Component = <PrivacyPolicy />;
-    else if (legalPage === 'cookies') Component = <CookiePolicy />;
+    if (pageToRender === 'privacy') Component = <PrivacyPolicy />;
+    else if (pageToRender === 'cookies') Component = <CookiePolicy />;
     else Component = <TermsOfUse />;
     const navItems: Array<{ label: string; page: LegalPage; path: string }> = [
       { label: consentText.footer.privacy, page: 'privacy', path: '/privacy' },
@@ -875,15 +1036,15 @@ const App: React.FC = () => {
       { label: consentText.footer.terms, page: 'terms', path: '/terms' },
     ];
     return (
-      <div className="min-h-screen bg-gradient-to-b from-gray-900 via-gray-950 to-black text-white">
+      <div className="min-h-screen bg-white text-gray-900">
         <div className="mx-auto max-w-6xl px-4 py-6">
-          <header className="flex flex-col gap-4 border-b border-white/10 pb-4 md:flex-row md:items-center md:justify-between">
+          <header className="flex flex-col gap-4 border-b border-gray-200 pb-4 md:flex-row md:items-center md:justify-between">
             <div>
               <div className="flex items-center gap-2">
                 <img src={logo} alt="Reffo" className="h-7 w-auto" />
                 <span className="text-lg font-semibold">Reffo</span>
               </div>
-              <p className="text-xs text-white/60">Legal documentation</p>
+              <p className="text-xs text-gray-500">Legal documentation</p>
             </div>
             <nav className="flex flex-wrap items-center gap-2 text-xs">
               {navItems.map((item) => (
@@ -891,48 +1052,27 @@ const App: React.FC = () => {
                   key={item.page}
                   onClick={() => navigate(item.path)}
                   className={`rounded-full px-3 py-1.5 ${
-                    legalPage === item.page ? 'bg-white/20 text-white' : 'bg-white/5 text-white/70 hover:bg-white/10'
+                    pageToRender === item.page
+                      ? 'bg-gray-900 text-white'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                   }`}
                 >
                   {item.label}
                 </button>
               ))}
-              <LanguageSwitcher compact className="ml-2 flex items-center gap-2" />
+              <LanguageSwitcher compact tone="light" className="ml-2 flex items-center gap-2 text-gray-700" />
             </nav>
           </header>
           <div className="py-6">
             {Component}
             <div className="mt-8 text-center">
-              <CookieSettingsTrigger variant="footer" className="text-xs underline text-white/80 hover:text-white" />
+              <CookieSettingsTrigger variant="footer" className="text-xs underline text-gray-700 hover:text-gray-900" />
             </div>
           </div>
         </div>
       </div>
     );
   };
-
-  if (route.name === 'ssoCallback') {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 px-6 py-12">
-        <div className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-6 shadow-2xl">
-          <div className="space-y-3 text-center">
-            <h1 className="text-xl font-semibold text-gray-900">Completing sign-in</h1>
-            <p className="text-sm text-gray-600">One moment while we finish your Google authentication.</p>
-          </div>
-          <AuthenticateWithRedirectCallback
-            signInFallbackRedirectUrl="/workspaces"
-            signInForceRedirectUrl="/workspaces"
-            signUpFallbackRedirectUrl="/workspaces"
-            signUpForceRedirectUrl="/workspaces"
-          />
-        </div>
-      </div>
-    );
-  }
-
-  if (view === 'legal') {
-    return renderLegalPage();
-  }
 
   // Route → internal state sync
   useEffect(() => {
@@ -1195,6 +1335,29 @@ const App: React.FC = () => {
   const preference: ThemePref = (userSettings?.workspace.theme ?? 'system') as ThemePref;
   const isDark = useThemePreference(preference);
 
+  if (route.name === 'ssoCallback') {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 px-6 py-12">
+        <div className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-6 shadow-2xl">
+          <div className="space-y-3 text-center">
+            <h1 className="text-xl font-semibold text-gray-900">Completing sign-in</h1>
+            <p className="text-sm text-gray-600">One moment while we finish your Google authentication.</p>
+          </div>
+          <AuthenticateWithRedirectCallback
+            signInFallbackRedirectUrl="/workspaces"
+            signInForceRedirectUrl="/workspaces"
+            signUpFallbackRedirectUrl="/workspaces"
+            signUpForceRedirectUrl="/workspaces"
+          />
+        </div>
+      </div>
+    );
+  }
+
+  if (route.name === 'legal' || view === 'legal') {
+    return renderLegalPage();
+  }
+
   return (
     // Rely on body.theme-dark / body.theme-light from useThemePreference + index.css
     <div className={"min-h-screen flex flex-col transition-colors"}>
@@ -1246,12 +1409,7 @@ const App: React.FC = () => {
         {currentUser === undefined || isEnsuringUser ? (
           <div className="flex-1 flex items-center justify-center p-6">
             <div className="flex flex-col items-center gap-4 text-white/70">
-              <lottie-player
-                src={lottieLoader}
-                autoplay
-                loop
-                style={{ width: '140px', height: '140px' }}
-              ></lottie-player>
+              <Loader2 size={48} className="animate-spin" />
               <p>Linking your account…</p>
             </div>
           </div>
@@ -1269,14 +1427,66 @@ const App: React.FC = () => {
               </button>
             </div>
           </div>
+        ) : shouldShowLegalGate ? (
+          <div className="flex-1 flex items-center justify-center bg-gray-50 p-6">
+            <div className="w-full max-w-2xl rounded-3xl border border-gray-200 bg-white p-8 shadow-2xl">
+              <h2 className="text-2xl font-semibold text-gray-900">Legal update required</h2>
+              <p className="mt-3 text-sm text-gray-700">
+                Before continuing, review and accept the updated legal documents.
+              </p>
+              <div className="mt-5 flex flex-wrap gap-2">
+                {REQUIRED_LEGAL_DOCUMENTS.map((doc) => (
+                  <button
+                    key={doc.type}
+                    type="button"
+                    onClick={() => navigate(doc.path)}
+                    className="rounded-full border border-gray-300 bg-white px-4 py-2 text-xs font-semibold text-gray-800 hover:bg-gray-50"
+                  >
+                    {doc.path === '/privacy'
+                      ? consentText.footer.privacy
+                      : doc.path === '/cookie-policy'
+                        ? consentText.footer.cookies
+                        : consentText.footer.terms}
+                  </button>
+                ))}
+              </div>
+              <label className="mt-6 flex items-start gap-2 text-sm text-gray-700">
+                <input
+                  type="checkbox"
+                  className="mt-1 h-4 w-4 rounded border-gray-300"
+                  checked={legalGateAccepted}
+                  onChange={(e) => setLegalGateAccepted(e.target.checked)}
+                />
+                <span>
+                  I confirm that I have read and accept the latest versions of the Terms, Privacy Policy, and Cookie Policy.
+                </span>
+              </label>
+              {legalGateError && <p className="mt-3 text-sm text-rose-600">{legalGateError}</p>}
+              <div className="mt-6 flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  onClick={() => void handleAcceptLatestLegal()}
+                  disabled={legalGateLoading}
+                  className="rounded-full border border-gray-900 bg-gray-900 px-5 py-2 text-sm font-semibold text-white hover:bg-black disabled:opacity-60"
+                >
+                  {legalGateLoading ? 'Saving…' : 'Accept and continue'}
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try { localStorage.removeItem('reffo_miro_session_id'); } catch {}
+                    await signOut();
+                  }}
+                  className="rounded-full border border-gray-300 bg-white px-5 py-2 text-sm font-semibold text-gray-800 hover:bg-gray-50"
+                >
+                  Sign out
+                </button>
+              </div>
+            </div>
+          </div>
         ) : dataLoading ? (
           <div className="flex-1 flex items-center justify-center text-white/70">
-            <lottie-player
-              src={lottieLoader}
-              autoplay
-              loop
-              style={{ width: '140px', height: '140px' }}
-            ></lottie-player>
+            <Loader2 size={48} className="animate-spin" />
           </div>
         ) : view === 'reviewer' && currentVideo ? (
           <VideoReviewer
@@ -1412,11 +1622,15 @@ const App: React.FC = () => {
                     }
                   />
                 )}
-                <LanguageSwitcher compact className={
-                  isDark
-                    ? 'flex items-center gap-2 text-white/70'
-                    : 'flex items-center gap-2 text-gray-700'
-                } />
+                <LanguageSwitcher
+                  compact
+                  tone={isDark ? 'dark' : 'light'}
+                  className={
+                    isDark
+                      ? 'flex items-center gap-2 text-white/70'
+                      : 'flex items-center gap-2 text-gray-700'
+                  }
+                />
               </div>
             </footer>
           </div>

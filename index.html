@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
   <head>
@@ -8,8 +7,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#111827" />
     <meta name="robots" content="index,follow" data-seo="robots" />
-    <!-- Miro Web SDK v2 -->
-    <script src="https://miro.com/app/static/sdk/v2/miro.js"></script>
+
     <title data-seo="title">Reffo</title>
     <meta
       name="description"
@@ -17,6 +15,7 @@
       data-seo="description"
     />
     <link rel="canonical" href="https://reffo.studio/" data-seo="canonical" />
+
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Reffo" />
     <meta property="og:title" content="Reffo" data-seo="og:title" />
@@ -27,6 +26,7 @@
     />
     <meta property="og:url" content="https://reffo.studio/" data-seo="og:url" />
     <meta property="og:image" content="/icon.svg" data-seo="og:image" />
+
     <meta name="twitter:card" content="summary" />
     <meta name="twitter:title" content="Reffo" data-seo="twitter:title" />
     <meta
@@ -35,6 +35,7 @@
       data-seo="twitter:description"
     />
     <meta name="twitter:image" content="/icon.svg" data-seo="twitter:image" />
+
     <script type="application/ld+json" data-seo="jsonld">
       {
         "@context": "https://schema.org",
@@ -45,7 +46,6 @@
         "description": "Collaborative video review with annotations, threaded comments, and frame-accurate feedback."
       }
     </script>
-    <script src="https://unpkg.com/@lottiefiles/lottie-player@latest/dist/lottie-player.js" defer></script>
   </head>
   <body class="antialiased">
     <script>
@@ -54,330 +54,12 @@
           var pref = localStorage.getItem('reffo:theme') || 'system';
           var dark = pref === 'dark' || (pref === 'system' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
           document.body.classList.add(dark ? 'theme-dark' : 'theme-light');
-        } catch (e) {
-          // default to light if anything goes wrong
+        } catch (_) {
           document.body.classList.add('theme-light');
         }
       })();
-      // Miro SDK v2 helpers and flows
-      (function() {
-        try {
-          if (window.__reffoCleanMiro) { return; }
-          if (window.miro && typeof window.miro.onReady === 'function') {
-            window.miro.onReady(async () => {
-              const ui = window.miro.board.ui;
-
-              // Helper: get center of viewport
-              async function getViewportCenter() {
-                try {
-                  if (window.miro.board.viewport && typeof window.miro.board.viewport.get === 'function') {
-                    const vp = await window.miro.board.viewport.get();
-                    return { x: vp.x + vp.width / 2, y: vp.y + vp.height / 2 };
-                  }
-                } catch (e) {}
-                return { x: 0, y: 0 };
-              }
-
-              function escapeHtml(str) {
-                try {
-                  return String(str)
-                    .replace(/&/g, '&amp;')
-                    .replace(/</g, '&lt;')
-                    .replace(/>/g, '&gt;')
-                    .replace(/"/g, '&quot;')
-                    .replace(/'/g, '&#039;');
-                } catch (e) { return String(str); }
-              }
-
-              // Helper: ask for link with a minimal custom modal
-              function askForLink(initialValue = '') {
-                return new Promise((resolve) => {
-                  const overlay = document.createElement('div');
-                  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);backdrop-filter:blur(4px);z-index:9999';
-                  const box = document.createElement('div');
-                  box.style.cssText = 'position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(520px,92vw);padding:16px;border-radius:12px;border:1px solid rgba(255,255,255,.2);background:#111;color:#fff;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;';
-                  box.innerHTML = '<div style="font-weight:700;margin-bottom:8px">Open in Reffo</div>'+
-                                  '<div style="font-size:12px;opacity:.8;margin-bottom:8px">Paste a share link (https://…/share/{token} or /share/{token})</div>';
-                  const input = document.createElement('input');
-                  input.type = 'text'; input.value = initialValue; input.placeholder = 'https://…/share/abc123 or /share/abc123';
-                  input.style.cssText = 'width:100%;padding:10px 12px;border-radius:10px;border:1px solid rgba(255,255,255,.2);background:#161616;color:#fff;outline:none;';
-                  const row = document.createElement('div');
-                  row.style.cssText = 'display:flex;gap:8px;margin-top:12px;justify-content:flex-end;';
-                  const cancel = document.createElement('button');
-                  cancel.textContent = 'Cancel'; cancel.style.cssText = 'padding:8px 12px;border-radius:999px;border:1px solid rgba(255,255,255,.15);background:transparent;color:#ddd;';
-                  cancel.onclick = () => { document.body.removeChild(overlay); resolve(null); };
-                  const ok = document.createElement('button');
-                  ok.textContent = 'Open'; ok.style.cssText = 'padding:8px 14px;border-radius:999px;border:1px solid #fff;background:#fff;color:#111;font-weight:700;';
-                  ok.onclick = () => { const v = input.value.trim(); document.body.removeChild(overlay); resolve(v || null); };
-                  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') ok.click(); if (e.key === 'Escape') cancel.click(); });
-                  row.appendChild(cancel); row.appendChild(ok);
-                  box.appendChild(input); box.appendChild(row); overlay.appendChild(box);
-                  document.body.appendChild(overlay); input.focus();
-                });
-              }
-
-              // Helper: place a nicer "Open Review" button on the board using SDK v2
-              async function placeReviewButton(url) {
-                const center = await getViewportCenter();
-                const safeUrl = escapeHtml(url);
-                // 1) v2 shape (rectangle) with content
-                try {
-                  if (typeof window.miro.board.createShape === 'function') {
-                    await window.miro.board.createShape({
-                      shape: 'rectangle',
-                      x: center.x,
-                      y: center.y,
-                      width: 360,
-                      height: 140,
-                      content: `<p><strong>Open in Reffo</strong></p><p style=\"font-size:12px;\">${safeUrl}</p>`,
-                      style: { fillColor: 'light_yellow', textColor: '#111111' },
-                    });
-                    return true;
-                  }
-                } catch (_) {}
-                // 2) v2 sticky note
-                try {
-                  if (typeof window.miro.board.createStickyNote === 'function') {
-                    await window.miro.board.createStickyNote({
-                      content: `Open in Reffo\n${url}`,
-                      x: center.x,
-                      y: center.y,
-                      shape: 'square',
-                      style: { fillColor: 'light_yellow' },
-                    });
-                    return true;
-                  }
-                } catch (_) {}
-                return false;
-              }
-
-              // Helper: extract a URL from a sticky content
-              function extractUrl(text) {
-                const m = (text || '').match(/https?:\/\/\S+/);
-                if (m) return m[0];
-                if ((text || '').startsWith('/share/')) return location.origin + text;
-                return null;
-              }
-
-              // Register toolbar icon click → open our panel
-              try {
-                await ui.on('icon:click', async () => {
-                  try {
-                    let selectedUrl = null;
-                    try {
-                      const sel = await window.miro.board.getSelection();
-                      if (Array.isArray(sel) && sel.length) {
-                        for (const it of sel) {
-                          const content = (it && typeof it.content === 'string') ? it.content : '';
-                          const maybeFromContent = extractUrl(content);
-                          const maybeDirect = typeof (it as any).url === 'string' ? (it as any).url : null;
-                          const maybe = maybeFromContent || maybeDirect;
-                          if (maybe) { selectedUrl = maybe; break; }
-                        }
-                      }
-                    } catch (_) {}
-
-                    if (selectedUrl) {
-                      try {
-                        const a = document.getElementById('reffo-open-web');
-                        if (a) a.href = selectedUrl;
-                      } catch (_) {}
-                      try {
-                        if (typeof ui.openModal === 'function') {
-                          await ui.openModal({ url: selectedUrl, fullscreen: true, width: 1600, height: 1000 });
-                        } else {
-                          await ui.openPanel({ url: selectedUrl, height: 1200 });
-                        }
-                      } catch (e) {
-                        try { await ui.openPanel({ url: selectedUrl, height: 1200 }); } catch (_) {}
-                      }
-                      return;
-                    }
-
-                    // No selection with link → open our panel to prompt for a link
-                    await ui.openPanel({ url: '/', height: 700 });
-                  } catch (_) {}
-                });
-              } catch (_) {}
-
-              // Prompt when the panel loads (reliable across tenants)
-              if (!window.__reffoPanelInitialized) {
-                window.__reffoPanelInitialized = true;
-                setTimeout(async () => {
-                  try {
-                    const input = await askForLink('');
-                    if (!input) return;
-                    const targetUrl = input.startsWith('http') ? input : (location.origin + input);
-                    try { await placeReviewButton(targetUrl); } catch (_) {}
-                    try {
-                      const a = document.getElementById('reffo-open-web');
-                      if (a) a.href = targetUrl;
-                    } catch (_) {}
-                    try {
-                      if (typeof ui.openModal === 'function') {
-                        await ui.openModal({ url: targetUrl, fullscreen: true, width: 1600, height: 1000 });
-                      } else {
-                        await ui.openPanel({ url: targetUrl, height: 1200 });
-                      }
-                    } catch (e) {
-                      try { await ui.openPanel({ url: targetUrl, height: 1200 }); } catch (_) {}
-                    }
-                  } catch (_) {}
-                }, 50);
-              }
-            });
-          }
-        } catch (e) {
-          // no-op outside Miro
-        }
-      })();
-
-      // When running inside Miro, add a small floating link to open the site in a new tab.
-      (function() {
-        try {
-          if (window.__reffoCleanMiro) { return; }
-          if (window.miro && window.miro.board) {
-            const link = document.createElement('a');
-            link.id = 'reffo-open-web';
-            link.href = '/';
-            link.target = '_blank';
-            link.rel = 'noopener noreferrer';
-            link.textContent = 'Open on web';
-            link.style.position = 'fixed';
-            link.style.top = '10px';
-            link.style.right = '10px';
-            link.style.zIndex = '9999';
-            link.style.padding = '6px 10px';
-            link.style.borderRadius = '999px';
-            link.style.fontSize = '12px';
-            link.style.fontWeight = '600';
-            link.style.backdropFilter = 'blur(6px)';
-            link.style.textDecoration = 'none';
-            // Theme-aware-ish styling
-            const isDark = document.body.classList.contains('theme-dark');
-            if (isDark) {
-              link.style.color = '#000';
-              link.style.background = '#fff';
-            } else {
-              link.style.color = '#111';
-              link.style.background = '#fff';
-              link.style.border = '1px solid #000';
-            }
-            document.body.appendChild(link);
-          }
-        } catch (e) {
-          // ignore
-        }
-      })();
     </script>
-    <!-- Clean Miro plugin logic: icon click → ask for link (if none selected), create sticky, open fullscreen -->
-    <script>
-      (function () {
-        // Mark legacy blocks to skip
-        try { window.__reffoCleanMiro = true; } catch (_) {}
 
-        function extractUrlFromText(text) {
-          const m = (text || '').match(/https?:\/\/\S+/);
-          if (m) return m[0];
-          if ((text || '').startsWith('/share/')) return location.origin + text;
-          return null;
-        }
-
-        function askForLink(initialValue = '') {
-          return new Promise((resolve) => {
-            const overlay = document.createElement('div');
-            overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);backdrop-filter:blur(4px);z-index:9999';
-            const box = document.createElement('div');
-            box.style.cssText = 'position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(520px,92vw);padding:16px;border-radius:12px;border:1px solid rgba(255,255,255,.2);background:#111;color:#fff;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;';
-            box.innerHTML = '<div style="font-weight:700;margin-bottom:8px">Paste a share link</div>'+
-                            '<div style="font-size:12px;opacity:.8;margin-bottom:8px">Example: https://…/share/{token} or /share/{token}</div>';
-            const input = document.createElement('input');
-            input.type = 'text'; input.value = initialValue; input.placeholder = 'https://…/share/abc123 or /share/abc123';
-            input.style.cssText = 'width:100%;padding:10px 12px;border-radius:10px;border:1px solid rgba(255,255,255,.2);background:#161616;color:#fff;outline:none;';
-            const row = document.createElement('div');
-            row.style.cssText = 'display:flex;gap:8px;margin-top:12px;justify-content:flex-end;';
-            const cancel = document.createElement('button');
-            cancel.textContent = 'Cancel'; cancel.style.cssText = 'padding:8px 12px;border-radius:999px;border:1px solid rgba(255,255,255,.15);background:transparent;color:#ddd;';
-            cancel.onclick = () => { document.body.removeChild(overlay); resolve(null); };
-            const ok = document.createElement('button');
-            ok.textContent = 'Open'; ok.style.cssText = 'padding:8px 14px;border-radius:999px;border:1px solid #fff;background:#fff;color:#111;font-weight:700;';
-            ok.onclick = () => { const v = input.value.trim(); document.body.removeChild(overlay); resolve(v || null); };
-            input.addEventListener('keydown', (e) => { if (e.key === 'Enter') ok.click(); if (e.key === 'Escape') cancel.click(); });
-            row.appendChild(cancel); row.appendChild(ok);
-            box.appendChild(input); box.appendChild(row); overlay.appendChild(box);
-            document.body.appendChild(overlay); input.focus();
-          });
-        }
-
-        async function handleIconClick() {
-          try {
-            let selectedUrl = null;
-            try {
-              const sel = await window.miro.board.getSelection();
-              if (Array.isArray(sel) && sel.length) {
-                for (const it of sel) {
-                  const content = (it && typeof it.content === 'string') ? it.content : '';
-                  const maybeDirect = typeof (it || {}).url === 'string' ? (it || {}).url : null;
-                  const maybe = extractUrlFromText(content) || maybeDirect;
-                  if (maybe) { selectedUrl = maybe; break; }
-                }
-              }
-            } catch (_) {}
-
-            if (!selectedUrl) {
-              const input = await askForLink('');
-              if (!input) return;
-              selectedUrl = input.startsWith('http') ? input : (location.origin + input);
-              try {
-                const vp = await window.miro.board.viewport.get();
-                await window.miro.board.createStickyNote({
-                  content: `Video reviewed\n${selectedUrl}`,
-                  x: vp.x + vp.width / 2,
-                  y: vp.y + vp.height / 2,
-                  shape: 'square',
-                  style: { fillColor: 'light_yellow' },
-                });
-              } catch (_) {}
-            }
-
-            try {
-              if (typeof window.miro.board.ui.openModal === 'function') {
-                await window.miro.board.ui.openModal({ url: selectedUrl, fullscreen: true, width: 1600, height: 1000 });
-              } else {
-                await window.miro.board.ui.openPanel({ url: selectedUrl, height: 1200 });
-              }
-            } catch (e) {
-              try { await window.miro.board.ui.openPanel({ url: selectedUrl, height: 1200 }); } catch (_) {}
-            }
-          } catch (_) {}
-        }
-
-        async function init() {
-          try {
-            if (window.miro && window.miro.board && window.miro.board.ui) {
-              await window.miro.board.ui.on('icon:click', handleIconClick);
-            }
-          } catch (_) {}
-        }
-        try { if (window.miro && typeof window.miro.onReady === 'function') window.miro.onReady(init); } catch (_) {}
-        init();
-      })();
-    </script>
-    <!-- Minimal Miro icon:click handler (as requested) -->
-    <script>
-      async function init() {
-        try {
-          if (window.miro && window.miro.board && window.miro.board.ui) {
-            await window.miro.board.ui.on("icon:click", async () => {
-              await window.miro.board.ui.openPanel({ url: "/" });
-            });
-          }
-        } catch (e) {
-          // Ignore outside Miro
-        }
-      }
-      init();
-    </script>
     <div id="root"></div>
     <script type="module" src="/index.tsx"></script>
   </body>

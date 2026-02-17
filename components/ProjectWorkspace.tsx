@@ -1,12 +1,10 @@
 import React, { useMemo, useState, useEffect, useCallback, useRef } from 'react';
 import { nanoid } from 'nanoid';
-import { Film, PlayCircle, ArrowLeft, X, AlertTriangle, Info, LayoutGrid, Plus, MoreHorizontal, Pencil, Trash2, UploadCloud, ChevronDown, ChevronRight } from 'lucide-react';
+import { Film, PlayCircle, ArrowLeft, X, AlertTriangle, CheckCircle2, Info, LayoutGrid, Plus, MoreHorizontal, Pencil, Trash2, UploadCloud, ChevronDown, ChevronRight } from 'lucide-react';
 import { Video, Project, ContentShare, Board } from '../types';
 import { useThemePreference } from '../useTheme';
 import { useQuery, useMutation, useAction } from 'convex/react';
 import { api } from '../convex/_generated/api';
-import lottieSavedRaw from '../assets/animations/saved.json?raw';
-const lottieSaved = `data:application/json;charset=utf-8,${encodeURIComponent(lottieSavedRaw as unknown as string)}`;
 import {
   VideoActionsMenu,
   RenameVideoModal,
@@ -324,6 +322,15 @@ const ProjectWorkspace: React.FC<{
   const dismissToast = useCallback((id: number) => {
     setToasts((current) => current.filter((toast) => toast.id !== id));
   }, []);
+
+  useEffect(() => {
+    const successToasts = toasts.filter((toast) => toast.tone === 'success');
+    if (successToasts.length === 0) return;
+    const timers = successToasts.map((toast) =>
+      window.setTimeout(() => dismissToast(toast.id), 2200)
+    );
+    return () => timers.forEach((timer) => window.clearTimeout(timer));
+  }, [toasts, dismissToast]);
 
   const handleDismissHighlight = useCallback(() => {
     setHighlightVisible(false);
@@ -1564,18 +1571,7 @@ const ProjectWorkspace: React.FC<{
             className="flex items-center gap-3 rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-700 shadow-xl"
           >
             {toast.tone === 'success' ? (
-              <lottie-player
-                src={lottieSaved}
-                autoplay
-                style={{ width: '36px', height: '36px' }}
-                ref={(el: any) => {
-                  if (el) {
-                    el.loop = false;
-                    const handler = () => dismissToast(toast.id);
-                    el.addEventListener('complete', handler, { once: true });
-                  }
-                }}
-              ></lottie-player>
+              <CheckCircle2 size={18} className="text-emerald-600" />
             ) : toast.tone === 'error' ? (
               <AlertTriangle size={18} />
             ) : (

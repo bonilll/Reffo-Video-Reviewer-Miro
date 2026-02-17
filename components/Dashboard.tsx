@@ -22,12 +22,10 @@ import {
   Search,
   Users,
   AlertTriangle,
+  CheckCircle2,
   Info,
   ChevronDown,
 } from 'lucide-react';
-// Ensure saved animation is included in build output
-import lottieSavedRaw from '../assets/animations/saved.json?raw';
-const lottieSaved = `data:application/json;charset=utf-8,${encodeURIComponent(lottieSavedRaw as unknown as string)}`;
 import { useAction, useMutation, useQuery } from 'convex/react';
 import { api } from '../convex/_generated/api';
 import { Project, Video, ShareGroup, ContentShare } from '../types';
@@ -403,6 +401,15 @@ const Dashboard: React.FC<DashboardProps> = ({
   const dismissToast = (id: number) => {
     setToasts((current) => current.filter((item) => item.id !== id));
   };
+
+  useEffect(() => {
+    const successToasts = toasts.filter((toast) => toast.tone === 'success');
+    if (successToasts.length === 0) return;
+    const timers = successToasts.map((toast) =>
+      window.setTimeout(() => dismissToast(toast.id), 2200)
+    );
+    return () => timers.forEach((timer) => window.clearTimeout(timer));
+  }, [toasts]);
 
   const detectReviewUploadKind = (file: File): 'video' | 'image' | null => {
     const type = (file.type || '').toLowerCase();
@@ -1448,18 +1455,7 @@ const Dashboard: React.FC<DashboardProps> = ({
             className="flex items-center gap-3 rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-700 shadow-xl"
           >
             {toast.tone === 'success' ? (
-              <lottie-player
-                src={lottieSaved}
-                autoplay
-                style={{ width: '36px', height: '36px' }}
-                ref={(el: any) => {
-                  if (el) {
-                    el.loop = false;
-                    const handler = () => dismissToast(toast.id);
-                    el.addEventListener('complete', handler, { once: true });
-                  }
-                }}
-              ></lottie-player>
+              <CheckCircle2 size={18} className="text-emerald-600" />
             ) : toast.tone === 'error' ? (
               <AlertTriangle size={18} />
             ) : (

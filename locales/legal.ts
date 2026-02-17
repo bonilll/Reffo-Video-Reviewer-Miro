@@ -35,7 +35,7 @@ export const LEGAL_COPY: Record<SupportedLocale, {
     cookieBanner: {
       title: 'We respect your privacy',
       description:
-        'We use cookies to keep the platform secure, remember your preferences, and, with your consent, analyse traffic and deliver personalized experiences.',
+        'We use technologies needed for security and core functionality. Optional analytics and preference technologies are activated only with your consent.',
       acceptAll: 'Accept all',
       rejectAll: 'Reject all',
       customize: 'Manage preferences',
@@ -58,7 +58,7 @@ export const LEGAL_COPY: Record<SupportedLocale, {
         'Allow us to measure usage, improve performance, and understand how teams collaborate (aggregated statistics).',
       marketingTitle: 'Marketing / Profiling',
       marketingSummary:
-        'Enable integrations with communication and advertising tools to offer relevant content about Reffo.',
+        'This category is currently disabled by default in Reffo.',
       servicesLabel: 'Included services',
     },
     footer: {
@@ -72,7 +72,7 @@ export const LEGAL_COPY: Record<SupportedLocale, {
     cookieBanner: {
       title: 'Rispettiamo la tua privacy',
       description:
-        'Utilizziamo cookie per garantire sicurezza e funzionalità essenziali, ricordare le tue preferenze e, previo consenso, analizzare il traffico e proporti contenuti personalizzati.',
+        'Utilizziamo tecnologie necessarie per sicurezza e funzioni essenziali. Le tecnologie opzionali per preferenze e statistiche sono attivate solo con il tuo consenso.',
       acceptAll: 'Accetta tutto',
       rejectAll: 'Rifiuta tutto',
       customize: 'Gestisci preferenze',
@@ -95,7 +95,7 @@ export const LEGAL_COPY: Record<SupportedLocale, {
         'Ci aiutano a comprendere come viene utilizzata la piattaforma e a migliorarne le prestazioni (dati aggregati).',
       marketingTitle: 'Marketing / profilazione',
       marketingSummary:
-        'Consentono integrazioni con strumenti di comunicazione e promozione per proporti contenuti rilevanti su Reffo.',
+        'Questa categoria e attualmente disattivata di default in Reffo.',
       servicesLabel: 'Servizi inclusi',
     },
     footer: {

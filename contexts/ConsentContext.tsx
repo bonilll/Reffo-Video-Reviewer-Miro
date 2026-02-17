@@ -12,7 +12,7 @@ import {
   persistConsent,
 } from '../utils/consentStorage';
 
-export const CONSENT_VERSION = '2025-02-01'; // TODO legal review before changing
+export const CONSENT_VERSION = '2026-02-17.2';
 
 export type ConsentContextValue = {
   locale: SupportedLocale;

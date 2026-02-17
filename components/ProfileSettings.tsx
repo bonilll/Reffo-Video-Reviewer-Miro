@@ -16,9 +16,7 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import { useThemePreference } from '../useTheme';
-import lottieLoaderRaw from '../assets/animations/Loader.json?raw';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
-const lottieLoader = `data:application/json;charset=utf-8,${encodeURIComponent(lottieLoaderRaw as unknown as string)}`;
 
 interface ProfileSettingsProps {
   user: {
@@ -336,12 +334,7 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
   if (!localSettings) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
-        <lottie-player
-          src={lottieLoader}
-          autoplay
-          loop
-          style={{ width: '160px', height: '160px' }}
-        ></lottie-player>
+        <Loader2 size={44} className="animate-spin text-gray-500" />
       </div>
     );
   }

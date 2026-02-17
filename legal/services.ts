@@ -4,6 +4,8 @@ export type ServiceItem = {
   name: string;
   provider: string;
   purpose: string;
+  identifiers: string;
+  duration: string;
 };
 
 export type ServicesByCategory = {
@@ -13,44 +15,54 @@ export type ServicesByCategory = {
   marketing: ServiceItem[];
 };
 
-// Draft list. Replace placeholders with actual vendors and purposes.
 export const getServicesByCategory = (locale: SupportedLocale): ServicesByCategory => {
   const t = (en: string, it: string) => (locale === 'it' ? it : en);
+
   return {
     necessary: [
       {
-        name: 'Authentication cookies',
+        name: 'Consent manager',
+        provider: 'Reffo',
+        purpose: t(
+          'Stores and applies your cookie choices.',
+          'Memorizza e applica le tue scelte cookie.'
+        ),
+        identifiers: 'reffo.cookieConsent, reffo.visitorId',
+        duration: t('180 days / persistent localStorage', '180 giorni / localStorage persistente'),
+      },
+      {
+        name: 'Authentication session',
         provider: 'Clerk',
-        purpose: t('Keep your session active and secure', 'Mantengono la sessione attiva e sicura'),
-      },
-      {
-        name: 'Realtime / API session',
-        provider: 'Convex',
-        purpose: t('Enable realtime data and API communication', 'Abilitano dati in tempo reale e comunicazione API'),
-      },
-      {
-        name: 'Uploads / Storage',
-        provider: 'MinIO / S3 compatible',
-        purpose: t('Handle secure upload/download of media assets', 'Gestiscono caricamento/scaricamento sicuro dei file'),
+        purpose: t(
+          'Manages secure login and authenticated sessions.',
+          'Gestisce login sicuro e sessione autenticata.'
+        ),
+        identifiers: '__session, __client, __client_uat (or equivalent)',
+        duration: t('Session + short-lived persistent cookies', 'Sessione + cookie persistenti di breve durata'),
       },
     ],
     preferences: [
       {
-        name: 'UI theme',
-        provider: 'Reffo Review',
-        purpose: t('Remember your light/dark choice', 'Ricorda la scelta di tema chiaro/scuro'),
-      },
-      {
-        name: 'Language',
-        provider: 'Reffo Review',
-        purpose: t('Remember preferred language', 'Ricorda la lingua preferita'),
+        name: 'UI preferences',
+        provider: 'Reffo',
+        purpose: t(
+          'Stores theme, language, and workspace view settings.',
+          'Salva tema, lingua e impostazioni di visualizzazione workspace.'
+        ),
+        identifiers: 'reffo:theme, reffo:legal_locale, dashboard/project preference keys',
+        duration: t('Persistent until manual deletion', 'Persistente fino a cancellazione manuale'),
       },
     ],
     analytics: [
       {
         name: 'Google Analytics (gtag.js)',
         provider: 'Google LLC',
-        purpose: t('Aggregated usage statistics (loaded only after consent)', 'Statistiche di utilizzo aggregate (caricato solo dopo il consenso)'),
+        purpose: t(
+          'Aggregated usage statistics (loaded only after analytics consent).',
+          'Statistiche di utilizzo aggregate (caricate solo dopo consenso analytics).'
+        ),
+        identifiers: '_ga, _gid, _gat',
+        duration: t('_ga: 2 years, _gid: 24h, _gat: 1 minute', '_ga: 2 anni, _gid: 24h, _gat: 1 minuto'),
       },
     ],
     marketing: [],
