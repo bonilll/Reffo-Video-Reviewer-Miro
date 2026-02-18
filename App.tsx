@@ -1030,6 +1030,15 @@ const App: React.FC = () => {
     if (pageToRender === 'privacy') Component = <PrivacyPolicy />;
     else if (pageToRender === 'cookies') Component = <CookiePolicy />;
     else Component = <TermsOfUse />;
+    const legalUiLabels = consent.locale === 'it'
+      ? {
+          heading: 'Documentazione legale',
+          backToSite: 'Torna al sito',
+        }
+      : {
+          heading: 'Legal documentation',
+          backToSite: 'Back to site',
+        };
     const navItems: Array<{ label: string; page: LegalPage; path: string }> = [
       { label: consentText.footer.privacy, page: 'privacy', path: '/privacy' },
       { label: consentText.footer.cookies, page: 'cookies', path: '/cookie-policy' },
@@ -1040,11 +1049,17 @@ const App: React.FC = () => {
         <div className="mx-auto max-w-6xl px-4 py-6">
           <header className="flex flex-col gap-4 border-b border-gray-200 pb-4 md:flex-row md:items-center md:justify-between">
             <div>
-              <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => navigate('/')}
+                className="group inline-flex items-center gap-2 rounded-full px-1 py-1 transition hover:bg-gray-100"
+                aria-label={legalUiLabels.backToSite}
+                title={legalUiLabels.backToSite}
+              >
                 <img src={logo} alt="Reffo" className="h-7 w-auto" />
-                <span className="text-lg font-semibold">Reffo</span>
-              </div>
-              <p className="text-xs text-gray-500">Legal documentation</p>
+                <span className="text-lg font-semibold text-gray-900 group-hover:text-black">Reffo</span>
+              </button>
+              <p className="text-xs text-gray-500">{legalUiLabels.heading}</p>
             </div>
             <nav className="flex flex-wrap items-center gap-2 text-xs">
               {navItems.map((item) => (
@@ -1060,6 +1075,13 @@ const App: React.FC = () => {
                   {item.label}
                 </button>
               ))}
+              <button
+                type="button"
+                onClick={() => navigate('/')}
+                className="rounded-full border border-gray-300 bg-white px-3 py-1.5 text-gray-700 hover:bg-gray-100"
+              >
+                {legalUiLabels.backToSite}
+              </button>
               <LanguageSwitcher compact tone="light" className="ml-2 flex items-center gap-2 text-gray-700" />
             </nav>
           </header>

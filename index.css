@@ -73,6 +73,67 @@
   body.theme-light .text-white\/50 { color: rgba(15, 23, 42, 0.5) !important; }
   body.theme-light .text-white\/40 { color: rgba(15, 23, 42, 0.4) !important; }
   body.theme-light .text-white\/30 { color: rgba(15, 23, 42, 0.3) !important; }
+  /*
+   * Keep white text readable on strong/dark surfaces.
+   * Without this, the global theme-light remap above can produce black text on
+   * black/colored buttons and modal actions.
+   */
+  body.theme-light :is(
+    .bg-black,
+    .bg-black\/55,
+    .bg-black\/60,
+    .bg-black\/75,
+    .bg-black\/85,
+    .bg-black\/90,
+    .bg-black\/95,
+    .bg-gray-600,
+    .bg-gray-700,
+    .bg-gray-800,
+    .bg-gray-900,
+    .bg-gray-950,
+    .bg-slate-900,
+    .bg-slate-900\/85,
+    .bg-blue-500,
+    .bg-blue-600,
+    .bg-red-600,
+    .bg-rose-600,
+    .bg-green-500,
+    .bg-green-600,
+    .bg-sky-500,
+    .bg-amber-500,
+    .bg-gradient-to-b,
+    .bg-gradient-to-t,
+    .bg-gradient-to-br
+  ):is(.text-white, .text-white\/90, .text-white\/80, .text-white\/70, .text-white\/60, .text-white\/50, .text-white\/40, .text-white\/30),
+  body.theme-light :is(
+    .bg-black,
+    .bg-black\/55,
+    .bg-black\/60,
+    .bg-black\/75,
+    .bg-black\/85,
+    .bg-black\/90,
+    .bg-black\/95,
+    .bg-gray-600,
+    .bg-gray-700,
+    .bg-gray-800,
+    .bg-gray-900,
+    .bg-gray-950,
+    .bg-slate-900,
+    .bg-slate-900\/85,
+    .bg-blue-500,
+    .bg-blue-600,
+    .bg-red-600,
+    .bg-rose-600,
+    .bg-green-500,
+    .bg-green-600,
+    .bg-sky-500,
+    .bg-amber-500,
+    .bg-gradient-to-b,
+    .bg-gradient-to-t,
+    .bg-gradient-to-br
+  ) :is(.text-white, .text-white\/90, .text-white\/80, .text-white\/70, .text-white\/60, .text-white\/50, .text-white\/40, .text-white\/30) {
+    color: #ffffff !important;
+  }
 
   body.theme-light .bg-white\/5 { background-color: rgba(15, 23, 42, 0.05) !important; }
   body.theme-light .bg-white\/10 { background-color: rgba(15, 23, 42, 0.08) !important; }
