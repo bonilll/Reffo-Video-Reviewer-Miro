@@ -688,6 +688,21 @@ export const Library: React.FC<LibraryProps> = ({
       );
   }, [allAssets, filters, tagFilters, searchTerm, searchBoostSet, normalizedAllowedTypes, forcedAssetOrderMap]);
 
+  const similarityColumnLayout = useMemo(() => {
+    if (!forcedAssetOrderMap || filteredAssets.length === 0) return null;
+    const requested = Math.floor(masonryColumns ?? 0);
+    const baseColumns = Number.isFinite(requested) && requested > 0 ? requested : 1;
+    const columnCount = Math.max(1, Math.min(baseColumns, filteredAssets.length));
+    const columns: Doc<"assets">[][] = Array.from({ length: columnCount }, () => []);
+
+    // Keep the similarity ranking reading left -> right, then top -> bottom.
+    filteredAssets.forEach((asset, index) => {
+      columns[index % columnCount].push(asset);
+    });
+
+    return columns;
+  }, [forcedAssetOrderMap, filteredAssets, masonryColumns]);
+
   const hasActiveFilters =
     Boolean(filters.search) ||
     filters.type !== defaultFilterType ||
@@ -1060,6 +1075,78 @@ export const Library: React.FC<LibraryProps> = ({
   };
 
   const isLoading = allAssets === undefined;
+
+  const renderAssetCard = (asset: Doc<"assets">) => {
+    const isSelected = selection.includes(asset._id);
+    const mediaType = asset.type ?? "file";
+    const previewSrc = getAssetPreviewUrl(asset);
+    const ratio = asset.width && asset.height ? asset.width / asset.height : 1;
+
+    return (
+      <div key={asset._id} className="library-masonry-item">
+        <button
+          ref={(el) => {
+            const key = String(asset._id);
+            if (el) itemButtonRefs.current.set(key, el);
+            else itemButtonRefs.current.delete(key);
+          }}
+          data-asset-button="true"
+          aria-pressed={isImportMode ? isSelected : undefined}
+          className={[
+            "group relative w-full overflow-hidden rounded-2xl border bg-white shadow-sm transition",
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 focus-visible:ring-offset-2 focus-visible:ring-offset-white",
+            isImportMode
+              ? isSelected
+                ? [
+                    "border-gray-200",
+                    "ring-2 ring-gray-900 ring-offset-0",
+                    "shadow-[0_12px_28px_rgba(15,23,42,0.10)]",
+                    "after:pointer-events-none after:absolute after:inset-0 after:bg-black/10",
+                  ].join(" ")
+                : "border-gray-200 hover:border-gray-300 hover:shadow-md"
+              : "border-gray-200 hover:border-gray-300 hover:shadow-md",
+          ].join(" ")}
+          onClick={() => {
+            if (isImportMode) toggleSelection(asset._id);
+            else setViewerAssetId(asset._id);
+          }}
+        >
+          <div className="w-full bg-gray-50" style={{ aspectRatio: `${ratio}` }}>
+            {mediaType === "image" ? (
+              <img
+                src={previewSrc}
+                alt={asset.title}
+                className="h-full w-full object-contain"
+                loading="lazy"
+                draggable={false}
+              />
+            ) : mediaType === "video" ? (
+              <video
+                className="h-full w-full object-contain bg-slate-100"
+                src={asset.fileUrl}
+                poster={previewSrc || undefined}
+                preload="metadata"
+                autoPlay={!previewSrc}
+                loop={!previewSrc}
+                muted
+                playsInline
+              />
+            ) : (
+              <div className="flex h-full w-full items-center justify-center">
+                <FileIcon className="h-10 w-10 text-gray-400" />
+              </div>
+            )}
+          </div>
+          {isImportMode && isSelected && (
+            <span className="absolute right-3 top-3 inline-flex h-9 w-9 items-center justify-center rounded-full border border-gray-900/70 bg-white/95 shadow-sm backdrop-blur">
+              <span className="absolute inset-0 rounded-full bg-black/5" />
+              <Check className="relative h-4 w-4 text-gray-900" />
+            </span>
+          )}
+        </button>
+      </div>
+    );
+  };
 
   return (
     <div className="space-y-6">
@@ -1525,7 +1612,13 @@ export const Library: React.FC<LibraryProps> = ({
       <div
         ref={masonryRef}
         className="library-masonry relative"
-        style={masonryColumns ? ({ columnCount: masonryColumns } as any) : undefined}
+        style={
+          similarityColumnLayout
+            ? undefined
+            : masonryColumns
+              ? ({ columnCount: masonryColumns } as any)
+              : undefined
+        }
         onClickCapture={(event) => {
           // If we just finished a marquee drag, suppress the click that would otherwise
           // toggle/open an item.
@@ -1686,80 +1779,20 @@ export const Library: React.FC<LibraryProps> = ({
             No references found.
           </div>
         )}
-        {filteredAssets.map((asset) => {
-          const isSelected = selection.includes(asset._id);
-          const mediaType = asset.type ?? "file";
-          const previewSrc = getAssetPreviewUrl(asset);
-          const ratio = asset.width && asset.height ? asset.width / asset.height : 1;
-          return (
-            <div key={asset._id} className="library-masonry-item">
-              <button
-                ref={(el) => {
-                  const key = String(asset._id);
-                  if (el) itemButtonRefs.current.set(key, el);
-                  else itemButtonRefs.current.delete(key);
-                }}
-                data-asset-button="true"
-                aria-pressed={isImportMode ? isSelected : undefined}
-                className={[
-                  "group relative w-full overflow-hidden rounded-2xl border bg-white shadow-sm transition",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 focus-visible:ring-offset-2 focus-visible:ring-offset-white",
-                  isImportMode
-                    ? isSelected
-                      ? [
-                          "border-gray-200",
-                          "ring-2 ring-gray-900 ring-offset-0",
-                          "shadow-[0_12px_28px_rgba(15,23,42,0.10)]",
-                          "after:pointer-events-none after:absolute after:inset-0 after:bg-black/10",
-                        ].join(" ")
-                      : "border-gray-200 hover:border-gray-300 hover:shadow-md"
-                    : "border-gray-200 hover:border-gray-300 hover:shadow-md",
-                ].join(" ")}
-                onClick={() => {
-                  if (isImportMode) toggleSelection(asset._id);
-                  else setViewerAssetId(asset._id);
-                }}
-              >
-                <div className="w-full bg-gray-50" style={{ aspectRatio: `${ratio}` }}>
-                  {mediaType === "image" ? (
-                    <img
-                      src={previewSrc}
-                      alt={asset.title}
-                      className="h-full w-full object-contain"
-                      loading="lazy"
-                      draggable={false}
-                    />
-                  ) : mediaType === "video" ? (
-                    <video
-                      className="h-full w-full object-contain bg-slate-100"
-                      src={asset.fileUrl}
-                      poster={previewSrc || undefined}
-                      preload="metadata"
-                      autoPlay={!previewSrc}
-                      loop={!previewSrc}
-                      muted
-                      playsInline
-                    />
-                  ) : (
-                    <div className="flex h-full w-full items-center justify-center">
-                      <FileIcon className="h-10 w-10 text-gray-400" />
-                    </div>
-                  )}
-                </div>
-                {isImportMode && (
-                  <>
-                    {isSelected && (
-                      <span className="absolute right-3 top-3 inline-flex h-9 w-9 items-center justify-center rounded-full border border-gray-900/70 bg-white/95 shadow-sm backdrop-blur">
-                        <span className="absolute inset-0 rounded-full bg-black/5" />
-                        <Check className="relative h-4 w-4 text-gray-900" />
-                      </span>
-                    )}
-                  </>
-                )}
-              </button>
-            </div>
-          );
-        })}
+        {similarityColumnLayout ? (
+          <div
+            className="library-masonry-grid"
+            style={{ gridTemplateColumns: `repeat(${similarityColumnLayout.length}, minmax(0, 1fr))` }}
+          >
+            {similarityColumnLayout.map((column, index) => (
+              <div key={index} className="library-masonry-col">
+                {column.map((asset) => renderAssetCard(asset))}
+              </div>
+            ))}
+          </div>
+        ) : (
+          filteredAssets.map((asset) => renderAssetCard(asset))
+        )}
       </div>
 
       <Dialog open={Boolean(editingAsset)} onOpenChange={(open) => !open && setEditingAsset(null)}>

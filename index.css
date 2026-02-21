@@ -233,6 +233,16 @@
     margin-bottom: 20px;
     width: 100%;
   }
+  .library-masonry-grid {
+    display: grid;
+    gap: 20px;
+    align-items: start;
+  }
+  .library-masonry-col {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
   @media (min-width: 640px) {
     .library-masonry {
       column-count: 2;

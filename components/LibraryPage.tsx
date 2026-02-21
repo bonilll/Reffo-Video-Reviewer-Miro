@@ -847,7 +847,8 @@ const LibraryPage: React.FC = () => {
       const results = (await recommendByAssetIds({
         assetIds: selectedImageAssetIds,
         sameType: true,
-        limit: 120,
+        limit: 80,
+        minScore: 0.24,
       })) as SimilarityAssetResult[];
 
       const sourceSet = new Set(selectedImageAssetIds.map((id) => String(id)));

@@ -115,6 +115,7 @@ export const getJobContextForEmbedding = internalQuery({
       userId: String(asset.userId),
       orgId: asset.orgId ?? null,
       type: asset.type ?? null,
+      embeddingRef: asset.embeddingRef ?? null,
       embeddingModel: asset.embeddingModel ?? null,
       embeddingDim: asset.embeddingDim ?? null,
     };

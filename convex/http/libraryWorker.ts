@@ -125,6 +125,10 @@ export const complete = httpAction(async (ctx, request) => {
     const embedding = result?.embedding;
     if (embedding?.vector && Array.isArray(embedding.vector) && typeof embedding.id === "string") {
       const jobContext = await ctx.runQuery(internal.assetWorker.getJobContextForEmbedding, { jobId });
+      const previousEmbeddingRef =
+        typeof jobContext?.embeddingRef === "string" && jobContext.embeddingRef.length > 0
+          ? jobContext.embeddingRef
+          : null;
       const rawPayload =
         embedding.payload && typeof embedding.payload === "object" ? embedding.payload : {};
       const payload: Record<string, unknown> = {
@@ -152,6 +156,17 @@ export const complete = httpAction(async (ctx, request) => {
         wait: true,
       });
       embeddingRef = upserted.embeddingRef;
+
+      if (previousEmbeddingRef && previousEmbeddingRef !== embedding.id) {
+        try {
+          await ctx.runAction(internal.qdrant.deletePoint, {
+            id: previousEmbeddingRef,
+            wait: false,
+          });
+        } catch {
+          // Ignore cleanup failures; the fresh embedding has already been persisted.
+        }
+      }
     }
   } catch (error) {
     const details = error instanceof Error ? error.message : String(error);

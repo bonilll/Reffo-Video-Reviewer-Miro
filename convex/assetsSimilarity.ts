@@ -10,10 +10,22 @@ type QdrantPoint = {
   payload?: any;
 };
 
-const qdrantFilterFor = (args: { userId: string; orgId?: string | null; type?: string | null }) => {
+const qdrantFilterFor = (args: {
+  userId: string;
+  orgId?: string | null;
+  type?: string | null;
+  embeddingModel?: string | null;
+  embeddingDim?: number | null;
+}) => {
   const must: any[] = [{ key: "userId", match: { value: args.userId } }];
   if (args.orgId) must.push({ key: "orgId", match: { value: args.orgId } });
   if (args.type) must.push({ key: "type", match: { value: args.type } });
+  if (args.embeddingModel) {
+    must.push({ key: "embeddingModel", match: { value: args.embeddingModel } });
+  }
+  if (typeof args.embeddingDim === "number" && Number.isFinite(args.embeddingDim)) {
+    must.push({ key: "embeddingDim", match: { value: args.embeddingDim } });
+  }
   return { must };
 };
 
@@ -22,6 +34,21 @@ const clampLimit = (value: number | undefined, fallback: number) => {
   if (!Number.isFinite(n)) return fallback;
   return Math.min(Math.max(n, 1), 200);
 };
+
+const clampMinScore = (value: number | undefined, fallback: number) => {
+  const n = value ?? fallback;
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(-1, Math.min(1, n));
+};
+
+const normalizeOptionalString = (value: unknown) => {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+};
+
+const normalizeOptionalNumber = (value: unknown) =>
+  typeof value === "number" && Number.isFinite(value) ? value : null;
 
 const resolveCommonValue = (values: Array<string | null | undefined>) => {
   const normalized = values.map((value) =>
@@ -43,10 +70,14 @@ const mapPointsToScoredAssets = async (
   ctx: any,
   points: QdrantPoint[],
   excludedAssetIds: Set<string>,
+  options?: { minScore?: number },
 ) => {
+  const minScore = options?.minScore;
   const bestByAssetId = new Map<string, { score: number; pointId: string; payload?: any }>();
 
   for (const point of points) {
+    if (typeof point.score !== "number" || !Number.isFinite(point.score)) continue;
+    if (typeof minScore === "number" && point.score < minScore) continue;
     const assetId = pointToAssetId(point);
     if (!assetId || excludedAssetIds.has(assetId)) continue;
     const current = bestByAssetId.get(assetId);
@@ -70,12 +101,23 @@ const mapPointsToScoredAssets = async (
       const asset = assetsById.get(assetId);
       if (!asset) return null;
       const meta = bestByAssetId.get(assetId)!;
+      const payloadEmbeddingRef = normalizeOptionalString(meta.payload?.embeddingRef);
+      const payloadEmbeddingModel = normalizeOptionalString(meta.payload?.embeddingModel);
+      const payloadEmbeddingDim = normalizeOptionalNumber(meta.payload?.embeddingDim);
+
+      const assetEmbeddingRef = normalizeOptionalString(asset.embeddingRef);
+      const assetEmbeddingModel = normalizeOptionalString(asset.embeddingModel);
+      const assetEmbeddingDim = normalizeOptionalNumber(asset.embeddingDim);
+
+      // Ignore stale points from previous embedding generations.
+      if (assetEmbeddingRef && payloadEmbeddingRef !== assetEmbeddingRef) return null;
+      if (assetEmbeddingModel && payloadEmbeddingModel !== assetEmbeddingModel) return null;
+      if (typeof assetEmbeddingDim === "number" && payloadEmbeddingDim !== assetEmbeddingDim) return null;
+
       return {
         assetId,
         score: meta.score,
-        embeddingRef:
-          (typeof meta.payload?.embeddingRef === "string" && meta.payload.embeddingRef) ||
-          (typeof meta.pointId === "string" ? meta.pointId : undefined),
+        embeddingRef: payloadEmbeddingRef || (typeof meta.pointId === "string" ? meta.pointId : undefined),
         asset,
       };
     })
@@ -89,6 +131,7 @@ const runRecommendForAssetIds = async (
     assetIds: string[];
     sameType?: boolean;
     limit?: number;
+    minScore?: number;
   },
 ) => {
   const user = await ctx.runQuery("users:current" as any, {});
@@ -107,27 +150,53 @@ const runRecommendForAssetIds = async (
   );
   if (seedAssetsWithEmbedding.length === 0) return [];
 
-  const embeddingRefs = Array.from(
-    new Set(seedAssetsWithEmbedding.map((asset: any) => String(asset.embeddingRef))),
-  );
   const onlySameType = args.sameType !== false;
   const filterType = onlySameType
     ? resolveCommonValue(seedAssetsWithEmbedding.map((asset: any) => asset.type ?? null))
     : null;
   const filterOrgId = resolveCommonValue(seedAssetsWithEmbedding.map((asset: any) => asset.orgId ?? null));
+  const targetLimit = clampLimit(args.limit, 40);
+  const minScore = clampMinScore(args.minScore, 0.22);
 
-  const points: QdrantPoint[] = await ctx.runAction(internal.qdrant.recommendByIds, {
-    ids: embeddingRefs,
-    limit: clampLimit(args.limit, 40),
-    filter: qdrantFilterFor({
-      userId: String(user._id),
-      orgId: filterOrgId,
-      type: filterType,
-    }),
-  });
+  const seedByEmbeddingRef = new Map<
+    string,
+    { embeddingRef: string; embeddingModel: string | null; embeddingDim: number | null }
+  >();
+  for (const asset of seedAssetsWithEmbedding) {
+    const embeddingRef = String(asset.embeddingRef);
+    if (seedByEmbeddingRef.has(embeddingRef)) continue;
+    seedByEmbeddingRef.set(embeddingRef, {
+      embeddingRef,
+      embeddingModel: normalizeOptionalString(asset.embeddingModel),
+      embeddingDim: normalizeOptionalNumber(asset.embeddingDim),
+    });
+  }
+
+  const MAX_SEEDS = 8;
+  const seeds = Array.from(seedByEmbeddingRef.values()).slice(0, MAX_SEEDS);
+  if (seeds.length === 0) return [];
+
+  const perSeedLimit = Math.min(200, Math.max(targetLimit, 30));
+  const pointsBySeed: QdrantPoint[][] = await Promise.all(
+    seeds.map((seed) =>
+      ctx.runAction(internal.qdrant.recommendById, {
+        id: seed.embeddingRef,
+        limit: perSeedLimit,
+        filter: qdrantFilterFor({
+          userId: String(user._id),
+          orgId: filterOrgId,
+          type: filterType,
+          embeddingModel: seed.embeddingModel,
+          embeddingDim: seed.embeddingDim,
+        }),
+      }),
+    ),
+  );
+  const points = pointsBySeed.flat();
 
   const excluded = new Set<string>(seedAssets.map((asset: any) => String(asset._id)));
-  return await mapPointsToScoredAssets(ctx, points, excluded);
+  const scored = await mapPointsToScoredAssets(ctx, points, excluded, { minScore });
+  return scored.slice(0, targetLimit);
 };
 
 export const recommendByAssetId = action({
@@ -135,12 +204,14 @@ export const recommendByAssetId = action({
     assetId: v.id("assets"),
     limit: v.optional(v.number()),
     sameType: v.optional(v.boolean()),
+    minScore: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     return await runRecommendForAssetIds(ctx, {
       assetIds: [String(args.assetId)],
       limit: args.limit ?? 12,
       sameType: args.sameType,
+      minScore: args.minScore,
     });
   },
 });
@@ -150,12 +221,14 @@ export const recommendByAssetIds = action({
     assetIds: v.array(v.id("assets")),
     limit: v.optional(v.number()),
     sameType: v.optional(v.boolean()),
+    minScore: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     return await runRecommendForAssetIds(ctx, {
       assetIds: args.assetIds.map((id) => String(id)),
       limit: args.limit ?? 80,
       sameType: args.sameType,
+      minScore: args.minScore,
     });
   },
 });
@@ -165,6 +238,7 @@ export const searchByVector = action({
     vector: v.array(v.number()),
     limit: v.optional(v.number()),
     type: v.optional(v.string()),
+    minScore: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const user = await ctx.runQuery("users:current" as any, {});
@@ -180,6 +254,8 @@ export const searchByVector = action({
       }),
     });
 
-    return await mapPointsToScoredAssets(ctx, points, new Set<string>());
+    return await mapPointsToScoredAssets(ctx, points, new Set<string>(), {
+      minScore: clampMinScore(args.minScore, 0.22),
+    });
   },
 });
