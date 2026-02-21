@@ -54,6 +54,7 @@ type LibraryProps = {
   selectedItems?: Id<"assets">[];
   onSelectionChange?: (items: Id<"assets">[]) => void;
   allowedTypes?: LibraryAssetType[];
+  forcedAssetOrder?: Id<"assets">[] | null;
   onFilteredDataChange?: (data: {
     filteredReferences: Doc<"assets">[];
     filters: FilterState;
@@ -343,6 +344,7 @@ export const Library: React.FC<LibraryProps> = ({
   selectedItems,
   onSelectionChange,
   allowedTypes,
+  forcedAssetOrder,
   onFilteredDataChange,
 }) => {
   const normalizedAllowedTypes = useMemo<LibraryAssetType[]>(() => {
@@ -633,6 +635,15 @@ export const Library: React.FC<LibraryProps> = ({
     return clusters.slice(0, 12);
   }, [allAssets]);
 
+  const forcedAssetOrderMap = useMemo(() => {
+    if (!forcedAssetOrder) return null;
+    const map = new Map<string, number>();
+    forcedAssetOrder.forEach((id, index) => {
+      map.set(String(id), index);
+    });
+    return map;
+  }, [forcedAssetOrder]);
+
   const filteredAssets = useMemo(() => {
     if (!allAssets) return [] as Doc<"assets">[];
     const scored = allAssets
@@ -666,8 +677,16 @@ export const Library: React.FC<LibraryProps> = ({
       return bTime - aTime;
     });
 
-    return sorted.map((entry) => entry.asset);
-  }, [allAssets, filters, tagFilters, searchTerm, searchBoostSet, normalizedAllowedTypes]);
+    const assets = sorted.map((entry) => entry.asset);
+    if (!forcedAssetOrderMap) return assets;
+    return assets
+      .filter((asset) => forcedAssetOrderMap.has(String(asset._id)))
+      .sort(
+        (a, b) =>
+          (forcedAssetOrderMap.get(String(a._id)) ?? Number.MAX_SAFE_INTEGER) -
+          (forcedAssetOrderMap.get(String(b._id)) ?? Number.MAX_SAFE_INTEGER),
+      );
+  }, [allAssets, filters, tagFilters, searchTerm, searchBoostSet, normalizedAllowedTypes, forcedAssetOrderMap]);
 
   const hasActiveFilters =
     Boolean(filters.search) ||

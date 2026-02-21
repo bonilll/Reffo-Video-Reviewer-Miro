@@ -1,4 +1,4 @@
-import { internalMutation } from "./_generated/server";
+import { internalMutation, internalQuery } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 
 const normalizeText = (value: string) =>
@@ -98,6 +98,26 @@ export const claimNextJob = internalMutation({
     }
 
     return { job, asset };
+  },
+});
+
+export const getJobContextForEmbedding = internalQuery({
+  args: {
+    jobId: v.id("assetAnalysisJobs"),
+  },
+  handler: async (ctx, args) => {
+    const job = await ctx.db.get(args.jobId);
+    if (!job) return null;
+    const asset = await ctx.db.get(job.assetId);
+    if (!asset) return null;
+    return {
+      assetId: String(asset._id),
+      userId: String(asset.userId),
+      orgId: asset.orgId ?? null,
+      type: asset.type ?? null,
+      embeddingModel: asset.embeddingModel ?? null,
+      embeddingDim: asset.embeddingDim ?? null,
+    };
   },
 });
 

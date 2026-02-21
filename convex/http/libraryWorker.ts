@@ -119,15 +119,36 @@ export const complete = httpAction(async (ctx, request) => {
   }
 
   // Optional: if the worker provides an embedding vector, upsert it via Qdrant here.
-  // We use assetId as qdrant point id (= embeddingRef).
+  // Qdrant point id is the embeddingRef (UUID), while payload stores the linked asset metadata.
   let embeddingRef: string | undefined = result?.embedding?.ref;
   try {
     const embedding = result?.embedding;
     if (embedding?.vector && Array.isArray(embedding.vector) && typeof embedding.id === "string") {
+      const jobContext = await ctx.runQuery(internal.assetWorker.getJobContextForEmbedding, { jobId });
+      const rawPayload =
+        embedding.payload && typeof embedding.payload === "object" ? embedding.payload : {};
+      const payload: Record<string, unknown> = {
+        ...rawPayload,
+      };
+      payload.embeddingRef = embedding.id;
+      if (jobContext?.assetId) payload.assetId = jobContext.assetId;
+      if (jobContext?.userId) payload.userId = jobContext.userId;
+      if (jobContext?.orgId) payload.orgId = jobContext.orgId;
+      if (jobContext?.type) payload.type = jobContext.type;
+      if (typeof embedding.model === "string" && embedding.model.length > 0) {
+        payload.embeddingModel = embedding.model;
+      } else if (typeof jobContext?.embeddingModel === "string" && jobContext.embeddingModel.length > 0) {
+        payload.embeddingModel = jobContext.embeddingModel;
+      }
+      if (typeof embedding.dim === "number") {
+        payload.embeddingDim = embedding.dim;
+      } else if (typeof jobContext?.embeddingDim === "number") {
+        payload.embeddingDim = jobContext.embeddingDim;
+      }
       const upserted = await ctx.runAction(internal.qdrant.upsertPoint, {
         id: embedding.id,
         vector: embedding.vector,
-        payload: embedding.payload ?? {},
+        payload,
         wait: true,
       });
       embeddingRef = upserted.embeddingRef;
@@ -201,4 +222,3 @@ export const fail = httpAction(async (ctx, request) => {
     return jsonResponse(400, { error: "FAIL_FAILED", details }, origin);
   }
 });
-

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { useMutation, useQuery } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { uploadFileMultipart } from "@/lib/upload/multipart";
@@ -40,6 +40,8 @@ import {
   Trash2,
   FolderPlus,
   LayoutGrid,
+  Loader2,
+  Sparkles,
 } from "lucide-react";
 import { toast } from "sonner";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
@@ -63,6 +65,16 @@ type StagedItem = {
   externalLink: string;
   author: string;
   aspectRatio?: number;
+};
+
+type SimilarityAssetResult = {
+  assetId: string;
+  score: number;
+  embeddingRef?: string;
+  asset: {
+    _id: Id<"assets">;
+    type?: string;
+  };
 };
 
 const getAssetType = (file: File): "image" | "video" | "file" => {
@@ -626,6 +638,12 @@ const LibraryPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<"references" | "collections">("references");
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedAssetIds, setSelectedAssetIds] = useState<Id<"assets">[]>([]);
+  const [isFindingSimilar, setIsFindingSimilar] = useState(false);
+  const [similarityMode, setSimilarityMode] = useState<{
+    sourceAssetIds: Id<"assets">[];
+    orderedAssetIds: Id<"assets">[];
+    scoreByAssetId: Record<string, number>;
+  } | null>(null);
   const [isAddToCollectionOpen, setIsAddToCollectionOpen] = useState(false);
   const [collectionPickerQuery, setCollectionPickerQuery] = useState("");
   const [newCollectionTitle, setNewCollectionTitle] = useState("");
@@ -672,11 +690,35 @@ const LibraryPage: React.FC = () => {
   const updateMetadata = useMutation(api.assets.updateMetadata);
   const enqueueJob = useMutation(api.assetJobs.enqueue);
   const deleteAsset = useMutation(api.assets.deleteAsset);
+  const recommendByAssetIds = useAction(api.assetsSimilarity.recommendByAssetIds);
   const collections = useQuery(api.collections.list, {});
   const createCollection = useMutation(api.collections.create);
   const addAssetsToCollection = useMutation(api.collections.addAssets);
 
   const assets = useQuery(api.assets.getUserLibrary, {});
+
+  const assetsById = useMemo(() => {
+    const map = new Map<string, any>();
+    for (const asset of assets ?? []) {
+      map.set(String(asset._id), asset);
+    }
+    return map;
+  }, [assets]);
+
+  const selectedAssets = useMemo(() => {
+    return selectedAssetIds
+      .map((id) => assetsById.get(String(id)))
+      .filter((asset): asset is any => Boolean(asset));
+  }, [assetsById, selectedAssetIds]);
+
+  const selectedImageAssetIds = useMemo(() => {
+    return selectedAssets
+      .filter((asset) => asset.type === "image")
+      .map((asset) => asset._id as Id<"assets">);
+  }, [selectedAssets]);
+
+  const selectedAssetsMissingInLibrary = selectedAssets.length !== selectedAssetIds.length;
+  const hasNonImageSelection = selectedAssets.some((asset) => asset.type !== "image");
 
   const missingPreviewAssets = useMemo(() => {
     if (!assets) return [];
@@ -768,6 +810,7 @@ const LibraryPage: React.FC = () => {
       setSelectedAssetIds([]);
       setIsAddToCollectionOpen(false);
       setIsDeleteConfirmOpen(false);
+      setSimilarityMode(null);
     }
   }, [activeTab]);
 
@@ -778,6 +821,75 @@ const LibraryPage: React.FC = () => {
       setIsDeleteConfirmOpen(false);
     }
   }, [selectionMode]);
+
+  const clearSimilarityMode = useCallback(() => {
+    setSimilarityMode(null);
+  }, []);
+
+  const handleFindSimilar = useCallback(async () => {
+    if (isFindingSimilar) return;
+    if (selectedAssetIds.length === 0) return;
+    if (selectedAssetsMissingInLibrary) {
+      toast.error("Library is still loading selected references. Try again in a moment.");
+      return;
+    }
+    if (hasNonImageSelection) {
+      toast.error("Find similar works only with image references.");
+      return;
+    }
+    if (selectedImageAssetIds.length === 0) {
+      toast.error("Select at least one image reference.");
+      return;
+    }
+
+    setIsFindingSimilar(true);
+    try {
+      const results = (await recommendByAssetIds({
+        assetIds: selectedImageAssetIds,
+        sameType: true,
+        limit: 120,
+      })) as SimilarityAssetResult[];
+
+      const sourceSet = new Set(selectedImageAssetIds.map((id) => String(id)));
+      const seen = new Set<string>();
+      const orderedAssetIds: Id<"assets">[] = [];
+      const scoreByAssetId: Record<string, number> = {};
+
+      for (const item of results ?? []) {
+        const candidateId = String(item?.asset?._id ?? item?.assetId ?? "");
+        if (!candidateId || sourceSet.has(candidateId) || seen.has(candidateId)) continue;
+        seen.add(candidateId);
+        orderedAssetIds.push(candidateId as Id<"assets">);
+        if (typeof item?.score === "number") {
+          scoreByAssetId[candidateId] = item.score;
+        }
+      }
+
+      setSimilarityMode({
+        sourceAssetIds: [...selectedImageAssetIds],
+        orderedAssetIds,
+        scoreByAssetId,
+      });
+
+      if (orderedAssetIds.length === 0) {
+        toast.message("No similar references found for the selected images.");
+      } else {
+        toast.success(`Found ${orderedAssetIds.length} similar references.`);
+      }
+    } catch (error) {
+      console.error(error);
+      toast.error("Unable to run similarity search.");
+    } finally {
+      setIsFindingSimilar(false);
+    }
+  }, [
+    hasNonImageSelection,
+    isFindingSimilar,
+    recommendByAssetIds,
+    selectedAssetIds.length,
+    selectedAssetsMissingInLibrary,
+    selectedImageAssetIds,
+  ]);
 
   const setUploadProgress = useCallback((id: string, progress: number) => {
     setUploadItems((prev) =>
@@ -2497,10 +2609,30 @@ const LibraryPage: React.FC = () => {
 
           <div className="border-t border-gray-200 pt-6">
             {activeTab === "references" ? (
+              <>
+                {similarityMode ? (
+                  <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3">
+                    <div className="flex items-center gap-2 text-sm text-blue-900">
+                      <Sparkles className="h-4 w-4" />
+                      <span className="font-semibold">
+                        Similarity mode:
+                      </span>
+                      <span>
+                        {similarityMode.orderedAssetIds.length} similar references from{" "}
+                        {similarityMode.sourceAssetIds.length} selected image
+                        {similarityMode.sourceAssetIds.length === 1 ? "" : "s"}.
+                      </span>
+                    </div>
+                    <Button variant="outline" size="sm" onClick={clearSimilarityMode}>
+                      Clear similar filter
+                    </Button>
+                  </div>
+                ) : null}
                 <Library
                   isImportMode={selectionMode}
                   areaSelectionEnabled={selectionMode}
                   masonryColumns={effectiveMasonryColumns}
+                  forcedAssetOrder={similarityMode?.orderedAssetIds ?? null}
                   headerActions={
                     <div className="flex w-full items-center gap-2 sm:w-auto">
                       <Popover>
@@ -2575,6 +2707,7 @@ const LibraryPage: React.FC = () => {
                 selectedItems={selectedAssetIds}
                 onSelectionChange={setSelectedAssetIds}
               />
+              </>
             ) : (
               <CollectionsView />
             )}
@@ -2596,6 +2729,25 @@ const LibraryPage: React.FC = () => {
               <span className="text-xs text-gray-500">Drag to box-select, click to toggle.</span>
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                onClick={handleFindSimilar}
+                disabled={
+                  isFindingSimilar ||
+                  selectedAssetIds.length === 0 ||
+                  selectedAssetsMissingInLibrary ||
+                  hasNonImageSelection
+                }
+              >
+                {isFindingSimilar ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Sparkles className="h-4 w-4" />
+                )}
+                {isFindingSimilar ? "Finding..." : "Find similar"}
+              </Button>
               <Button
                 variant="outline"
                 size="sm"
@@ -2638,6 +2790,25 @@ const LibraryPage: React.FC = () => {
             await Promise.all(ids.map((id) => deleteAsset({ id })));
             toast.success(ids.length === 1 ? "Reference deleted" : "References deleted");
             setSelectedAssetIds([]);
+            setSimilarityMode((prev) => {
+              if (!prev) return prev;
+              const removed = new Set(ids.map((id) => String(id)));
+              const nextOrdered = prev.orderedAssetIds.filter((id) => !removed.has(String(id)));
+              const nextSource = prev.sourceAssetIds.filter((id) => !removed.has(String(id)));
+              if (nextOrdered.length === 0 || nextSource.length === 0) return null;
+              const nextScores: Record<string, number> = {};
+              for (const id of nextOrdered) {
+                const key = String(id);
+                if (typeof prev.scoreByAssetId[key] === "number") {
+                  nextScores[key] = prev.scoreByAssetId[key];
+                }
+              }
+              return {
+                sourceAssetIds: nextSource,
+                orderedAssetIds: nextOrdered,
+                scoreByAssetId: nextScores,
+              };
+            });
           } catch (error) {
             console.error(error);
             toast.error("Unable to delete references");

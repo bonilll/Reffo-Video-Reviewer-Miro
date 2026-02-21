@@ -41,7 +41,7 @@ const qdrantFetch = async (path: string, init: RequestInit) => {
 
 export const upsertPoint = internalAction({
   args: {
-    // Use assetId as point id for stability. Store the same value as embeddingRef in Convex.
+    // Point id is the embeddingRef (UUID) produced by the embedding worker.
     id: v.string(),
     vector: v.array(v.number()),
     payload: v.optional(v.any()),
@@ -95,6 +95,35 @@ export const recommendById = internalAction({
     const { collection } = getConfig();
     const body = {
       positive: [args.id],
+      limit: args.limit ?? 12,
+      with_payload: true,
+      filter: args.filter,
+    };
+    const result = await qdrantFetch(
+      `/collections/${encodeURIComponent(collection)}/points/recommend`,
+      { method: "POST", body: JSON.stringify(body) },
+    );
+    const points = (result?.result ?? []) as Array<{
+      id: string;
+      score: number;
+      payload?: any;
+    }>;
+    return points;
+  },
+});
+
+export const recommendByIds = internalAction({
+  args: {
+    ids: v.array(v.string()),
+    limit: v.optional(v.number()),
+    filter: v.optional(v.any()),
+  },
+  handler: async (_ctx, args) => {
+    const { collection } = getConfig();
+    const ids = Array.from(new Set(args.ids.filter((id) => typeof id === "string" && id.length > 0)));
+    if (ids.length === 0) return [];
+    const body = {
+      positive: ids,
       limit: args.limit ?? 12,
       with_payload: true,
       filter: args.filter,
