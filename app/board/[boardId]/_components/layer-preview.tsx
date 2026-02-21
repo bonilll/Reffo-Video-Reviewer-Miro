@@ -261,6 +261,8 @@ export const LayerPreview = memo(
 	    const [imageHiResReady, setImageHiResReady] = useState(false);
 	    const [runtimeVideoPreviewUrl, setRuntimeVideoPreviewUrl] = useState<string | undefined>(undefined);
 	    const iosSafari = isIOSSafari();
+    const mobileSafeRendering = runtimeMode === "mobile" || iosSafari;
+    const shouldGenerateRuntimeVideoPreview = !mobileSafeRendering;
 	    
 	    // Determina se questo layer è selezionato
 	    const isSelected = selection.includes(id);
@@ -340,6 +342,7 @@ export const LayerPreview = memo(
 
     useEffect(() => {
       if (!layer || layer.type !== LayerType.Video) return;
+      if (!shouldGenerateRuntimeVideoPreview) return;
       if (runtimeVideoPreviewUrl || !videoLayerUrl) return;
 
       let cancelled = false;
@@ -352,10 +355,11 @@ export const LayerPreview = memo(
       return () => {
         cancelled = true;
       };
-    }, [layer?.type, videoLayerUrl, runtimeVideoPreviewUrl]);
+    }, [layer?.type, videoLayerUrl, runtimeVideoPreviewUrl, shouldGenerateRuntimeVideoPreview]);
 
     useEffect(() => {
       if (!layer || layer.type !== LayerType.Video) return;
+      if (!shouldGenerateRuntimeVideoPreview) return;
       if (!runtimeVideoPreviewUrl) return;
 
       if (layerVideoPreviewProp || layerVideoThumbnailProp) return;
@@ -369,6 +373,7 @@ export const LayerPreview = memo(
       layerVideoPreviewProp,
       layerVideoThumbnailProp,
       runtimeVideoPreviewUrl,
+      shouldGenerateRuntimeVideoPreview,
       updateLayerProps,
       id,
     ]);
@@ -685,7 +690,7 @@ export const LayerPreview = memo(
             selectionColor={selectionColor}
             isSelected={isSelected}
             lastUsedColor={lastUsedColor}
-            mobileSafeRendering={runtimeMode === "mobile"}
+            mobileSafeRendering={mobileSafeRendering}
           />
         );
       case LayerType.Rectangle:
@@ -710,7 +715,7 @@ export const LayerPreview = memo(
         const imageLayer = layer as ImageLayer;
         const useImageLOD = lodBucket !== "high";
 
-        if (runtimeMode === "mobile") {
+        if (mobileSafeRendering) {
           const imageHref = imageLayer.previewUrl || imageLayer.url;
           return (
             <g data-layer-id={id} onPointerDown={handlePointerDown} style={{ cursor: "pointer" }}>
@@ -830,7 +835,7 @@ export const LayerPreview = memo(
             ? videoPreviewUrl
             : undefined;
         const effectiveVideoPreviewUrl = runtimeVideoPreviewUrl || resolvedVideoPreviewUrl;
-        if (runtimeMode === "mobile") {
+        if (mobileSafeRendering) {
           return (
             <g data-layer-id={id} onPointerDown={handlePointerDown} style={{ cursor: "pointer" }}>
               {effectiveVideoPreviewUrl ? (
