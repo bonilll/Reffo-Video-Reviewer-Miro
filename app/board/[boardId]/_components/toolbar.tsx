@@ -130,6 +130,7 @@ type ToolbarProps = {
 // Mobile Selection Bar Component
 const MobileSelectionBar = ({
   camera,
+  setCamera,
   setLastUsedColor,
   pencilStrokeWidth,
   setPencilStrokeWidth,
@@ -144,6 +145,7 @@ const MobileSelectionBar = ({
   userRole,
 }: {
   camera: Camera;
+  setCamera: (camera: Camera) => void;
   setLastUsedColor: (color: Color) => void;
   pencilStrokeWidth?: number;
   setPencilStrokeWidth?: (width: number) => void;
@@ -175,6 +177,7 @@ const MobileSelectionBar = ({
           <div className="flex items-center gap-3 flex-wrap">
             <SelectionTools
               camera={camera}
+              setCamera={setCamera}
               setLastUsedColor={setLastUsedColor}
               onActionHover={onActionHover}
               onActionHoverEnd={onActionHoverEnd}
@@ -1126,6 +1129,7 @@ export const Toolbar = ({
             {hasSelection && (
               <MobileSelectionBar
                 camera={camera}
+                setCamera={setCamera}
                 setLastUsedColor={setLastUsedColor}
                 pencilStrokeWidth={pencilStrokeWidth}
                 setPencilStrokeWidth={setPencilStrokeWidth}
@@ -1169,6 +1173,7 @@ export const Toolbar = ({
             >
               <SelectionTools
                 camera={camera}
+                setCamera={setCamera}
                 setLastUsedColor={setLastUsedColor}
                 onActionHover={handleHover}
                 onActionHoverEnd={handleHoverEnd}
@@ -1201,6 +1206,7 @@ export const Toolbar = ({
                 <div className="selection-tools-container w-max">
                   <SelectionTools 
                     camera={camera}
+                    setCamera={setCamera}
                     setLastUsedColor={setLastUsedColor}
                     onActionHover={handleHover}
                     onActionHoverEnd={handleHoverEnd}

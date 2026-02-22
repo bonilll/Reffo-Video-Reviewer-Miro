@@ -5174,7 +5174,52 @@ export const Canvas = ({
             currentLayerHeight={currentMovingLayer?.height}
           />
           
-          {/* Prima renderizza le frecce (z-index più basso) */}
+          {/* Prima renderizza i frame (background containers) */}
+          {visibleLayerIds
+            .filter(layerId => {
+              const layer = allLayers?.get(layerId);
+              return layer?.type === "frame";
+            })
+            .map((layerId) => {
+              const shouldPreview = !!activePreviewOffset && previewLayerIds.has(layerId);
+              const layerNode = (
+                <LayerPreview
+                  key={layerId}
+                  id={layerId}
+                  onLayerPointerDown={onLayerPointerDown}
+                  onLayerContextMenu={onLayerContextMenu}
+                  selectionColor={layerIdsToColorSelection[layerId]}
+                  lastUsedColor={lastUsedColor}
+                  cameraRef={cameraRef}
+                  lodBucket={lodBucket}
+                  canvasState={canvasState}
+                  boardId={boardId}
+                  backgroundColor={gridConfig.backgroundColor}
+                  onDrawingStart={startDrawing}
+                  onDrawingContinue={continueDrawing}
+                  onDrawingEnd={insertPath}
+                  onDrawingModeStart={handleDrawingModeStart}
+                  onDrawingModeMove={handleDrawingModeMove}
+                  onDrawingModeEnd={handleDrawingModeEnd}
+                  runtimeMode={runtimeMode}
+                />
+              );
+
+              if (shouldPreview && activePreviewOffset) {
+                return (
+                  <g
+                    key={`preview-${layerId}`}
+                    transform={`translate(${activePreviewOffset.x} ${activePreviewOffset.y})`}
+                  >
+                    {layerNode}
+                  </g>
+                );
+              }
+
+              return layerNode;
+            })
+          }
+          {/* Poi renderizza le frecce sopra i frame ma sotto i contenuti */}
           {visibleLayerIds
             .filter(layerId => {
               const layer = allLayers?.get(layerId);
@@ -5219,11 +5264,11 @@ export const Canvas = ({
               return layerNode;
             })
           }
-          {/* Poi renderizza tutti gli altri layer (z-index più alto) */}
+          {/* Infine renderizza tutti gli altri layer (note, testi, media, ecc.) */}
           {visibleLayerIds
             .filter(layerId => {
               const layer = allLayers?.get(layerId);
-              return layer?.type !== "arrow";
+              return layer?.type !== "arrow" && layer?.type !== "frame";
             })
             .map((layerId) => {
               const shouldPreview = !!activePreviewOffset && previewLayerIds.has(layerId);

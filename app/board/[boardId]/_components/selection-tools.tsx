@@ -78,6 +78,7 @@ import {
 
 type SelectionToolsProps = {
   camera: Camera;
+  setCamera?: (camera: Camera) => void;
   setLastUsedColor: (color: Color) => void;
   onShowColorPicker?: (show: boolean) => void;
   onActionHover?: (label: string) => void;
@@ -1387,6 +1388,7 @@ const SelectionTooltip = ({ children }: {
 export const SelectionTools = memo(
   ({ 
     camera, 
+    setCamera,
     setLastUsedColor, 
     onShowColorPicker,
     onActionHover,
@@ -1870,6 +1872,7 @@ export const SelectionTools = memo(
     if (isExportingFrameId) return;
 
     let offscreenContainer: HTMLDivElement | null = null;
+    let originalCameraToRestore: Camera | null = null;
     try {
       const frame = selectedFramesData.find((f) => f.id === frameId);
       if (!frame) {
@@ -1888,19 +1891,68 @@ export const SelectionTools = memo(
         return;
       }
 
-      const boardCanvas = document.querySelector(".board-canvas") as HTMLElement | null;
-      const directChildSvg = boardCanvas
-        ? Array.from(boardCanvas.children).find(
-            (child) => child instanceof Element && child.tagName.toLowerCase() === "svg"
-          )
-        : null;
-      const svgElement = directChildSvg as SVGSVGElement | null;
+      const resolveBoardSvgElements = () => {
+        const canvasEl = document.querySelector(".board-canvas") as HTMLElement | null;
+        const directSvg = canvasEl
+          ? Array.from(canvasEl.children).find(
+              (child) => child instanceof Element && child.tagName.toLowerCase() === "svg"
+            )
+          : null;
+        return {
+          boardCanvas: canvasEl,
+          svgElement: (directSvg as SVGSVGElement | null) ?? null,
+        };
+      };
 
+      const outputWidth = Math.max(1, Math.round(frame.width));
+      const outputHeight = Math.max(1, Math.round(frame.height));
+      const frameX = frame.x;
+      const frameY = frame.y;
+
+      let { boardCanvas, svgElement } = resolveBoardSvgElements();
       if (!boardCanvas || !svgElement) {
         console.error("[Frame Export] Board SVG not found", {
           boardCanvasFound: Boolean(boardCanvas),
           childTags: boardCanvas ? Array.from(boardCanvas.children).map((c) => (c as Element).tagName) : [],
         });
+        toast.error("Canvas board non trovato.");
+        return;
+      }
+
+      if (setCamera) {
+        const rect = boardCanvas.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0 && frame.width > 0 && frame.height > 0) {
+          const paddingPx = Math.max(24, Math.min(56, Math.round(Math.min(rect.width, rect.height) * 0.06)));
+          const availableWidth = Math.max(1, rect.width - paddingPx * 2);
+          const availableHeight = Math.max(1, rect.height - paddingPx * 2);
+          const fitScale = Math.max(
+            0.05,
+            Math.min(8, Math.min(availableWidth / frame.width, availableHeight / frame.height))
+          );
+          const nextCamera: Camera = {
+            x: rect.width / 2 - (frame.x + frame.width / 2) * fitScale,
+            y: rect.height / 2 - (frame.y + frame.height / 2) * fitScale,
+            scale: fitScale,
+          };
+
+          const cameraChanged =
+            Math.abs(nextCamera.x - camera.x) > 0.5 ||
+            Math.abs(nextCamera.y - camera.y) > 0.5 ||
+            Math.abs(nextCamera.scale - camera.scale) > 0.001;
+
+          if (cameraChanged) {
+            originalCameraToRestore = { ...camera };
+            setCamera(nextCamera);
+            await waitForNextFrame();
+            await waitForNextFrame();
+            await new Promise<void>((resolve) => window.setTimeout(resolve, 40));
+            await waitForNextFrame();
+            ({ boardCanvas, svgElement } = resolveBoardSvgElements());
+          }
+        }
+      }
+
+      if (!boardCanvas || !svgElement) {
         toast.error("Canvas board non trovato.");
         return;
       }
@@ -1914,11 +1966,6 @@ export const SelectionTools = memo(
         toast.error("Struttura SVG non valida.");
         return;
       }
-
-      const outputWidth = Math.max(1, Math.round(frame.width));
-      const outputHeight = Math.max(1, Math.round(frame.height));
-      const frameX = frame.x;
-      const frameY = frame.y;
 
       const layerIdsToExport = new Set<string>();
       const visitedFrames = new Set<string>();
@@ -1953,6 +2000,26 @@ export const SelectionTools = memo(
       for (const layerId of findLayersInFrame(frameId, geometryMap as any, frameExportLayerIndex.layerIds)) {
         layerIdsToExport.add(layerId);
       }
+      const isPointInsideFrame = (x?: number, y?: number) =>
+        typeof x === "number" &&
+        typeof y === "number" &&
+        x >= frameX &&
+        x <= frameX + frame.width &&
+        y >= frameY &&
+        y <= frameY + frame.height;
+
+      Object.entries(frameExportLayerIndex.layers).forEach(([id, meta]) => {
+        if (meta.type !== LayerType.Arrow && meta.type !== LayerType.Line) return;
+        const isConnectedToExportedNode =
+          (typeof meta.sourceNoteId === "string" && layerIdsToExport.has(meta.sourceNoteId)) ||
+          (typeof meta.targetNoteId === "string" && layerIdsToExport.has(meta.targetNoteId));
+        const hasEndpointInsideFrame =
+          isPointInsideFrame(meta.startX, meta.startY) || isPointInsideFrame(meta.endX, meta.endY);
+
+        if (isConnectedToExportedNode || hasEndpointInsideFrame) {
+          layerIdsToExport.add(id);
+        }
+      });
       layerIdsToExport.add(frameId);
 
       const selectedLayerIds = new Set(selection);
@@ -2269,6 +2336,9 @@ export const SelectionTools = memo(
       if (offscreenContainer?.parentNode) {
         offscreenContainer.parentNode.removeChild(offscreenContainer);
       }
+      if (originalCameraToRestore && setCamera) {
+        setCamera(originalCameraToRestore);
+      }
       setIsExportingFrameId(null);
     }
   };
@@ -2364,6 +2434,12 @@ export const SelectionTools = memo(
         height: number;
         title?: string;
         children?: string[];
+        startX?: number;
+        startY?: number;
+        endX?: number;
+        endY?: number;
+        sourceNoteId?: string;
+        targetNoteId?: string;
       }> = {};
 
       root.layers.forEach((liveLayer: any, id: string) => {
@@ -2378,6 +2454,14 @@ export const SelectionTools = memo(
             liveLayer.type === LayerType.Frame && Array.isArray(liveLayer.children)
               ? [...liveLayer.children]
               : undefined,
+          startX: typeof liveLayer.startX === "number" ? liveLayer.startX : undefined,
+          startY: typeof liveLayer.startY === "number" ? liveLayer.startY : undefined,
+          endX: typeof liveLayer.endX === "number" ? liveLayer.endX : undefined,
+          endY: typeof liveLayer.endY === "number" ? liveLayer.endY : undefined,
+          sourceNoteId:
+            typeof liveLayer.sourceNoteId === "string" ? liveLayer.sourceNoteId : undefined,
+          targetNoteId:
+            typeof liveLayer.targetNoteId === "string" ? liveLayer.targetNoteId : undefined,
         };
       });
 
