@@ -159,6 +159,18 @@ export type FileLayer = {
   fileType?: string;
   fileSize?: number;
   shadow?: boolean;
+  isLinkPreview?: boolean;
+  linkPreview?: {
+    kind?: "youtube" | "web";
+    url?: string;
+    embedUrl?: string;
+    title?: string;
+    description?: string;
+    siteName?: string;
+    imageUrl?: string;
+    domain?: string;
+    provider?: string;
+  };
 };
 
 export type ArrowLayer = {

@@ -1,5 +1,5 @@
 import React, { memo, useEffect, useMemo, useState } from "react";
-import { FileText, Download, File as FileIcon, Code, Database, FileImage, FileVideo, ExternalLink, Maximize2, Minimize2 } from "lucide-react";
+import { FileText, Download, File as FileIcon, Code, Database, FileImage, FileVideo, ExternalLink, Maximize2, Minimize2, Play } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { FileLayer } from "@/types/canvas";
 
@@ -16,6 +16,8 @@ const getFileIcon = (fileType?: string, fileName?: string) => {
   const type = fileType || fileName?.split('.').pop()?.toLowerCase() || '';
   
   switch (type) {
+    case 'link':
+      return ExternalLink;
     case 'json':
       return Database;
     case 'js':
@@ -56,6 +58,8 @@ const getFileTypeLabel = (fileType?: string, fileName?: string) => {
   const type = fileType || fileName?.split('.').pop()?.toLowerCase() || '';
   
   switch (type) {
+    case 'link':
+      return 'LINK';
     case 'json':
       return 'JSON';
     case 'js':
@@ -88,6 +92,8 @@ const getFileColor = (fileType?: string, fileName?: string) => {
   const type = fileType || fileName?.split('.').pop()?.toLowerCase() || '';
   
   switch (type) {
+    case 'link':
+      return '#2563EB'; // Link blue
     case 'json':
       return '#10B981'; // Emerald green - più moderno e professionale
     case 'js':
@@ -154,6 +160,29 @@ export const File = memo(({ id, layer, onPointerDown, selectionColor }: FileProp
   const [textPreviewError, setTextPreviewError] = useState<string | null>(null);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [isFullScreen, setIsFullScreen] = useState(false);
+
+  const isLinkPreview = Boolean(layer.isLinkPreview || fileType === "link");
+  const linkPreviewData = layer.linkPreview;
+  const linkUrl = linkPreviewData?.url || layer.url || "";
+  const linkKind = linkPreviewData?.kind === "youtube" ? "youtube" : "web";
+  const linkTitle = linkPreviewData?.title || title || fileName || "Link";
+  const linkDescription = linkPreviewData?.description || "";
+  const linkImageUrl = linkPreviewData?.imageUrl;
+  const linkEmbedUrl = linkPreviewData?.embedUrl;
+  const linkDomain = useMemo(() => {
+    if (linkPreviewData?.domain) return linkPreviewData.domain;
+    if (!linkUrl) return "";
+    try {
+      return new URL(linkUrl).hostname.replace(/^www\./, "");
+    } catch {
+      return "";
+    }
+  }, [linkPreviewData?.domain, linkUrl]);
+  const linkSiteName =
+    linkPreviewData?.siteName ||
+    linkPreviewData?.provider ||
+    linkDomain ||
+    "Website";
   
   const formatFileSize = (size?: number) => {
     if (!size) return '';
@@ -213,6 +242,184 @@ export const File = memo(({ id, layer, onPointerDown, selectionColor }: FileProp
       setIsFullScreen(false);
     }
   }, [isPreviewOpen]);
+
+  if (isLinkPreview) {
+    const previewAreaHeight = Math.max(84, Math.min(Math.round(height * 0.56), linkKind === "youtube" ? 170 : 140));
+    const canPlayYouTube = linkKind === "youtube" && !!linkEmbedUrl;
+
+    return (
+      <>
+        <div
+          className="relative flex flex-col bg-white rounded-xl border shadow-sm hover:shadow-md transition-shadow cursor-pointer overflow-hidden group"
+          onPointerDown={(e) => onPointerDown(e, id)}
+          style={{
+            width,
+            height,
+            borderColor: selectionColor || "#E5E7EB",
+            borderWidth: selectionColor ? 2 : 1,
+          }}
+        >
+          <div
+            className="relative border-b border-gray-100 overflow-hidden bg-gradient-to-br from-slate-100 to-slate-50"
+            style={{ height: previewAreaHeight }}
+          >
+            {linkImageUrl ? (
+              <img
+                src={linkImageUrl}
+                alt={linkTitle}
+                className="h-full w-full object-cover"
+                loading="lazy"
+                referrerPolicy="no-referrer"
+                draggable={false}
+              />
+            ) : (
+              <div className="h-full w-full flex items-center justify-center text-gray-400">
+                <ExternalLink className="h-8 w-8" />
+              </div>
+            )}
+
+            <div className="absolute inset-0 bg-gradient-to-t from-black/35 via-black/10 to-transparent pointer-events-none" />
+
+            <div className="absolute left-3 top-3 inline-flex items-center gap-1 rounded-full bg-white/90 px-2 py-1 text-[10px] font-medium text-gray-700 border border-white/80">
+              <span>{linkKind === "youtube" ? "YouTube" : "Link"}</span>
+              {linkDomain && <span className="text-gray-400">• {linkDomain}</span>}
+            </div>
+
+            {canPlayYouTube && (
+              <button
+                type="button"
+                className="absolute inset-0 flex items-center justify-center"
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setIsPreviewOpen(true);
+                }}
+                aria-label="Play video preview"
+              >
+                <span className="inline-flex items-center gap-2 rounded-full bg-white/95 px-4 py-2 text-sm font-medium text-gray-900 shadow-lg border border-white">
+                  <Play className="h-4 w-4 fill-current" />
+                  Play
+                </span>
+              </button>
+            )}
+          </div>
+
+          <div className="flex min-h-0 flex-1 flex-col p-3">
+            <div className="min-h-0 flex-1">
+              <div className="text-sm font-semibold text-gray-900 leading-tight overflow-hidden text-ellipsis">
+                {linkTitle}
+              </div>
+              <div className="mt-1 text-xs font-medium text-gray-500 truncate">
+                {linkSiteName}
+              </div>
+              {linkDescription && (
+                <div
+                  className="mt-2 text-xs text-gray-600 leading-4 overflow-hidden"
+                  style={{
+                    display: "-webkit-box",
+                    WebkitLineClamp: 2,
+                    WebkitBoxOrient: "vertical" as const,
+                  }}
+                >
+                  {linkDescription}
+                </div>
+              )}
+            </div>
+
+            <div className="mt-3 flex items-center gap-2">
+              {canPlayYouTube && (
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1.5 rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-gray-700 hover:border-gray-300 hover:text-gray-900"
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setIsPreviewOpen(true);
+                  }}
+                >
+                  <Play className="h-3.5 w-3.5" />
+                  Play
+                </button>
+              )}
+
+              <a
+                href={linkUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-gray-700 hover:border-gray-300 hover:text-gray-900"
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={(event) => event.stopPropagation()}
+              >
+                <ExternalLink className="h-3.5 w-3.5" />
+                Open
+              </a>
+            </div>
+          </div>
+        </div>
+
+        {canPlayYouTube && (
+          <Dialog open={isPreviewOpen} onOpenChange={setIsPreviewOpen}>
+            <DialogContent
+              className={
+                isFullScreen
+                  ? "w-[98vw] h-[96vh] max-w-[98vw] p-0 overflow-hidden flex flex-col bg-white"
+                  : "w-[92vw] max-w-4xl h-[78vh] p-0 overflow-hidden flex flex-col bg-white"
+              }
+            >
+              <DialogHeader className="px-6 pt-4 pb-2 border-b border-gray-100">
+                <DialogTitle className="text-lg font-semibold text-gray-900">
+                  {linkTitle}
+                </DialogTitle>
+                <div className="flex items-center gap-3 text-xs text-gray-500">
+                  <span>{linkSiteName}</span>
+                  {linkDomain && <span>{linkDomain}</span>}
+                  <a
+                    href={linkUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700"
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    <ExternalLink className="h-3 w-3" />
+                    Open in new tab
+                  </a>
+                </div>
+                <div className="absolute right-14 top-4">
+                  <button
+                    className="rounded-md border border-gray-200 bg-white/90 px-2 py-1 text-xs text-gray-600 shadow-sm hover:text-gray-900 hover:border-gray-300"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setIsFullScreen((prev) => !prev);
+                    }}
+                  >
+                    {isFullScreen ? (
+                      <span className="inline-flex items-center gap-1">
+                        <Minimize2 className="h-3 w-3" /> Exit full screen
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1">
+                        <Maximize2 className="h-3 w-3" /> Full screen
+                      </span>
+                    )}
+                  </button>
+                </div>
+              </DialogHeader>
+
+              <div className="flex-1 bg-black">
+                <iframe
+                  src={linkEmbedUrl}
+                  className="w-full h-full"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                  allowFullScreen
+                  title={linkTitle}
+                />
+              </div>
+            </DialogContent>
+          </Dialog>
+        )}
+      </>
+    );
+  }
 
   return (
     <div
@@ -303,8 +510,8 @@ export const File = memo(({ id, layer, onPointerDown, selectionColor }: FileProp
         <DialogContent
           className={
             isFullScreen
-              ? "w-[98vw] h-[96vh] max-w-[98vw] p-0 overflow-hidden flex flex-col"
-              : "w-[92vw] max-w-5xl h-[84vh] p-0 overflow-hidden flex flex-col"
+              ? "w-[98vw] h-[96vh] max-w-[98vw] p-0 overflow-hidden flex flex-col bg-white"
+              : "w-[92vw] max-w-5xl h-[84vh] p-0 overflow-hidden flex flex-col bg-white"
           }
         >
           <DialogHeader className="px-6 pt-4 pb-2 border-b border-gray-100">

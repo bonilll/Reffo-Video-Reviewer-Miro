@@ -107,6 +107,75 @@ const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 5;
 
 const debugLog = (..._args: unknown[]) => {};
+const extractSinglePastedUrl = (rawText: string): string | null => {
+  const text = rawText.trim();
+  if (!text || /\s/.test(text)) return null;
+  try {
+    const url = new URL(text);
+    if (!/^https?:$/.test(url.protocol)) return null;
+    return url.toString();
+  } catch {
+    return null;
+  }
+};
+
+const parseYouTubeVideoIdFromUrl = (rawUrl: string): string | null => {
+  try {
+    const url = new URL(rawUrl);
+    const hostname = url.hostname.toLowerCase().replace(/^www\./, "");
+    if (hostname === "youtu.be") {
+      const id = url.pathname.split("/").filter(Boolean)[0];
+      return id || null;
+    }
+    if (hostname.endsWith("youtube.com")) {
+      if (url.pathname === "/watch") return url.searchParams.get("v");
+      const parts = url.pathname.split("/").filter(Boolean);
+      if (parts[0] === "shorts" || parts[0] === "embed" || parts[0] === "live") {
+        return parts[1] || null;
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+};
+
+const buildFallbackLinkPreview = (rawUrl: string) => {
+  try {
+    const url = new URL(rawUrl);
+    const hostname = url.hostname.replace(/^www\./, "");
+    const videoId = parseYouTubeVideoIdFromUrl(rawUrl);
+    if (videoId) {
+      return {
+        kind: "youtube" as const,
+        url: `https://www.youtube.com/watch?v=${videoId}`,
+        embedUrl: `https://www.youtube.com/embed/${videoId}?rel=0&modestbranding=1`,
+        imageUrl: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+        title: "YouTube Video",
+        siteName: "YouTube",
+        provider: "YouTube",
+        domain: "youtube.com",
+      };
+    }
+    return {
+      kind: "web" as const,
+      url: url.toString(),
+      title: hostname,
+      siteName: hostname,
+      provider: hostname,
+      domain: hostname,
+    };
+  } catch {
+    return {
+      kind: "web" as const,
+      url: rawUrl,
+      title: "Link",
+      siteName: "Website",
+      provider: "Website",
+      domain: undefined,
+    };
+  }
+};
 const isLikelyTouchPointer = (event: React.PointerEvent | any) => {
   const nativePointerType = event?.pointerType ?? event?.nativeEvent?.pointerType;
   if (typeof nativePointerType === "string") {
@@ -780,6 +849,68 @@ export const Canvas = ({
       return layerId; // Restituisci l'ID del layer creato
     },
     [lastUsedColor, lastUsedFontSize, lastUsedFontWeight],
+  );
+
+  const insertLinkPreviewLayer = useMutation(
+    (
+      { storage, setMyPresence },
+      position: Point,
+      preview: {
+        kind?: "youtube" | "web";
+        url: string;
+        embedUrl?: string;
+        title?: string;
+        description?: string;
+        siteName?: string;
+        imageUrl?: string;
+        domain?: string;
+        provider?: string;
+      }
+    ) => {
+      const liveLayers = storage.get("layers");
+      if (MAX_LAYERS >= 0 && liveLayers.size >= MAX_LAYERS) {
+        return;
+      }
+
+      const liveLayerIds = storage.get("layerIds");
+      const layerId = nanoid();
+
+      const isYouTube = preview.kind === "youtube";
+      const width = isYouTube ? 420 : 360;
+      const height = isYouTube ? 260 : 220;
+
+      const layer = new LiveObject({
+        type: LayerType.File,
+        x: position.x,
+        y: position.y,
+        width,
+        height,
+        url: preview.url,
+        title: preview.title || preview.siteName || preview.domain || "Link",
+        fileName: preview.domain || preview.siteName || "link",
+        fileType: "link",
+        fileSize: 0,
+        shadow: true,
+        isLinkPreview: true,
+        linkPreview: {
+          kind: preview.kind || "web",
+          url: preview.url,
+          embedUrl: preview.embedUrl,
+          title: preview.title,
+          description: preview.description,
+          siteName: preview.siteName,
+          imageUrl: preview.imageUrl,
+          domain: preview.domain,
+          provider: preview.provider,
+        },
+      });
+
+      liveLayerIds.push(layerId);
+      liveLayers.set(layerId, layer);
+      setMyPresence({ selection: [layerId] }, { addToHistory: true });
+      return layerId;
+    },
+    []
   );
 
   // Mutation specializzata per inserire frecce/linee con metadati di snap
@@ -2751,6 +2882,77 @@ export const Canvas = ({
   const dragPreviewRaf = useRef<number | null>(null);
   const pendingDragOffset = useRef<Point | null>(null);
 
+  const createLinkPreviewFromUrl = useCallback(
+    async (rawUrl: string) => {
+      if (isViewer) {
+        return false;
+      }
+
+      let preview: {
+        kind?: "youtube" | "web";
+        url: string;
+        embedUrl?: string;
+        title?: string;
+        description?: string;
+        siteName?: string;
+        imageUrl?: string;
+        domain?: string;
+        provider?: string;
+      } | null = null;
+
+      try {
+        const response = await fetch("/api/link-preview", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify({ url: rawUrl }),
+        });
+
+        const payload = await response.json().catch(() => null);
+        if (!response.ok) {
+          throw new Error(
+            typeof payload?.details === "string"
+              ? payload.details
+              : typeof payload?.error === "string"
+                ? payload.error
+                : `HTTP ${response.status}`
+          );
+        }
+
+        if (payload?.preview && typeof payload.preview.url === "string") {
+          preview = payload.preview;
+        }
+      } catch (error) {
+        console.warn("[Link Preview] API lookup failed, using fallback", { rawUrl, error });
+      }
+
+      const finalPreview = preview ?? buildFallbackLinkPreview(rawUrl);
+      if (!finalPreview?.url) {
+        toast.error("Unable to create link preview");
+        return false;
+      }
+
+      const isYouTube = finalPreview.kind === "youtube";
+      const width = isYouTube ? 420 : 360;
+      const height = isYouTube ? 260 : 220;
+      const rect = svgRef.current?.getBoundingClientRect();
+      const viewportWidth = rect?.width || window.innerWidth || 1280;
+      const viewportHeight = rect?.height || window.innerHeight || 720;
+      const currentCamera = cameraRef.current;
+
+      const position = {
+        x: (viewportWidth / 2 - currentCamera.x) / currentCamera.scale - width / 2,
+        y: (viewportHeight / 2 - currentCamera.y) / currentCamera.scale - height / 2,
+      };
+
+      insertLinkPreviewLayer(position, finalPreview);
+      return true;
+    },
+    [insertLinkPreviewLayer, isViewer]
+  );
+
   const scheduleDragPreview = useCallback((offset: Point) => {
     pendingDragOffset.current = offset;
     if (dragPreviewRaf.current !== null) return;
@@ -3762,6 +3964,7 @@ export const Canvas = ({
     function onPaste(e: ClipboardEvent) {
       if (!e.clipboardData) return;
       if (isEditableElement(document.activeElement)) return;
+      if (isViewer) return;
 
       const hasImageFile = Array.from(e.clipboardData.items ?? []).some(
         (item) => item.kind === "file" && item.type.startsWith("image/"),
@@ -3787,6 +3990,14 @@ export const Canvas = ({
         }
       }
 
+      const pastedUrl = text ? extractSinglePastedUrl(text) : null;
+      if (pastedUrl) {
+        e.preventDefault();
+        e.stopPropagation();
+        void createLinkPreviewFromUrl(pastedUrl);
+        return;
+      }
+
       if (clipboard && clipboard.length > 0) {
         e.preventDefault();
         e.stopPropagation();
@@ -3803,7 +4014,7 @@ export const Canvas = ({
         document.removeEventListener("keyup", onKeyUp);
         document.removeEventListener("paste", onPaste);
     };
-  }, [deleteLayers, history, mySelection, canvasState.mode, setCanvasState, unselectLayers, copySelectedLayers, pasteClipboardLayers, selectAllLayers, smoothZoom, camera, clipboard]);
+  }, [deleteLayers, history, mySelection, canvasState.mode, setCanvasState, unselectLayers, copySelectedLayers, pasteClipboardLayers, selectAllLayers, smoothZoom, camera, clipboard, createLinkPreviewFromUrl, isViewer]);
 
   const selectionBounds = useSelectionBounds();
 

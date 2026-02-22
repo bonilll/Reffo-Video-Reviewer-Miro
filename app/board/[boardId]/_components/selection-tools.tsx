@@ -63,7 +63,7 @@ import {
   distributeHorizontally,
   distributeVertically
 } from "@/utils/alignment";
-import { colorToCSS } from "@/lib/utils";
+import { colorToCSS, findLayersInFrame } from "@/lib/utils";
 
 import { ColorPicker } from "./color-picker";
 import { MasonryGridDialog } from "@/components/MasonryGridDialog";
@@ -1415,6 +1415,7 @@ export const SelectionTools = memo(
     const { hasMultipleSelection, selectedLayers, updateLayerPositions } = useSelection();
     const createLibraryAsset = useConvexMutation(api.assets.createFromBoardMedia);
     const [isSavingToLibrary, setIsSavingToLibrary] = useState(false);
+    const [isExportingFrameId, setIsExportingFrameId] = useState<string | null>(null);
 
     // Check if pencil is active
     const isPencilActive = canvasState && canvasState.mode === CanvasMode.Pencil;
@@ -1496,347 +1497,779 @@ export const SelectionTools = memo(
     const currentFontShortLabel =
       currentFontLabel.length > 8 ? `${currentFontLabel.slice(0, 8)}…` : currentFontLabel;
 
-  // Helper: export selected frame using presets from main toolbar module
-  const exportPresets = [
-    { label: "A4 Portrait", width: 742, height: 1050 },
-    { label: "16:9", width: 1920, height: 1080 },
-    { label: "4:3", width: 1440, height: 1080 },
-    { label: "1:1 Square", width: 1080, height: 1080 },
-    { label: "4K (16:9)", width: 3840, height: 2160 },
-  ];
+  const sanitizeFileNamePart = (value: string) =>
+    value
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 64) || "frame";
 
-  // Direct export with frame native dimensions - find and render elements inside frame
-  const exportFrameWithNativeDimensions = async (
-    frameId: string,
-    frameWidth: number,
-    frameHeight: number
-  ) => {
+  const escapeCssSelectorValue = (value: string) => {
+    if (typeof window !== "undefined" && (window as any).CSS?.escape) {
+      return (window as any).CSS.escape(value);
+    }
+    return value.replace(/([ !"#$%&'()*+,./:;<=>?@[\\\]^`{|}~])/g, "\\$1");
+  };
+
+  const waitForNextFrame = () =>
+    new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+
+  const withTimeout = async <T,>(promise: Promise<T>, ms: number, label: string): Promise<T> => {
+    let timeoutId: number | null = null;
     try {
-      // Recupera dati frame selezionato
-      const frame = selectedFramesData.find(f => f.id === frameId);
-      if (!frame) return;
-      const { x: fx, y: fy } = frame;
-      
-      
-      // Trova l'SVG del canvas
-      const svgElement = document.querySelector('svg.h-\\[100vh\\].w-\\[100vw\\].select-none') as SVGElement;
-      if (!svgElement) {
-        console.error('SVG canvas not found');
-        return;
+      return await Promise.race([
+        promise,
+        new Promise<T>((_, reject) => {
+          timeoutId = window.setTimeout(() => reject(new Error(`${label} timed out`)), ms);
+        }),
+      ]);
+    } finally {
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
       }
-
-      // Crea un nuovo SVG con solo il contenuto del frame
-      const exportSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-      exportSvg.setAttribute('width', frameWidth.toString());
-      exportSvg.setAttribute('height', frameHeight.toString());
-      exportSvg.setAttribute('viewBox', `0 0 ${frameWidth} ${frameHeight}`);
-      exportSvg.style.backgroundColor = 'white';
-
-      // Aggiungi background bianco
-      const backgroundRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-      backgroundRect.setAttribute('x', '0');
-      backgroundRect.setAttribute('y', '0');
-      backgroundRect.setAttribute('width', frameWidth.toString());
-      backgroundRect.setAttribute('height', frameHeight.toString());
-      backgroundRect.setAttribute('fill', 'white');
-      exportSvg.appendChild(backgroundRect);
-
-      // Nuova strategia: cattura tutto quello che è visualmente dentro il frame
-      const allGroups = svgElement.querySelectorAll('g[style*="transform"]');
-      
-      let foundElements = 0; // Dichiarazione della variabile mancante!
-      
-      allGroups.forEach((group, index) => {
-        const style = group.getAttribute('style') || '';
-        const transformMatch = style.match(/translate\(([^)]+)\)/);
-        
-        if (transformMatch) {
-          const coords = transformMatch[1].split(',').map(v => parseFloat(v.replace('px', '').trim()));
-          const [gx, gy] = coords;
-          
-          // Tolerance più grande per catturare elementi sui bordi
-          const tolerance = 100;
-          
-          // Estrai anche scale se presente
-          const scaleMatch = style.match(/scale\(([^)]+)\)/);
-          const scale = scaleMatch ? parseFloat(scaleMatch[1]) : 1;
-          
-          // Log per debug TUTTI i gruppi per vedere meglio
-          
-          // Strategia più precisa: solo elementi che hanno senso visualmente
-          // 1. Dentro il frame con tolerance ragionevole
-          const isWithinFrame = gx >= (fx - tolerance) && gx <= (fx + frameWidth + tolerance) && 
-                               gy >= (fy - tolerance) && gy <= (fy + frameHeight + tolerance);
-          
-          // 2. Overlap check per elementi parzialmente sovrapposti  
-          const elementSize = 300; 
-          const hasOverlap = !(gx > (fx + frameWidth) || (gx + elementSize) < fx || 
-                              gy > (fy + frameHeight) || (gy + elementSize) < fy);
-          
-          // 3. Filtro coordinate: esclude elementi troppo lontani che creerebbero coordinate negative enormi
-          const relativeX = gx - fx;
-          const relativeY = gy - fy;
-          const isReasonablyPositioned = relativeX >= -200 && relativeX <= frameWidth + 200 &&
-                                        relativeY >= -200 && relativeY <= frameHeight + 200;
-          
-          if ((isWithinFrame || hasOverlap) && isReasonablyPositioned) {
-            foundElements++;
-            
-            const groupClone = group.cloneNode(true) as Element;
-            
-            // Rimuovi solo elementi IMG realmente problematici
-            const problematicElements = groupClone.querySelectorAll('img[src^="http"], image[href^="http"], image[xlink\\:href^="http"]');
-            problematicElements.forEach(el => {
-              const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-              rect.setAttribute('width', el.getAttribute('width') || '100');
-              rect.setAttribute('height', el.getAttribute('height') || '100');
-              rect.setAttribute('x', el.getAttribute('x') || '0');
-              rect.setAttribute('y', el.getAttribute('y') || '0');
-              rect.setAttribute('fill', '#e5e7eb');
-              rect.setAttribute('stroke', '#9ca3af');
-              rect.setAttribute('stroke-width', '1');
-              el.parentNode?.replaceChild(rect, el);
-            });
-            
-            // Correggi la trasformazione per posizionare relativamente al frame
-            const newTransform = `translate(${gx - fx}px, ${gy - fy}px)`;
-            groupClone.setAttribute('style', style.replace(/translate\([^)]+\)/, newTransform));
-            
-            exportSvg.appendChild(groupClone);
-          }
-        }
-      });
-      
-      
-      // Se non troviamo elementi, aggiungi almeno il frame stesso
-      if (foundElements === 0) {
-        // Cerca specificamente il frame stesso
-        const frameElement = svgElement.querySelector(`g[style*="translate(${fx}px, ${fy}px)"]`);
-        if (frameElement) {
-          const frameClone = frameElement.cloneNode(true) as Element;
-          const style = frameClone.getAttribute('style') || '';
-          frameClone.setAttribute('style', style.replace(/translate\([^)]+\)/, `translate(0px, 0px)`));
-          exportSvg.appendChild(frameClone);
-        } else {
-          // Fallback: crea un rettangolo di debug
-          const debugRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-          debugRect.setAttribute('x', '10');
-          debugRect.setAttribute('y', '10');
-          debugRect.setAttribute('width', (frameWidth - 20).toString());
-          debugRect.setAttribute('height', (frameHeight - 20).toString());
-          debugRect.setAttribute('fill', 'none');
-          debugRect.setAttribute('stroke', '#ff0000');
-          debugRect.setAttribute('stroke-width', '2');
-          exportSvg.appendChild(debugRect);
-          
-          const debugText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-          debugText.setAttribute('x', (frameWidth / 2).toString());
-          debugText.setAttribute('y', (frameHeight / 2).toString());
-          debugText.setAttribute('text-anchor', 'middle');
-          debugText.setAttribute('font-family', 'Arial');
-          debugText.setAttribute('font-size', '16');
-          debugText.setAttribute('fill', '#ff0000');
-          debugText.textContent = `Frame ${frameWidth}x${frameHeight}`;
-          exportSvg.appendChild(debugText);
-        }
-      }
-
-      // Export con html-to-image con gestione errori migliorata
-      try {
-        
-        // Debug: stampa il contenuto SVG
-        
-        const { toPng } = await import('html-to-image');
-        
-        // Crea container temporaneo
-        const container = document.createElement('div');
-        container.style.position = 'fixed';
-        container.style.left = '-10000px';
-        container.style.top = '0';
-        container.style.width = `${frameWidth}px`;
-        container.style.height = `${frameHeight}px`;
-        container.style.background = 'white';
-        container.style.zIndex = '-1000';
-        container.appendChild(exportSvg);
-        document.body.appendChild(container);
-        
-        
-        const dataUrl = await toPng(container, {
-          width: frameWidth,
-          height: frameHeight,
-          backgroundColor: 'white',
-          pixelRatio: 1,
-          quality: 1,
-          useCORS: true,
-          allowTaint: false,
-          skipFonts: true,
-          includeQueryParams: false,
-          filter: (node: any) => {
-            // Escludi elementi che potrebbero causare problemi
-            if (node.tagName === 'SCRIPT' || node.tagName === 'STYLE') {
-              return false;
-            }
-            return true;
-          }
-        });
-        
-        document.body.removeChild(container);
-        
-        // Download
-        const a = document.createElement('a');
-        a.href = dataUrl;
-        a.download = `frame-${frameId}-${frameWidth}x${frameHeight}.png`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        
-        
-      } catch (exportError) {
-        console.error('HTML-to-image export failed:', exportError);
-        
-        // Cleanup container se esiste ancora
-        const container = document.querySelector('div[style*="left: -10000px"]');
-        if (container) {
-          document.body.removeChild(container);
-        }
-        
-        // Fallback: prova con Canvas API
-        try {
-          
-          const svgString = new XMLSerializer().serializeToString(exportSvg);
-          const svgBlob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
-          const url = URL.createObjectURL(svgBlob);
-
-          const canvas = document.createElement('canvas');
-          canvas.width = frameWidth;
-          canvas.height = frameHeight;
-          const ctx = canvas.getContext('2d');
-          
-          if (!ctx) throw new Error('Cannot get canvas context');
-          
-          // Background bianco
-          ctx.fillStyle = 'white';
-          ctx.fillRect(0, 0, frameWidth, frameHeight);
-
-          const img = new Image();
-          
-          await new Promise<void>((resolve, reject) => {
-            img.onload = () => {
-              try {
-                ctx.drawImage(img, 0, 0, frameWidth, frameHeight);
-                
-                canvas.toBlob((blob) => {
-                  if (blob) {
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = `frame-${frameId}-${frameWidth}x${frameHeight}.png`;
-                    document.body.appendChild(a);
-                    a.click();
-                    document.body.removeChild(a);
-                    URL.revokeObjectURL(url);
-                  }
-                  resolve();
-                }, 'image/png', 1.0);
-              } catch (e) {
-                reject(e);
-              }
-              URL.revokeObjectURL(url);
-            };
-            
-            img.onerror = () => {
-              URL.revokeObjectURL(url);
-              reject(new Error('Canvas SVG load failed'));
-            };
-            
-            img.src = url;
-          });
-          
-        } catch (canvasError) {
-          console.error('Canvas API fallback failed:', canvasError);
-          throw new Error('Both export methods failed');
-        }
-      }
-
-    } catch (e) {
-      console.error('Failed to export frame:', e);
-      alert('Export failed. Check console for details.');
     }
   };
 
-  const exportSelectedFrameAsImage = async (
-    frameId: string,
-    preset: { label: string; width: number; height: number }
+  const removeFrameSelectionArtifacts = (frameClone: Element) => {
+    const rects = Array.from(frameClone.querySelectorAll("rect"));
+    rects.forEach((rect) => {
+      const x = Number.parseFloat(rect.getAttribute("x") ?? "");
+      const y = Number.parseFloat(rect.getAttribute("y") ?? "");
+      const fill = (rect.getAttribute("fill") ?? "").trim().toLowerCase();
+      const strokeWidth = Number.parseFloat(
+        rect.getAttribute("stroke-width") ?? rect.getAttribute("strokeWidth") ?? ""
+      );
+
+      const isFrameSelectionRect =
+        fill === "none" &&
+        Number.isFinite(x) &&
+        Number.isFinite(y) &&
+        ((Math.abs(x + 2) < 0.01 && Math.abs(y + 2) < 0.01 && Math.abs(strokeWidth - 2.5) < 0.01) ||
+          (Math.abs(x + 1) < 0.01 && Math.abs(y + 1) < 0.01 && Math.abs(strokeWidth - 1) < 0.01));
+
+      if (isFrameSelectionRect) {
+        rect.remove();
+      }
+    });
+  };
+
+  const stripSelectionUiFromLayerClone = (
+    rootClone: Element,
+    layerIdsInRoot: string[],
+    selectedLayerIds: Set<string>
   ) => {
+    const selectedIdsInRoot = layerIdsInRoot.filter((id) => selectedLayerIds.has(id));
+    if (selectedIdsInRoot.length === 0) return;
+
+    const outlineLayerTypes = new Set<LayerType>([
+      LayerType.Image,
+      LayerType.Video,
+      LayerType.File,
+      LayerType.Text,
+      LayerType.Note,
+      LayerType.Table,
+      LayerType.TodoWidget,
+      LayerType.Arrow,
+      LayerType.Line,
+    ]);
+    const strokeSelectionLayerTypes = new Set<LayerType>([
+      LayerType.Rectangle,
+      LayerType.Ellipse,
+      LayerType.Path,
+    ]);
+
+    for (const selectedId of selectedIdsInRoot) {
+      const meta = frameExportLayerIndex.layers[selectedId];
+      if (!meta) continue;
+
+      const selector = `[data-layer-id="${escapeCssSelectorValue(selectedId)}"]`;
+      const taggedNodes = [
+        ...(rootClone.matches(selector) ? [rootClone] : []),
+        ...Array.from(rootClone.querySelectorAll(selector)),
+      ] as Element[];
+
+      if (outlineLayerTypes.has(meta.type)) {
+        taggedNodes.forEach((node) => {
+          const styleTarget = node as HTMLElement;
+          styleTarget.style.outline = "none";
+          styleTarget.style.outlineOffset = "";
+        });
+      }
+
+      if (strokeSelectionLayerTypes.has(meta.type)) {
+        taggedNodes.forEach((node) => {
+          const tag = node.tagName.toLowerCase();
+          if (tag === "rect" || tag === "ellipse" || tag === "path") {
+            node.setAttribute("stroke", "transparent");
+            node.setAttribute("stroke-opacity", "0");
+          }
+        });
+      }
+
+      if (meta.type === LayerType.Frame) {
+        removeFrameSelectionArtifacts(rootClone);
+      }
+    }
+  };
+
+  const sanitizeMediaForExport = (rootClone: Element) => {
+    // html-to-image can hang/fail on <video> inside foreignObject; use poster/placeholder instead.
+    rootClone.querySelectorAll("video").forEach((videoNode) => {
+      const poster = videoNode.getAttribute("poster");
+      const replacement = document.createElement("img");
+      replacement.setAttribute("alt", "Video preview");
+      replacement.setAttribute(
+        "style",
+        (videoNode.getAttribute("style") || "") + ";width:100%;height:100%;object-fit:cover;"
+      );
+      replacement.setAttribute("class", videoNode.getAttribute("class") || "");
+      if (poster) {
+        replacement.setAttribute("src", poster);
+      } else {
+        replacement.setAttribute(
+          "src",
+          "data:image/svg+xml;utf8," +
+            encodeURIComponent(
+              `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"><rect width="100%" height="100%" fill="#e2e8f0"/><circle cx="160" cy="90" r="24" fill="#0f172a"/><polygon points="153,78 153,102 174,90" fill="#fff"/></svg>`
+            )
+        );
+      }
+      videoNode.parentNode?.replaceChild(replacement, videoNode);
+    });
+
+    // Embedded players (e.g. YouTube iframe previews) taint canvas or fail in html-to-image.
+    rootClone.querySelectorAll("iframe").forEach((iframeNode) => {
+      const replacement = document.createElement("div");
+      replacement.setAttribute("role", "img");
+      replacement.setAttribute("aria-label", "Embedded preview");
+      replacement.setAttribute(
+        "style",
+        [
+          iframeNode.getAttribute("style") || "",
+          "width:100%;height:100%;display:flex;align-items:center;justify-content:center;",
+          "background:linear-gradient(135deg,#0f172a,#1e293b);color:#fff;",
+          "font:600 13px/1.2 Arial,sans-serif;text-align:center;border-radius:12px;",
+          "padding:12px;box-sizing:border-box;",
+        ].join(";")
+      );
+      replacement.setAttribute("class", iframeNode.getAttribute("class") || "");
+      replacement.textContent = "Embedded media preview";
+      iframeNode.parentNode?.replaceChild(replacement, iframeNode);
+    });
+  };
+
+  const createExportImagePlaceholder = (label: string) =>
+    "data:image/svg+xml;utf8," +
+    encodeURIComponent(
+      `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180">
+        <rect width="100%" height="100%" fill="#f1f5f9"/>
+        <rect x="8" y="8" width="304" height="164" rx="10" ry="10" fill="none" stroke="#cbd5e1" stroke-width="2"/>
+        <text x="50%" y="50%" text-anchor="middle" dominant-baseline="middle"
+          fill="#64748b" font-family="Arial, sans-serif" font-size="14" font-weight="600">${label}</text>
+      </svg>`
+    );
+
+  const blobToDataUrl = (blob: Blob) =>
+    new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ""));
+      reader.onerror = () => reject(reader.error || new Error("Unable to read blob"));
+      reader.readAsDataURL(blob);
+    });
+
+  const fetchExportAssetBlob = async (assetUrl: string) => {
+    const fetchDirect = async () => {
+      const response = await fetch(assetUrl, {
+        mode: "cors",
+        credentials: "omit",
+        headers: {
+          Accept: "image/*,*/*",
+        },
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status} ${response.statusText}`);
+      }
+      return await response.blob();
+    };
+
     try {
-      // Recupera dati frame selezionato
-      const frame = selectedFramesData.find(f => f.id === frameId);
-      if (!frame) return;
-      const { x: fx, y: fy, width: fw, height: fh } = frame;
-      const boardCanvas = document.querySelector('.board-canvas') as HTMLElement | null;
-      if (!boardCanvas) return;
+      return await withTimeout(fetchDirect(), 12000, "Export asset fetch");
+    } catch (directError) {
+      // Fallback to server proxy if available (same strategy already used by file downloads).
+      try {
+        const proxyResponse = await withTimeout(
+          fetch("/api/download-proxy", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              url: assetUrl,
+              fileName: "frame-export-asset",
+            }),
+          }),
+          15000,
+          "Export asset proxy fetch"
+        );
 
-      // Clona il contenuto del canvas in un container offscreen, applicando trasformazioni per isolare il frame
-      const clone = boardCanvas.cloneNode(true) as HTMLElement;
+        if (!proxyResponse.ok) {
+          throw new Error(`Proxy HTTP ${proxyResponse.status}`);
+        }
 
-      const container = document.createElement('div');
-      container.style.position = 'fixed';
-      container.style.left = '-10000px';
-      container.style.top = '0';
-      container.style.width = `${preset.width}px`;
-      container.style.height = `${preset.height}px`;
-      container.style.overflow = 'hidden';
-      container.style.background = 'white';
-      container.style.zIndex = '-1';
+        return await proxyResponse.blob();
+      } catch (proxyError) {
+        throw new Error(
+          `Asset fetch failed (${assetUrl.slice(0, 120)}): ${String(
+            (proxyError as Error)?.message || (directError as Error)?.message || "unknown error"
+          )}`
+        );
+      }
+    }
+  };
 
-      // Wrapper per le trasformazioni (centrare e scalare il frame nel preset selezionato)
-      const wrapper = document.createElement('div');
-      wrapper.style.position = 'relative';
-      wrapper.style.width = '100%';
-      wrapper.style.height = '100%';
+  const inlineExternalAssetsForExport = async (rootClone: Element) => {
+    const urlCache = new Map<string, Promise<{ url: string; isPlaceholder: boolean }>>();
+    let inlinedCount = 0;
+    let placeholderCount = 0;
 
-      // Calcola scala uniforme per far entrare il frame nel preset
-      const scale = Math.min(preset.width / fw, preset.height / fh);
-      const offsetX = (preset.width - fw * scale) / 2;
-      const offsetY = (preset.height - fh * scale) / 2;
-      // Applica: translate(offset) scale(scale) translate(-frameX, -frameY)
-      (clone.style as any).transform = `translate(${offsetX}px, ${offsetY}px) scale(${scale}) translate(${-fx}px, ${-fy}px)`;
-      (clone.style as any).transformOrigin = '0 0';
-      (clone.style as any).width = boardCanvas.clientWidth + 'px';
-      (clone.style as any).height = boardCanvas.clientHeight + 'px';
+    const getNormalizedAssetUrl = (value: string | null | undefined) => {
+      const raw = (value || "").trim();
+      if (!raw) return null;
+      if (raw.startsWith("data:")) return raw;
+      try {
+        return new URL(raw, window.location.href).href;
+      } catch {
+        return raw;
+      }
+    };
 
-      wrapper.appendChild(clone);
-      container.appendChild(wrapper);
-      document.body.appendChild(container);
+    const getInlinedUrl = (assetUrl: string, label: string) => {
+      if (assetUrl.startsWith("data:")) {
+        return Promise.resolve({ url: assetUrl, isPlaceholder: false });
+      }
 
-      const { toPng } = await import('html-to-image');
-      const dataUrl = await toPng(container, {
-        quality: 1,
-        pixelRatio: 2,
-        backgroundColor: 'white',
-        width: preset.width,
-        height: preset.height,
-        style: {
-          width: `${preset.width}px`,
-          height: `${preset.height}px`,
-        } as any,
-        skipAutoScale: true,
-        canvasWidth: preset.width,
-        canvasHeight: preset.height,
-        cacheBust: true,
+      const cached = urlCache.get(assetUrl);
+      if (cached) return cached;
+
+      const promise = (async () => {
+        try {
+          const blob = await fetchExportAssetBlob(assetUrl);
+          if (!blob || blob.size === 0) {
+            throw new Error("empty blob");
+          }
+          const dataUrl = await blobToDataUrl(blob);
+          if (!dataUrl.startsWith("data:")) {
+            throw new Error("invalid data URL");
+          }
+          return { url: dataUrl, isPlaceholder: false };
+        } catch (error) {
+          console.warn("[Frame Export] Failed to inline asset, using placeholder", {
+            assetUrl,
+            label,
+            error,
+          });
+          return { url: createExportImagePlaceholder(label), isPlaceholder: true };
+        }
+      })();
+
+      urlCache.set(assetUrl, promise);
+      return promise;
+    };
+
+    const htmlImages = Array.from(rootClone.querySelectorAll("img"));
+    for (const imgNode of htmlImages) {
+      const currentSrc = getNormalizedAssetUrl(imgNode.getAttribute("src"));
+      if (!currentSrc) continue;
+      const inlinedSrc = await getInlinedUrl(currentSrc, "Image");
+      if (!inlinedSrc?.url) continue;
+      imgNode.setAttribute("src", inlinedSrc.url);
+      imgNode.removeAttribute("srcset");
+      imgNode.removeAttribute("crossorigin");
+      if (inlinedSrc.isPlaceholder) {
+        placeholderCount += 1;
+      } else {
+        inlinedCount += 1;
+      }
+    }
+
+    const svgImages = Array.from(rootClone.querySelectorAll("image"));
+    for (const svgImageNode of svgImages) {
+      const rawHref =
+        svgImageNode.getAttribute("href") ||
+        svgImageNode.getAttributeNS("http://www.w3.org/1999/xlink", "href") ||
+        svgImageNode.getAttribute("xlink:href");
+      const normalizedHref = getNormalizedAssetUrl(rawHref);
+      if (!normalizedHref) continue;
+
+      const inlinedHref = await getInlinedUrl(normalizedHref, "Media");
+      if (!inlinedHref?.url) continue;
+
+      svgImageNode.setAttribute("href", inlinedHref.url);
+      svgImageNode.setAttributeNS("http://www.w3.org/1999/xlink", "xlink:href", inlinedHref.url);
+      if (inlinedHref.isPlaceholder) {
+        placeholderCount += 1;
+      } else {
+        inlinedCount += 1;
+      }
+    }
+
+    return { inlinedCount, placeholderCount };
+  };
+
+  const isLikelyBlankPngBlob = async (blob: Blob, width: number, height: number) => {
+    if (blob.size === 0) return true;
+
+    const objectUrl = URL.createObjectURL(blob);
+    try {
+      const img = await withTimeout(
+        new Promise<HTMLImageElement>((resolve, reject) => {
+          const image = new window.Image();
+          image.onload = () => resolve(image);
+          image.onerror = () => reject(new Error("Unable to decode exported PNG"));
+          image.src = objectUrl;
+        }),
+        8000,
+        "PNG decode validation"
+      );
+
+      const sampleCanvas = document.createElement("canvas");
+      const sampleW = Math.max(1, Math.min(64, width));
+      const sampleH = Math.max(1, Math.min(64, height));
+      sampleCanvas.width = sampleW;
+      sampleCanvas.height = sampleH;
+      const ctx = sampleCanvas.getContext("2d", { willReadFrequently: true });
+      if (!ctx) return false;
+
+      ctx.drawImage(img, 0, 0, sampleW, sampleH);
+      const data = ctx.getImageData(0, 0, sampleW, sampleH).data;
+
+      let meaningfulPixels = 0;
+      for (let i = 0; i < data.length; i += 4) {
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
+        const a = data[i + 3];
+        if (a < 8) continue;
+
+        // Treat near-white fully-opaque pixels as background.
+        const isNearWhite = r > 248 && g > 248 && b > 248;
+        if (!isNearWhite) {
+          meaningfulPixels += 1;
+          if (meaningfulPixels >= 4) return false;
+        }
+      }
+
+      return true;
+    } finally {
+      URL.revokeObjectURL(objectUrl);
+    }
+  };
+
+  const exportFrameWithNativeDimensions = async (frameId: string) => {
+    if (isExportingFrameId) return;
+
+    let offscreenContainer: HTMLDivElement | null = null;
+    try {
+      const frame = selectedFramesData.find((f) => f.id === frameId);
+      if (!frame) {
+        toast.error("Frame non trovato.");
+        return;
+      }
+
+      if (!frameExportLayerIndex || !frameExportLayerIndex.layers) {
+        toast.error("Dati board non ancora pronti. Riprova tra un istante.");
+        return;
+      }
+
+      const frameMeta = frameExportLayerIndex.layers[frameId];
+      if (!frameMeta) {
+        toast.error("Dati del frame non disponibili.");
+        return;
+      }
+
+      const boardCanvas = document.querySelector(".board-canvas") as HTMLElement | null;
+      const directChildSvg = boardCanvas
+        ? Array.from(boardCanvas.children).find(
+            (child) => child instanceof Element && child.tagName.toLowerCase() === "svg"
+          )
+        : null;
+      const svgElement = directChildSvg as SVGSVGElement | null;
+
+      if (!boardCanvas || !svgElement) {
+        console.error("[Frame Export] Board SVG not found", {
+          boardCanvasFound: Boolean(boardCanvas),
+          childTags: boardCanvas ? Array.from(boardCanvas.children).map((c) => (c as Element).tagName) : [],
+        });
+        toast.error("Canvas board non trovato.");
+        return;
+      }
+
+      const worldGroup = Array.from(svgElement.children).find(
+        (child) => child instanceof Element && child.tagName.toLowerCase() === "g"
+      ) as SVGGElement | undefined;
+
+      if (!worldGroup) {
+        console.error("[Frame Export] Invalid SVG structure: world group missing");
+        toast.error("Struttura SVG non valida.");
+        return;
+      }
+
+      const outputWidth = Math.max(1, Math.round(frame.width));
+      const outputHeight = Math.max(1, Math.round(frame.height));
+      const frameX = frame.x;
+      const frameY = frame.y;
+
+      const layerIdsToExport = new Set<string>();
+      const visitedFrames = new Set<string>();
+
+      const collectFrameTree = (currentFrameId: string) => {
+        if (visitedFrames.has(currentFrameId)) return;
+        visitedFrames.add(currentFrameId);
+
+        const meta = frameExportLayerIndex.layers[currentFrameId];
+        if (!meta) return;
+
+        layerIdsToExport.add(currentFrameId);
+
+        const children = Array.isArray(meta.children) ? meta.children : [];
+        for (const childId of children) {
+          layerIdsToExport.add(childId);
+          const childMeta = frameExportLayerIndex.layers[childId];
+          if (childMeta?.type === LayerType.Frame) {
+            collectFrameTree(childId);
+          }
+        }
+      };
+
+      collectFrameTree(frameId);
+
+      // Fallback geometrico: include elementi sovrapposti al frame anche se la gerarchia `children`
+      // non è aggiornata (può succedere durante alcune operazioni live).
+      const geometryMap = new Map<string, any>();
+      Object.entries(frameExportLayerIndex.layers).forEach(([id, meta]) => {
+        geometryMap.set(id, meta);
+      });
+      for (const layerId of findLayersInFrame(frameId, geometryMap as any, frameExportLayerIndex.layerIds)) {
+        layerIdsToExport.add(layerId);
+      }
+      layerIdsToExport.add(frameId);
+
+      const selectedLayerIds = new Set(selection);
+
+      const collectLayerIdsFromSubtree = (root: Element) => {
+        const ids = new Set<string>();
+        const rootId = root.getAttribute("data-layer-id");
+        if (rootId) ids.add(rootId);
+        root.querySelectorAll("[data-layer-id]").forEach((node) => {
+          const id = node.getAttribute("data-layer-id");
+          if (id) ids.add(id);
+        });
+        return Array.from(ids);
+      };
+
+      const sourceLayerRoots: Array<{ index: number; root: Element; layerIds: string[] }> = [];
+      Array.from(worldGroup.children).forEach((childNode, index) => {
+        if (!(childNode instanceof Element)) return;
+        const subtreeLayerIds = collectLayerIdsFromSubtree(childNode).filter((id) =>
+          layerIdsToExport.has(id)
+        );
+        if (subtreeLayerIds.length === 0) return;
+        sourceLayerRoots.push({ index, root: childNode, layerIds: subtreeLayerIds });
       });
 
-      // Cleanup
-      document.body.removeChild(container);
+      if (sourceLayerRoots.length === 0) {
+        console.error("[Frame Export] No layer roots found", {
+          frameId,
+          layerIdsToExport: Array.from(layerIdsToExport),
+          worldChildrenCount: worldGroup.children.length,
+        });
+        toast.error("Nessun elemento del frame trovato per l'export.");
+        return;
+      }
 
-      const a = document.createElement('a');
-      a.href = dataUrl;
-      a.download = `frame-${frameId}-${preset.label.replace(/\s+/g, '_')}.png`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-    } catch (e) {
-      console.error('Failed to export frame', e);
+      // Se c'è un elemento editabile attivo dentro la board, chiudiamo l'editing per evitare caret/input nell'export.
+      const activeElement = document.activeElement as HTMLElement | null;
+      if (activeElement?.closest(".board-canvas") && typeof activeElement.blur === "function") {
+        activeElement.blur();
+        await waitForNextFrame();
+      }
+
+      setIsExportingFrameId(frameId);
+      const exportSvg = svgElement.cloneNode(true) as SVGSVGElement;
+      exportSvg.setAttribute("width", String(outputWidth));
+      exportSvg.setAttribute("height", String(outputHeight));
+      exportSvg.setAttribute("viewBox", `0 0 ${frame.width} ${frame.height}`);
+      exportSvg.style.background = "white";
+
+      const exportWorldGroup = Array.from(exportSvg.children).find(
+        (child) => child instanceof Element && child.tagName.toLowerCase() === "g"
+      ) as SVGGElement | undefined;
+
+      if (!exportWorldGroup) {
+        toast.error("Struttura SVG export non valida.");
+        return;
+      }
+
+      const exportWorldChildren = Array.from(exportWorldGroup.children);
+
+      for (let childIndex = exportWorldChildren.length - 1; childIndex >= 0; childIndex -= 1) {
+        const exportChild = exportWorldChildren[childIndex];
+        if (!(exportChild instanceof Element)) continue;
+
+        const exportChildLayerIds = collectLayerIdsFromSubtree(exportChild).filter((id) =>
+          layerIdsToExport.has(id)
+        );
+
+        if (exportChildLayerIds.length === 0) {
+          exportChild.remove();
+          continue;
+        }
+
+        exportChild.querySelectorAll("[contenteditable]").forEach((node) =>
+          node.removeAttribute("contenteditable")
+        );
+        stripSelectionUiFromLayerClone(exportChild, exportChildLayerIds, selectedLayerIds);
+        sanitizeMediaForExport(exportChild);
+      }
+
+      exportWorldGroup.setAttribute("transform", `translate(${-frameX} ${-frameY})`);
+      exportSvg.removeAttribute("class");
+      exportSvg.style.width = `${outputWidth}px`;
+      exportSvg.style.height = `${outputHeight}px`;
+      exportSvg.style.maxWidth = "none";
+      exportSvg.style.maxHeight = "none";
+      exportSvg.style.display = "block";
+      exportSvg.style.background = "white";
+      exportSvg.setAttribute("preserveAspectRatio", "none");
+
+      const backgroundRect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+      backgroundRect.setAttribute("x", "0");
+      backgroundRect.setAttribute("y", "0");
+      backgroundRect.setAttribute("width", String(frame.width));
+      backgroundRect.setAttribute("height", String(frame.height));
+      backgroundRect.setAttribute("fill", "white");
+      exportSvg.insertBefore(backgroundRect, exportSvg.firstChild);
+
+      const assetInliningStats = await inlineExternalAssetsForExport(exportSvg);
+      if (assetInliningStats.inlinedCount > 0 || assetInliningStats.placeholderCount > 0) {
+        console.info("[Frame Export] Asset inlining completed", {
+          frameId,
+          ...assetInliningStats,
+        });
+      }
+
+      offscreenContainer = document.createElement("div");
+      offscreenContainer.style.position = "fixed";
+      offscreenContainer.style.left = "0";
+      offscreenContainer.style.top = "0";
+      offscreenContainer.style.width = `${outputWidth}px`;
+      offscreenContainer.style.height = `${outputHeight}px`;
+      offscreenContainer.style.background = "#ffffff";
+      offscreenContainer.style.overflow = "hidden";
+      offscreenContainer.style.pointerEvents = "none";
+      offscreenContainer.style.zIndex = "-1";
+      offscreenContainer.style.contain = "layout paint style";
+      offscreenContainer.appendChild(exportSvg);
+      document.body.appendChild(offscreenContainer);
+
+      await waitForNextFrame();
+      await waitForNextFrame();
+
+      const fileBase =
+        sanitizeFileNamePart(frameMeta.title || frame.title || "frame") ||
+        `frame-${frameId.slice(-6)}`;
+      const fileName = `${fileBase}-${outputWidth}x${outputHeight}.png`;
+
+      const isSafariLike = (() => {
+        const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
+        return /Safari/i.test(ua) && !/Chrome|Chromium|CriOS|Edg|OPR|Firefox|FxiOS/i.test(ua);
+      })();
+
+      const scheduleObjectUrlRevoke = (url: string) => {
+        window.setTimeout(() => {
+          try {
+            URL.revokeObjectURL(url);
+          } catch {
+            // noop
+          }
+        }, 30000);
+      };
+
+      const triggerDownloadUrl = (url: string) => {
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = fileName;
+        anchor.rel = "noopener noreferrer";
+        anchor.style.position = "fixed";
+        anchor.style.left = "-10000px";
+        anchor.style.top = "0";
+        anchor.style.opacity = "0";
+        anchor.style.pointerEvents = "none";
+        document.body.appendChild(anchor);
+
+        let clickError: unknown = null;
+        try {
+          if (typeof anchor.click === "function") {
+            anchor.click();
+          } else {
+            anchor.dispatchEvent(
+              new MouseEvent("click", { view: window, bubbles: true, cancelable: true })
+            );
+          }
+        } catch (error) {
+          clickError = error;
+        } finally {
+          window.setTimeout(() => {
+            if (anchor.parentNode) {
+              anchor.parentNode.removeChild(anchor);
+            }
+          }, 1000);
+        }
+
+        // Safari (especially mobile) may ignore programmatic downloads; open the image as fallback.
+        if (isSafariLike) {
+          window.setTimeout(() => {
+            try {
+              window.open(url, "_blank", "noopener,noreferrer");
+            } catch {
+              // noop
+            }
+          }, 50);
+        }
+
+        if (clickError) {
+          throw clickError;
+        }
+      };
+
+      const triggerBlobDownload = (blob: Blob) => {
+        const nav = navigator as any;
+        if (typeof nav?.msSaveOrOpenBlob === "function") {
+          nav.msSaveOrOpenBlob(blob, fileName);
+          return;
+        }
+
+        const blobUrl = URL.createObjectURL(blob);
+        triggerDownloadUrl(blobUrl);
+        scheduleObjectUrlRevoke(blobUrl);
+      };
+
+      try {
+        const { toBlob } = await import("html-to-image");
+        const pngBlob = await withTimeout(
+          toBlob(offscreenContainer, {
+            width: outputWidth,
+            height: outputHeight,
+            canvasWidth: outputWidth,
+            canvasHeight: outputHeight,
+            pixelRatio: 1,
+            backgroundColor: "#ffffff",
+            useCORS: true,
+            skipFonts: true,
+            cacheBust: false,
+            includeQueryParams: true,
+            skipAutoScale: true,
+            style: {
+              width: `${outputWidth}px`,
+              height: `${outputHeight}px`,
+            } as any,
+            filter: (node: HTMLElement) => {
+              const tag = node.tagName?.toLowerCase?.();
+              if (tag === "script") return false;
+              return true;
+            },
+          }),
+          12000,
+          "Frame PNG export"
+        );
+
+        if (!pngBlob) {
+          throw new Error("html-to-image returned empty blob");
+        }
+
+        if (layerIdsToExport.size > 1) {
+          const isBlank = await isLikelyBlankPngBlob(pngBlob, outputWidth, outputHeight);
+          if (isBlank) {
+            console.warn("[Frame Export] Blank PNG detected after html-to-image", {
+              frameId,
+              outputWidth,
+              outputHeight,
+              exportedLayerCount: layerIdsToExport.size,
+            });
+            throw new Error("html-to-image produced a blank PNG");
+          }
+        }
+
+        triggerBlobDownload(pngBlob);
+      } catch (htmlToImageError) {
+        // Fallback conservativo: serializza l'SVG e rasterizza via Canvas.
+        // Può fallire con alcune foreignObject/CORS, ma copre diversi casi browser-specific.
+        console.warn("[Frame Export] html-to-image failed, trying SVG fallback", htmlToImageError);
+
+        const svgString = new XMLSerializer().serializeToString(exportSvg);
+        const svgBlob = new Blob([svgString], { type: "image/svg+xml;charset=utf-8" });
+        const svgUrl = URL.createObjectURL(svgBlob);
+
+        try {
+          const img = new window.Image();
+          const canvas = document.createElement("canvas");
+          canvas.width = outputWidth;
+          canvas.height = outputHeight;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) throw new Error("Canvas context unavailable");
+
+          await new Promise<void>((resolve, reject) => {
+            img.onload = () => {
+              try {
+                ctx.fillStyle = "#ffffff";
+                ctx.fillRect(0, 0, outputWidth, outputHeight);
+                ctx.drawImage(img, 0, 0, outputWidth, outputHeight);
+                resolve();
+              } catch (error) {
+                reject(error);
+              }
+            };
+            img.onerror = () => reject(new Error("SVG rasterization failed"));
+            img.src = svgUrl;
+          });
+
+          const pngBlob = await new Promise<Blob | null>((resolve) =>
+            canvas.toBlob(resolve, "image/png", 1)
+          );
+          if (!pngBlob) throw new Error("PNG blob generation failed");
+
+          if (layerIdsToExport.size > 1) {
+            const isBlank = await isLikelyBlankPngBlob(pngBlob, outputWidth, outputHeight);
+            if (isBlank) {
+              console.warn("[Frame Export] Blank PNG detected after SVG fallback", {
+                frameId,
+                outputWidth,
+                outputHeight,
+                exportedLayerCount: layerIdsToExport.size,
+              });
+              throw new Error("SVG fallback produced a blank PNG");
+            }
+          }
+
+          triggerBlobDownload(pngBlob);
+        } finally {
+          URL.revokeObjectURL(svgUrl);
+        }
+      }
+
+      toast.success(`PNG esportato (${outputWidth}x${outputHeight})`);
+    } catch (error) {
+      console.error("[Frame Export] Failed to export frame PNG", {
+        frameId,
+        error,
+      });
+      toast.error("Export PNG del frame non riuscito.");
+    } finally {
+      if (offscreenContainer?.parentNode) {
+        offscreenContainer.parentNode.removeChild(offscreenContainer);
+      }
+      setIsExportingFrameId(null);
     }
   };
 
@@ -1904,6 +2337,9 @@ export const SelectionTools = memo(
             id, 
             autoResize: (layer as any).autoResize || false,
             type: layer.type,
+            title: (layer as any).title || "Frame",
+            clipping: (layer as any).clipping !== false,
+            children: Array.isArray((layer as any).children) ? [...(layer as any).children] : [],
             x: layer.x,
             y: layer.y,
             width: layer.width,
@@ -1917,6 +2353,36 @@ export const SelectionTools = memo(
     
     const hasFrames = selectedFramesData.length > 0;
     const singleFrameSelected = selectedFramesData.length === 1;
+
+    const frameExportLayerIndex = useStorage((root) => {
+      const layerIds = Array.from(root.layerIds as any as Iterable<string>) as string[];
+      const layers: Record<string, {
+        type: LayerType;
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+        title?: string;
+        children?: string[];
+      }> = {};
+
+      root.layers.forEach((liveLayer: any, id: string) => {
+        layers[id] = {
+          type: liveLayer.type as LayerType,
+          x: typeof liveLayer.x === "number" ? liveLayer.x : 0,
+          y: typeof liveLayer.y === "number" ? liveLayer.y : 0,
+          width: typeof liveLayer.width === "number" ? liveLayer.width : 0,
+          height: typeof liveLayer.height === "number" ? liveLayer.height : 0,
+          title: typeof liveLayer.title === "string" ? liveLayer.title : undefined,
+          children:
+            liveLayer.type === LayerType.Frame && Array.isArray(liveLayer.children)
+              ? [...liveLayer.children]
+              : undefined,
+        };
+      });
+
+      return { layerIds, layers };
+    });
 
     // Check if any images or videos are selected and get their data
     const selectedMediaData = useStorage((root) => {
@@ -1952,6 +2418,9 @@ export const SelectionTools = memo(
           const layer = root.layers.get(id);
           if (layer && (layer.type === "file" || layer.type === "image" || layer.type === "video")) {
             if (layer.type === "file") {
+              if ((layer as any).isLinkPreview || (layer as any).fileType === "link") {
+                return null;
+              }
               return { 
                 id, 
                 type: "file" as const,
@@ -2523,20 +2992,34 @@ export const SelectionTools = memo(
                         </div>
                       </SelectionTooltip>
                       
-                      {/* Direct PNG export with frame native dimensions - DISABLED */}
-                      {/* <SelectionTooltip label="Download PNG" isVisible={shouldShowSelectionTooltip("Download PNG")}>
+                      <SelectionTooltip label="Download PNG" isVisible={shouldShowSelectionTooltip("Download PNG")}>
                         <div onMouseEnter={() => handleMouseEnter("Download PNG")} onMouseLeave={handleMouseLeave}>
-                          <button 
-                            className="h-9 px-3 rounded-xl border text-sm flex items-center gap-2 bg-white/60 hover:bg-white/80 transition-all duration-200"
+                          <button
+                            type="button"
+                            disabled={isExportingFrameId === selectedFramesData[0].id}
+                            className={`
+                              flex items-center gap-2 h-9 px-3 rounded-xl transition-all duration-200 ease-out
+                              border border-slate-200/70 hover:border-slate-200
+                              bg-white/90 text-slate-600 hover:bg-white hover:text-slate-900
+                              shadow-sm hover:shadow-md hover:scale-[1.02] active:scale-95
+                              disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:scale-100
+                            `}
+                            title="Download frame as PNG"
                             onClick={async () => {
-                              const frame = selectedFramesData[0];
-                              await exportFrameWithNativeDimensions(frame.id, frame.width, frame.height);
+                              await exportFrameWithNativeDimensions(selectedFramesData[0].id);
                             }}
                           >
-                            <Download className="w-4 h-4" /> Download
+                            {isExportingFrameId === selectedFramesData[0].id ? (
+                              <RefreshCw className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <Download className="w-4 h-4" />
+                            )}
+                            <span className="text-sm font-medium">
+                              {isExportingFrameId === selectedFramesData[0].id ? "Exporting..." : "Download PNG"}
+                            </span>
                           </button>
                         </div>
-                      </SelectionTooltip> */}
+                      </SelectionTooltip>
                     </div>
                   )}
                 </div>

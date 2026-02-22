@@ -89,24 +89,33 @@ export const Frame = memo(({ id, layer, onPointerDown, onContextMenu, selectionC
     }
   }, [isEditingTitle, title]);
 
-  // Calcola l'altezza del header
-  const headerHeight = Math.max(32, Math.min(40, height * 0.12));
-  const titleFontSize = Math.max(11, Math.min(14, headerHeight * 0.35));
-  
-  // Determina se il frame ha contenuti
-  const hasChildren = children.length > 0;
-  const childrenCount = children.length;
+  const cornerRadius = Math.max(8, Math.min(12, Math.min(width, height) * 0.06));
+  const titleFontSize = Math.max(10, Math.min(12, Math.min(width, height) * 0.06));
+  const titleOffsetY = -10;
+  const titleLineHeight = 18;
 
-  // Colori moderni e professionali
+  const hasChildren = children.length > 0;
+  const baseTitle = title || "Frame";
+
+  const titleAvailableWidth = Math.max(44, width - (autoResize ? 34 : 14));
+  const approxTitleChars = Math.max(4, Math.floor(titleAvailableWidth / Math.max(6, titleFontSize * 0.56)));
+  const displayTitle =
+    baseTitle.length > approxTitleChars ? `${baseTitle.slice(0, Math.max(1, approxTitleChars - 1))}…` : baseTitle;
+
+  const resolvedBorderColor = colorToCSS(borderColor);
+  const resolvedBorderWidth = Math.max(1, Math.min(3, borderWidth || 1));
+  const resolvedBorderDash =
+    borderStyle === "dashed" ? "6 4" : borderStyle === "dotted" ? "1.5 4" : undefined;
+
   const frameColors = {
     background: colorToCSS(fill),
-    border: hasChildren ? '#e2e8f0' : '#f1f5f9',
-    headerBg: 'rgba(248, 250, 252, 0.95)',
-    headerBorder: 'rgba(203, 213, 225, 0.4)',
-    title: '#475569',
-    count: '#94a3b8',
-    autoResizeAccent: '#3b82f6',
-    shadow: selectionColor || 'rgba(0, 0, 0, 0.04)'
+    border: resolvedBorderColor || "#dbe3ef",
+    borderSoft: "rgba(148, 163, 184, 0.18)",
+    title: "#0f172a",
+    muted: "#64748b",
+    autoBg: "rgba(59, 130, 246, 0.08)",
+    autoBorder: "rgba(59, 130, 246, 0.2)",
+    autoText: "#2563eb",
   };
 
   return (
@@ -119,22 +128,20 @@ export const Frame = memo(({ id, layer, onPointerDown, onContextMenu, selectionC
       }}
       transform={`translate(${x} ${y})`}
     >
-      {/* Shadow/Elevation layer */}
+      {/* Ambient shadow */}
       <rect
-        x={1}
-        y={2}
+        x={0}
+        y={1}
         width={width}
         height={height}
-        fill="rgba(0, 0, 0, 0.03)"
-        rx={10}
-        ry={10}
+        fill="rgba(15,23,42,0.035)"
+        rx={cornerRadius + 1}
+        ry={cornerRadius + 1}
         className="pointer-events-none"
-        style={{
-          filter: 'blur(1px)'
-        }}
+        style={{ filter: "blur(2px)" }}
       />
 
-      {/* Main frame background */}
+      {/* Main surface */}
       <rect
         x={0}
         y={0}
@@ -142,130 +149,70 @@ export const Frame = memo(({ id, layer, onPointerDown, onContextMenu, selectionC
         height={height}
         fill={frameColors.background}
         stroke={frameColors.border}
-        strokeWidth={hasChildren ? 1.5 : 1}
-        rx={8}
-        ry={8}
+        strokeOpacity={0.32}
+        strokeWidth={resolvedBorderWidth}
+        strokeDasharray={resolvedBorderDash}
+        rx={cornerRadius}
+        ry={cornerRadius}
         opacity={opacity}
-        className={`${selectionColor ? 'cursor-move' : 'cursor-default'} transition-all duration-300 ease-out`}
+        className={`${selectionColor ? "cursor-move" : "cursor-default"} transition-all duration-200 ease-out`}
         style={{
-          filter: selectionColor ? 
-            `drop-shadow(0 0 16px ${selectionColor}30) drop-shadow(0 4px 20px rgba(0,0,0,0.08))` : 
-            'drop-shadow(0 1px 3px rgba(0,0,0,0.05)) drop-shadow(0 4px 12px rgba(0,0,0,0.04))'
+          filter: selectionColor
+            ? `drop-shadow(0 0 0.5px ${selectionColor}) drop-shadow(0 8px 22px rgba(15,23,42,0.08))`
+            : "drop-shadow(0 3px 12px rgba(15,23,42,0.06))",
         }}
       />
 
-      {/* Inner highlight for depth */}
+      {/* Soft inner edge */}
       <rect
         x={0.5}
         y={0.5}
-        width={width - 1}
-        height={height - 1}
+        width={Math.max(0, width - 1)}
+        height={Math.max(0, height - 1)}
         fill="none"
-        stroke="rgba(255,255,255,0.8)"
-        strokeWidth={0.5}
-        rx={7.5}
-        ry={7.5}
+        stroke={frameColors.borderSoft}
+        strokeWidth={0.75}
+        rx={Math.max(0, cornerRadius - 0.5)}
+        ry={Math.max(0, cornerRadius - 0.5)}
         className="pointer-events-none"
       />
 
-      {/* Header background with gradient */}
-      <defs>
-        <linearGradient id={`headerGradient-${id}`} x1="0%" y1="0%" x2="0%" y2="100%">
-          <stop offset="0%" stopColor="rgba(248, 250, 252, 0.98)" />
-          <stop offset="100%" stopColor="rgba(241, 245, 249, 0.92)" />
-        </linearGradient>
-      </defs>
-      
-      <rect
-        x={0}
-        y={0}
-        width={width}
-        height={headerHeight}
-        fill={`url(#headerGradient-${id})`}
-        rx={8}
-        ry={8}
-        className="pointer-events-none"
-        style={{
-          clipPath: `inset(0 0 ${height - headerHeight}px 0 round 8px)`
-        }}
-      />
-
-      {/* Header bottom border */}
-      <line
-        x1={8}
-        x2={width - 8}
-        y1={headerHeight - 0.5}
-        y2={headerHeight - 0.5}
-        stroke={frameColors.headerBorder}
-        strokeWidth={1}
-        className="pointer-events-none"
-      />
-
-      {/* Auto-resize indicator border */}
+      {/* Auto-resize perimeter (minimal) */}
       {autoResize && (
-        <>
-          <rect
-            x={1.5}
-            y={1.5}
-            width={width - 3}
-            height={height - 3}
-            fill="none"
-            stroke={frameColors.autoResizeAccent}
-            strokeWidth={1.5}
-            strokeDasharray="4,6"
-            rx={6.5}
-            ry={6.5}
-            opacity={0.6}
-            className="pointer-events-none"
-            style={{
-              animation: `dashSlide 3s linear infinite, pulse 2s ease-in-out infinite alternate`
-            }}
-          />
-          
-          {/* Auto-resize corner indicator */}
-          <g className="pointer-events-none">
-            <circle
-              cx={width - 12}
-              cy={12}
-              r={5}
-              fill={frameColors.autoResizeAccent}
-              opacity={0.9}
-            />
-            <text
-              x={width - 12}
-              y={12}
-              fontSize={7}
-              fontWeight="700"
-              fill="white"
-              textAnchor="middle"
-              dominantBaseline="middle"
-              style={{ fontFamily: "'SF Pro Display', system-ui, sans-serif" }}
-            >
-              ⚡
-            </text>
-          </g>
-        </>
+        <rect
+          x={1.5}
+          y={1.5}
+          width={Math.max(0, width - 3)}
+          height={Math.max(0, height - 3)}
+          fill="none"
+          stroke={frameColors.autoBorder}
+          strokeWidth={1}
+          strokeDasharray="4 6"
+          rx={Math.max(0, cornerRadius - 1.5)}
+          ry={Math.max(0, cornerRadius - 1.5)}
+          className="pointer-events-none"
+        />
       )}
 
-      {/* Title section */}
+      {/* Title (outside frame, lightweight) */}
       <g onClick={isEditingTitle ? undefined : handleTitleClick}>
         {isEditingTitle ? (
           <foreignObject
-            x={12}
-            y={(headerHeight - 20) / 2}
-            width={width - 100}
-            height={20}
+            x={0}
+            y={titleOffsetY - titleLineHeight + 2}
+            width={Math.max(48, titleAvailableWidth)}
+            height={24}
             className="pointer-events-auto"
           >
             <span
               ref={titleRef}
               contentEditable
               suppressContentEditableWarning
-              className="inline-block bg-white px-3 py-1.5 rounded-lg text-sm font-medium outline-none border border-blue-300 shadow-sm w-full ring-2 ring-blue-100"
+              className="inline-block bg-white/95 px-2.5 py-1 rounded-md text-sm font-medium outline-none border border-blue-300 shadow-sm w-full ring-2 ring-blue-100"
               style={{
                 color: frameColors.title,
                 fontSize: `${titleFontSize}px`,
-                lineHeight: '16px',
+                lineHeight: `${titleLineHeight - 4}px`,
                 fontFamily: "'SF Pro Display', -apple-system, BlinkMacSystemFont, sans-serif",
               }}
               onKeyDown={handleTitleKeyDown}
@@ -275,63 +222,48 @@ export const Frame = memo(({ id, layer, onPointerDown, onContextMenu, selectionC
         ) : (
           <text
             className="select-none cursor-pointer hover:opacity-75 transition-all duration-200"
-            x={12}
-            y={headerHeight / 2}
+            x={0}
+            y={titleOffsetY}
             fontSize={titleFontSize}
-            fontWeight="600"
-            fill={frameColors.title}
-            dominantBaseline="middle"
+            fontWeight="500"
+            fill={selectionColor ? frameColors.title : frameColors.muted}
+            dominantBaseline="auto"
             style={{
               fontFamily: "'SF Pro Display', -apple-system, BlinkMacSystemFont, sans-serif",
-              letterSpacing: '-0.01em'
+              letterSpacing: "0",
             }}
           >
-            {title || "Frame"}
+            {displayTitle}
           </text>
         )}
       </g>
 
-      {/* Content count badge */}
-      {hasChildren && (
+      {/* Auto-resize subtle label (outside frame, optional) */}
+      {autoResize && width >= 96 && (
         <g className="pointer-events-none">
           <rect
-            x={width - 52}
-            y={(headerHeight - 16) / 2}
-            width={32}
+            x={Math.max(52, width - 34)}
+            y={titleOffsetY - titleLineHeight + 4}
+            width={34}
             height={16}
-            fill="rgba(59, 130, 246, 0.1)"
-            stroke="rgba(59, 130, 246, 0.2)"
-            strokeWidth={0.5}
+            fill={frameColors.autoBg}
+            stroke={frameColors.autoBorder}
+            strokeWidth={0.75}
             rx={8}
             ry={8}
           />
           <text
-            x={width - 36}
-            y={headerHeight / 2}
-            fontSize={titleFontSize - 1}
+            x={Math.max(52, width - 34) + 17}
+            y={titleOffsetY - 1}
+            fontSize={9.5}
             fontWeight="600"
-            fill={frameColors.autoResizeAccent}
+            fill={frameColors.autoText}
             textAnchor="middle"
             dominantBaseline="middle"
-            style={{
-              fontFamily: "'SF Pro Display', system-ui, sans-serif",
-            }}
+            style={{ fontFamily: "'SF Pro Display', system-ui, sans-serif" }}
           >
-            {childrenCount}
+            Auto
           </text>
-        </g>
-      )}
-
-      {/* Status indicator for auto-resize in title */}
-      {autoResize && (
-        <g className="pointer-events-none">
-          <circle
-            cx={width - 20}
-            cy={headerHeight / 2}
-            r={2.5}
-            fill={frameColors.autoResizeAccent}
-            opacity={0.8}
-          />
         </g>
       )}
 
@@ -369,45 +301,21 @@ export const Frame = memo(({ id, layer, onPointerDown, onContextMenu, selectionC
 
       {/* Empty frame subtle indicator */}
       {!hasChildren && !autoResize && (
-        <g className="pointer-events-none" opacity={0.3}>
-          <circle
-            cx={width / 2}
-            cy={height / 2 + headerHeight / 2}
-            r={1.5}
-            fill={frameColors.count}
-          />
-          <circle
-            cx={width / 2 - 8}
-            cy={height / 2 + headerHeight / 2}
-            r={1}
-            fill={frameColors.count}
-          />
-          <circle
-            cx={width / 2 + 8}
-            cy={height / 2 + headerHeight / 2}
-            r={1}
-            fill={frameColors.count}
+        <g className="pointer-events-none" opacity={0.38}>
+          <rect
+            x={12}
+            y={12}
+            width={Math.max(0, width - 24)}
+            height={Math.max(0, height - 24)}
+            fill="none"
+            stroke="rgba(148, 163, 184, 0.22)"
+            strokeWidth={1}
+            strokeDasharray="4 6"
+            rx={Math.max(4, cornerRadius - 4)}
+            ry={Math.max(4, cornerRadius - 4)}
           />
         </g>
       )}
-
-      {/* CSS Animations */}
-      <style>{`
-        @keyframes dashSlide {
-          0% { stroke-dashoffset: 0; }
-          100% { stroke-dashoffset: 20; }
-        }
-        
-        @keyframes pulse {
-          0% { opacity: 0.4; }
-          100% { opacity: 0.8; }
-        }
-        
-        @keyframes glow {
-          0%, 100% { filter: drop-shadow(0 0 8px rgba(59, 130, 246, 0.3)); }
-          50% { filter: drop-shadow(0 0 16px rgba(59, 130, 246, 0.5)); }
-        }
-      `}</style>
     </g>
   );
 });
