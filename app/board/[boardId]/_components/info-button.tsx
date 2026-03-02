@@ -7,7 +7,10 @@ export const InfoButton = () => {
   const [isHovered, setIsHovered] = useState(false);
 
   return (
-    <div className="info-button-container">
+    <div
+      className="fixed bottom-4 right-4 z-[95] pointer-events-auto"
+      data-no-board-gestures="true"
+    >
       <div className="relative">
         <button
           onMouseEnter={() => setIsHovered(true)}
@@ -20,7 +23,7 @@ export const InfoButton = () => {
         
         {isHovered && (
           <div className="absolute bottom-full right-0 mb-4 z-50 animate-in fade-in-0 slide-in-from-bottom-4 duration-200 ease-out">
-            <div className="w-80 bg-white/95 backdrop-blur-xl border border-gray-200/60 rounded-2xl shadow-xl p-4">
+            <div className="w-[min(20rem,calc(100vw-1.5rem))] max-w-[calc(100vw-1.5rem)] bg-white/95 backdrop-blur-xl border border-gray-200/60 rounded-2xl shadow-xl p-4">
               <div className="space-y-4">
                 {/* Header */}
                 <div className="flex items-center gap-2 pb-2 border-b border-gray-200/60">
