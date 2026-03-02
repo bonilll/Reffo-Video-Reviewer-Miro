@@ -8,6 +8,13 @@
  * @module
  */
 
+import type * as aiAccess from "../aiAccess.js";
+import type * as aiCosts from "../aiCosts.js";
+import type * as aiGraph from "../aiGraph.js";
+import type * as aiKeys from "../aiKeys.js";
+import type * as aiOutputs from "../aiOutputs.js";
+import type * as aiRuns from "../aiRuns.js";
+import type * as aiSubnetworks from "../aiSubnetworks.js";
 import type * as annotations from "../annotations.js";
 import type * as assetJobs from "../assetJobs.js";
 import type * as assetWorker from "../assetWorker.js";
@@ -20,11 +27,13 @@ import type * as comments from "../comments.js";
 import type * as compliance from "../compliance.js";
 import type * as edits from "../edits.js";
 import type * as friends from "../friends.js";
+import type * as http_aiWorker from "../http/aiWorker.js";
 import type * as http_deleteMedia from "../http/deleteMedia.js";
 import type * as http_libraryWorker from "../http/libraryWorker.js";
 import type * as http_liveblocksAuth from "../http/liveblocksAuth.js";
 import type * as http_uploadMultipart from "../http/uploadMultipart.js";
 import type * as http from "../http.js";
+import type * as internal_aiOrchestrator from "../internal/aiOrchestrator.js";
 import type * as liveblocks from "../liveblocks.js";
 import type * as maintenance from "../maintenance.js";
 import type * as media from "../media.js";
@@ -64,6 +73,13 @@ import type {
  * ```
  */
 declare const fullApi: ApiFromModules<{
+  aiAccess: typeof aiAccess;
+  aiCosts: typeof aiCosts;
+  aiGraph: typeof aiGraph;
+  aiKeys: typeof aiKeys;
+  aiOutputs: typeof aiOutputs;
+  aiRuns: typeof aiRuns;
+  aiSubnetworks: typeof aiSubnetworks;
   annotations: typeof annotations;
   assetJobs: typeof assetJobs;
   assetWorker: typeof assetWorker;
@@ -76,11 +92,13 @@ declare const fullApi: ApiFromModules<{
   compliance: typeof compliance;
   edits: typeof edits;
   friends: typeof friends;
+  "http/aiWorker": typeof http_aiWorker;
   "http/deleteMedia": typeof http_deleteMedia;
   "http/libraryWorker": typeof http_libraryWorker;
   "http/liveblocksAuth": typeof http_liveblocksAuth;
   "http/uploadMultipart": typeof http_uploadMultipart;
   http: typeof http;
+  "internal/aiOrchestrator": typeof internal_aiOrchestrator;
   liveblocks: typeof liveblocks;
   maintenance: typeof maintenance;
   media: typeof media;

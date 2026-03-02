@@ -26,6 +26,16 @@ const i18nStringArrayValidator = v.object({
   en: v.optional(v.array(v.string())),
 });
 
+const xyPointValidator = v.object({
+  x: v.number(),
+  y: v.number(),
+});
+
+const xySizeValidator = v.object({
+  width: v.number(),
+  height: v.number(),
+});
+
 export default defineSchema({
   users: defineTable({
     clerkId: v.string(),
@@ -275,6 +285,259 @@ export default defineSchema({
     .index("byTarget", ["targetType", "targetId"])
     .index("byBoard", ["boardId"])
     .index("byVideo", ["videoId"]),
+
+  aiProviderKeys: defineTable({
+    userId: v.id("users"),
+    provider: v.string(),
+    label: v.optional(v.string()),
+    mode: v.string(), // persistent
+    status: v.string(), // active | paused | deleted
+    ciphertext: v.string(),
+    wrappedDek: v.string(),
+    kmsKeyVersion: v.string(),
+    fingerprint: v.string(),
+    last4: v.string(),
+    metadata: v.optional(v.any()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    lastUsedAt: v.optional(v.number()),
+    lastTestAt: v.optional(v.number()),
+    usageCount: v.optional(v.number()),
+    pauseReason: v.optional(v.string()),
+    deletedAt: v.optional(v.number()),
+  })
+    .index("byUser", ["userId"])
+    .index("byUserProviderStatus", ["userId", "provider", "status"])
+    .index("byFingerprint", ["fingerprint"]),
+
+  aiProviderKeySessions: defineTable({
+    userId: v.id("users"),
+    provider: v.string(),
+    label: v.optional(v.string()),
+    mode: v.string(), // session
+    status: v.string(), // active | paused | expired | deleted
+    ciphertext: v.string(),
+    wrappedDek: v.string(),
+    kmsKeyVersion: v.string(),
+    fingerprint: v.string(),
+    last4: v.string(),
+    expiresAt: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    lastUsedAt: v.optional(v.number()),
+    lastTestAt: v.optional(v.number()),
+    usageCount: v.optional(v.number()),
+    pauseReason: v.optional(v.string()),
+    deletedAt: v.optional(v.number()),
+  })
+    .index("byUser", ["userId"])
+    .index("byUserProviderStatus", ["userId", "provider", "status"])
+    .index("byStatusExpiresAt", ["status", "expiresAt"]),
+
+  aiStepUpProofs: defineTable({
+    userId: v.id("users"),
+    action: v.string(),
+    tokenHash: v.string(),
+    expiresAt: v.number(),
+    createdAt: v.number(),
+    usedAt: v.optional(v.number()),
+    ipAddress: v.optional(v.string()),
+    userAgent: v.optional(v.string()),
+  })
+    .index("byTokenHash", ["tokenHash"])
+    .index("byUserCreatedAt", ["userId", "createdAt"])
+    .index("byExpiresAt", ["expiresAt"]),
+
+  aiSubnetworks: defineTable({
+    boardId: v.id("boards"),
+    ownerId: v.id("users"),
+    title: v.string(),
+    description: v.optional(v.string()),
+    icon: v.optional(v.string()),
+    isArchived: v.optional(v.boolean()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("byBoard", ["boardId"])
+    .index("byOwner", ["ownerId"])
+    .index("byBoardUpdatedAt", ["boardId", "updatedAt"]),
+
+  aiNodes: defineTable({
+    subnetworkId: v.id("aiSubnetworks"),
+    boardId: v.id("boards"),
+    ownerId: v.id("users"),
+    type: v.string(),
+    title: v.string(),
+    position: xyPointValidator,
+    size: v.optional(xySizeValidator),
+    config: v.optional(v.any()),
+    inputs: v.optional(v.array(v.any())),
+    outputs: v.optional(v.array(v.any())),
+    runPolicy: v.optional(v.any()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("bySubnetwork", ["subnetworkId"])
+    .index("byBoard", ["boardId"])
+    .index("byOwner", ["ownerId"]),
+
+  aiEdges: defineTable({
+    subnetworkId: v.id("aiSubnetworks"),
+    boardId: v.id("boards"),
+    sourceNodeId: v.id("aiNodes"),
+    sourcePort: v.string(),
+    targetNodeId: v.id("aiNodes"),
+    targetPort: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("bySubnetwork", ["subnetworkId"])
+    .index("bySource", ["sourceNodeId"])
+    .index("byTarget", ["targetNodeId"])
+    .index("bySubnetworkSourceTarget", ["subnetworkId", "sourceNodeId", "targetNodeId"]),
+
+  aiWorkflowRuns: defineTable({
+    subnetworkId: v.id("aiSubnetworks"),
+    boardId: v.id("boards"),
+    launchedBy: v.id("users"),
+    runType: v.string(), // node | workflow
+    triggerNodeId: v.optional(v.id("aiNodes")),
+    status: v.string(), // queued | processing | done | failed | canceled
+    keyRefType: v.optional(v.string()), // session | persistent
+    keyRefId: v.optional(v.string()),
+    startedAt: v.optional(v.number()),
+    completedAt: v.optional(v.number()),
+    failedAt: v.optional(v.number()),
+    error: v.optional(v.string()),
+    estimatedUsd: v.optional(v.number()),
+    actualUsd: v.optional(v.number()),
+    nodeCount: v.optional(v.number()),
+    completedNodeCount: v.optional(v.number()),
+    failedNodeCount: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("bySubnetworkCreatedAt", ["subnetworkId", "createdAt"])
+    .index("byStatusUpdatedAt", ["status", "updatedAt"])
+    .index("byLaunchedBy", ["launchedBy"]),
+
+  aiNodeRuns: defineTable({
+    workflowRunId: v.id("aiWorkflowRuns"),
+    subnetworkId: v.id("aiSubnetworks"),
+    boardId: v.id("boards"),
+    nodeId: v.id("aiNodes"),
+    launchedBy: v.id("users"),
+    status: v.string(), // blocked | queued | processing | done | failed | canceled
+    lockOwner: v.optional(v.string()),
+    lockedAt: v.optional(v.number()),
+    startedAt: v.optional(v.number()),
+    completedAt: v.optional(v.number()),
+    failedAt: v.optional(v.number()),
+    attempts: v.number(),
+    maxAttempts: v.number(),
+    estimatedUsd: v.optional(v.number()),
+    actualUsd: v.optional(v.number()),
+    inputSnapshot: v.optional(v.any()),
+    outputSummary: v.optional(v.any()),
+    providerRequestId: v.optional(v.string()),
+    providerErrorCode: v.optional(v.string()),
+    providerErrorMessage: v.optional(v.string()),
+    validationError: v.optional(v.string()),
+    error: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("byWorkflowRun", ["workflowRunId"])
+    .index("bySubnetwork", ["subnetworkId"])
+    .index("byNodeStatus", ["nodeId", "status"])
+    .index("byStatusUpdatedAt", ["status", "updatedAt"])
+    .index("byNodeCreatedAt", ["nodeId", "createdAt"]),
+
+  aiNodeOutputs: defineTable({
+    subnetworkId: v.id("aiSubnetworks"),
+    boardId: v.id("boards"),
+    nodeId: v.id("aiNodes"),
+    workflowRunId: v.optional(v.id("aiWorkflowRuns")),
+    nodeRunId: v.id("aiNodeRuns"),
+    version: v.number(),
+    outputType: v.string(),
+    title: v.optional(v.string()),
+    storageKey: v.optional(v.string()),
+    publicUrl: v.optional(v.string()),
+    mimeType: v.optional(v.string()),
+    byteSize: v.optional(v.number()),
+    width: v.optional(v.number()),
+    height: v.optional(v.number()),
+    durationSeconds: v.optional(v.number()),
+    metadata: v.optional(v.any()),
+    pinned: v.optional(v.boolean()),
+    markedAt: v.optional(v.number()),
+    createdBy: v.id("users"),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("byNodeVersion", ["nodeId", "version"])
+    .index("byNodeCreatedAt", ["nodeId", "createdAt"])
+    .index("bySubnetwork", ["subnetworkId"])
+    .index("byBoard", ["boardId"]),
+
+  aiCostLedger: defineTable({
+    userId: v.id("users"),
+    boardId: v.optional(v.id("boards")),
+    subnetworkId: v.optional(v.id("aiSubnetworks")),
+    workflowRunId: v.optional(v.id("aiWorkflowRuns")),
+    nodeRunId: v.optional(v.id("aiNodeRuns")),
+    provider: v.string(),
+    model: v.optional(v.string()),
+    metric: v.string(), // estimated | actual | adjustment
+    amountUsd: v.number(),
+    currency: v.string(),
+    units: v.optional(v.any()),
+    monthKey: v.string(), // YYYY-MM
+    notes: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("byUserCreatedAt", ["userId", "createdAt"])
+    .index("byUserMonth", ["userId", "monthKey"])
+    .index("bySubnetworkCreatedAt", ["subnetworkId", "createdAt"])
+    .index("byWorkflowRun", ["workflowRunId"])
+    .index("byNodeRun", ["nodeRunId"]),
+
+  aiSecurityEvents: defineTable({
+    userId: v.optional(v.id("users")),
+    boardId: v.optional(v.id("boards")),
+    subnetworkId: v.optional(v.id("aiSubnetworks")),
+    eventType: v.string(),
+    status: v.string(),
+    action: v.optional(v.string()),
+    provider: v.optional(v.string()),
+    ipAddress: v.optional(v.string()),
+    userAgent: v.optional(v.string()),
+    details: v.optional(v.any()),
+    createdAt: v.number(),
+  })
+    .index("byUserCreatedAt", ["userId", "createdAt"])
+    .index("byEventTypeCreatedAt", ["eventType", "createdAt"]),
+
+  aiUsageAlerts: defineTable({
+    userId: v.id("users"),
+    boardId: v.optional(v.id("boards")),
+    subnetworkId: v.optional(v.id("aiSubnetworks")),
+    provider: v.optional(v.string()),
+    keyMode: v.optional(v.string()),
+    keyRefId: v.optional(v.string()),
+    alertType: v.string(),
+    severity: v.string(),
+    message: v.string(),
+    threshold: v.optional(v.number()),
+    observedValue: v.optional(v.number()),
+    triggeredAt: v.number(),
+    resolvedAt: v.optional(v.number()),
+    status: v.string(), // open | resolved
+  })
+    .index("byUserStatus", ["userId", "status"])
+    .index("byUserTriggeredAt", ["userId", "triggeredAt"])
+    .index("byStatusTriggeredAt", ["status", "triggeredAt"]),
 
   todoLists: defineTable({
     ownerId: v.id("users"),

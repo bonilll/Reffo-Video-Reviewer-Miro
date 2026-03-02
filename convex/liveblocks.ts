@@ -21,6 +21,7 @@ const getLiveblocks = () => {
 export const authorize = action({
   args: {
     room: v.string(),
+    canWrite: v.boolean(),
     user: v.object({
       id: v.string(),
       name: v.optional(v.string()),
@@ -39,7 +40,7 @@ export const authorize = action({
         picture: args.user.picture ?? undefined,
       },
     });
-    session.allow(args.room, session.FULL_ACCESS);
+    session.allow(args.room, args.canWrite ? session.FULL_ACCESS : session.READ_ACCESS);
 
     const { status, body } = await session.authorize();
     return { status, body };

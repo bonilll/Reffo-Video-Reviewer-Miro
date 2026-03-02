@@ -13,6 +13,12 @@ import {
   complete as completeLibraryJob,
   fail as failLibraryJob,
 } from "./http/libraryWorker";
+import {
+  claim as claimAiNodeRun,
+  heartbeat as heartbeatAiNodeRun,
+  complete as completeAiNodeRun,
+  fail as failAiNodeRun,
+} from "./http/aiWorker";
 
 const http = httpRouter();
 
@@ -134,6 +140,54 @@ http.route({
   path: "/api/library-worker/fail",
   method: "OPTIONS",
   handler: failLibraryJob,
+});
+
+http.route({
+  path: "/api/ai-worker/claim",
+  method: "POST",
+  handler: claimAiNodeRun,
+});
+
+http.route({
+  path: "/api/ai-worker/claim",
+  method: "OPTIONS",
+  handler: claimAiNodeRun,
+});
+
+http.route({
+  path: "/api/ai-worker/heartbeat",
+  method: "POST",
+  handler: heartbeatAiNodeRun,
+});
+
+http.route({
+  path: "/api/ai-worker/heartbeat",
+  method: "OPTIONS",
+  handler: heartbeatAiNodeRun,
+});
+
+http.route({
+  path: "/api/ai-worker/complete",
+  method: "POST",
+  handler: completeAiNodeRun,
+});
+
+http.route({
+  path: "/api/ai-worker/complete",
+  method: "OPTIONS",
+  handler: completeAiNodeRun,
+});
+
+http.route({
+  path: "/api/ai-worker/fail",
+  method: "POST",
+  handler: failAiNodeRun,
+});
+
+http.route({
+  path: "/api/ai-worker/fail",
+  method: "OPTIONS",
+  handler: failAiNodeRun,
 });
 
 export default http;

@@ -12,6 +12,7 @@ import {
   ExternalLink,
   ShieldCheck,
   Users,
+  KeyRound,
   Loader2,
   AlertTriangle,
 } from 'lucide-react';
@@ -34,6 +35,20 @@ interface ProfileSettingsProps {
   onBack: () => void;
 }
 
+type GoogleKeyMetadata = {
+  keyId: string;
+  mode: 'session' | 'persistent';
+  provider: string;
+  label?: string | null;
+  status: string;
+  last4: string;
+  lastUsedAt?: number | null;
+  lastTestAt?: number | null;
+  createdAt?: number;
+  expiresAt?: number | null;
+  pauseReason?: string | null;
+};
+
 const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBack }) => {
   const { signOut } = useClerk();
   const { user: clerkUser } = useUser();
@@ -50,6 +65,7 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
   const disconnectSlack = useAction(api.slack.disconnect);
   const testSlackDm = useAction(api.slack.testDm);
   const friends = useQuery(api.friends.list, {});
+  const monthlyAiSpend = useQuery(api.aiCosts.getUserMonthlySpend, {});
   const addFriend = useMutation(api.friends.add);
   const removeFriend = useMutation(api.friends.remove);
   const deleteAccount = useMutation(api.users.deleteAccount);
@@ -69,6 +85,16 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deletingAccount, setDeletingAccount] = useState(false);
+  const [googleKeys, setGoogleKeys] = useState<GoogleKeyMetadata[]>([]);
+  const [googleKeysLoading, setGoogleKeysLoading] = useState(false);
+  const [googleKeysError, setGoogleKeysError] = useState<string | null>(null);
+  const [googleKeyInput, setGoogleKeyInput] = useState('');
+  const [googleKeyLabel, setGoogleKeyLabel] = useState('');
+  const [googleKeyMode, setGoogleKeyMode] = useState<'session' | 'persistent'>('session');
+  const [googleStepUpConfirmation, setGoogleStepUpConfirmation] = useState('');
+  const [googleStepUpLoading, setGoogleStepUpLoading] = useState(false);
+  const [googleProofs, setGoogleProofs] = useState<Record<string, { token: string; expiresAt: number }>>({});
+  const [googleActionLoading, setGoogleActionLoading] = useState<string | null>(null);
 
   useEffect(() => {
     if (uploadingAvatar) return;
@@ -275,6 +301,107 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
       setDeletingAccount(false);
     }
   }, [clerkUser, deleteAccount, deleteConfirmText, deletingAccount, signOut]);
+
+  const getConvexBearerToken = useCallback(async () => {
+    const token = await (clerkUser as any)?.getToken?.({ template: 'convex' });
+    if (!token) {
+      throw new Error('Authentication expired. Please sign in again.');
+    }
+    return token as string;
+  }, [clerkUser]);
+
+  const aiGatewayRequest = useCallback(
+    async <T,>(path: string, init?: RequestInit): Promise<T> => {
+      const token = await getConvexBearerToken();
+      const response = await fetch(path, {
+        ...init,
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+          ...(init?.headers ?? {}),
+        },
+      });
+
+      const json = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const message =
+          typeof json?.details === 'string'
+            ? json.details
+            : typeof json?.error === 'string'
+              ? json.error
+              : 'Request failed';
+        throw new Error(message);
+      }
+
+      return json as T;
+    },
+    [getConvexBearerToken],
+  );
+
+  const fetchGoogleKeys = useCallback(async () => {
+    setGoogleKeysLoading(true);
+    setGoogleKeysError(null);
+    try {
+      const result = await aiGatewayRequest<{ keys: GoogleKeyMetadata[] }>('/api/keys/google/list', {
+        method: 'GET',
+      });
+      setGoogleKeys(result.keys ?? []);
+    } catch (error) {
+      setGoogleKeysError(error instanceof Error ? error.message : 'Failed to load keys');
+    } finally {
+      setGoogleKeysLoading(false);
+    }
+  }, [aiGatewayRequest]);
+
+  useEffect(() => {
+    void fetchGoogleKeys();
+  }, [fetchGoogleKeys]);
+
+  const requestStepUpProof = useCallback(
+    async (action: 'key:add' | 'key:test' | 'key:delete') => {
+      const cached = googleProofs[action];
+      if (cached && cached.expiresAt > Date.now() + 5_000) {
+        return cached.token;
+      }
+
+      setGoogleStepUpLoading(true);
+      try {
+        const result = await aiGatewayRequest<{ proofToken: string; expiresAt: number }>(
+          '/api/security/step-up/validate',
+          {
+            method: 'POST',
+            body: JSON.stringify({
+              action,
+              confirmation: googleStepUpConfirmation.trim(),
+            }),
+          },
+        );
+
+        setGoogleProofs((current) => ({
+          ...current,
+          [action]: {
+            token: result.proofToken,
+            expiresAt: result.expiresAt,
+          },
+        }));
+
+        return result.proofToken;
+      } finally {
+        setGoogleStepUpLoading(false);
+      }
+    },
+    [aiGatewayRequest, googleProofs, googleStepUpConfirmation],
+  );
+
+  const handleValidateStepUp = useCallback(async () => {
+    try {
+      await requestStepUpProof('key:add');
+      await requestStepUpProof('key:test');
+      await requestStepUpProof('key:delete');
+    } catch (error) {
+      setGoogleKeysError(error instanceof Error ? error.message : 'Step-up validation failed');
+    }
+  }, [requestStepUpProof]);
 
   const clerkAvatarUrl = clerkUser?.imageUrl ?? null;
   const authAvatarUrl = user.authAvatar ?? clerkAvatarUrl ?? null;
@@ -718,6 +845,241 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
               </div>
             </div>
           </div>
+
+          <div className="library-card p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <KeyRound size={16} className="text-gray-700" />
+                <div>
+                  <div className="text-sm font-semibold text-gray-900">Google API keys (BYOK)</div>
+                  <div className="text-xs text-gray-600">
+                    Keys are encrypted at rest, never revealed after save, and protected by step-up proof.
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => void fetchGoogleKeys()}
+                className="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold text-gray-600 hover:text-gray-900"
+              >
+                Refresh
+              </button>
+            </div>
+
+            <div className="mt-4 rounded-xl border border-gray-200 bg-gray-50 p-3">
+              <label className="text-xs font-semibold uppercase text-gray-500">Step-up confirmation</label>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <input
+                  value={googleStepUpConfirmation}
+                  onChange={(event) => setGoogleStepUpConfirmation(event.target.value)}
+                  placeholder="Type CONFIRM"
+                  className="min-w-[180px] flex-1 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-300"
+                />
+                <button
+                  type="button"
+                  disabled={googleStepUpLoading}
+                  onClick={() => void handleValidateStepUp()}
+                  className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-700 disabled:opacity-40"
+                >
+                  {googleStepUpLoading ? 'Validating...' : 'Validate step-up'}
+                </button>
+              </div>
+              <p className="mt-2 text-[11px] text-gray-500">
+                Required for add, test, and delete. Proof tokens expire in 5 minutes.
+              </p>
+            </div>
+
+            <div className="mt-4 grid gap-2 sm:grid-cols-[1fr_140px]">
+              <input
+                value={googleKeyLabel}
+                onChange={(event) => setGoogleKeyLabel(event.target.value)}
+                placeholder="Label (optional)"
+                className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-300"
+              />
+              <select
+                value={googleKeyMode}
+                onChange={(event) => setGoogleKeyMode(event.target.value as 'session' | 'persistent')}
+                className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-300"
+              >
+                <option value="session">Session key (8h)</option>
+                <option value="persistent">Persistent key</option>
+              </select>
+            </div>
+            <div className="mt-2">
+              <input
+                value={googleKeyInput}
+                onChange={(event) => setGoogleKeyInput(event.target.value)}
+                placeholder="Paste Google API key"
+                className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-300"
+              />
+            </div>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                disabled={!googleKeyInput.trim() || googleActionLoading === 'save'}
+                onClick={async () => {
+                  setGoogleKeysError(null);
+                  try {
+                    setGoogleActionLoading('save');
+                    const proofToken = await requestStepUpProof('key:add');
+                    await aiGatewayRequest(
+                      googleKeyMode === 'session' ? '/api/keys/google/session' : '/api/keys/google/persistent',
+                      {
+                        method: 'POST',
+                        body: JSON.stringify({
+                          apiKey: googleKeyInput,
+                          label: googleKeyLabel || undefined,
+                          proofToken,
+                        }),
+                      },
+                    );
+                    setGoogleKeyInput('');
+                    await fetchGoogleKeys();
+                  } catch (error) {
+                    setGoogleKeysError(error instanceof Error ? error.message : 'Failed to save key');
+                  } finally {
+                    setGoogleActionLoading(null);
+                  }
+                }}
+                className="rounded-lg bg-gray-900 px-3 py-2 text-xs font-semibold text-white disabled:opacity-40"
+              >
+                {googleActionLoading === 'save' ? 'Saving...' : 'Save key'}
+              </button>
+            </div>
+
+            {googleKeysError ? <p className="mt-2 text-xs font-medium text-red-600">{googleKeysError}</p> : null}
+
+            <div className="mt-3 space-y-2">
+              {googleKeysLoading ? (
+                <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-500">Loading keys...</div>
+              ) : googleKeys.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50 px-3 py-3 text-xs text-gray-500">
+                  No Google keys configured.
+                </div>
+              ) : (
+                googleKeys.map((key) => (
+                  <div key={key.keyId} className="rounded-lg border border-gray-200 bg-white px-3 py-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="truncate text-xs font-semibold text-gray-900">
+                          {key.label || `Google key ••••${key.last4}`}
+                        </p>
+                        <p className="text-[11px] text-gray-500">
+                          {key.mode === 'session' ? 'Session' : 'Persistent'} · {key.status}
+                          {key.expiresAt ? ` · expires ${new Date(key.expiresAt).toLocaleString()}` : ''}
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            setGoogleKeysError(null);
+                            try {
+                              setGoogleActionLoading(`test:${key.keyId}`);
+                              const proofToken = await requestStepUpProof('key:test');
+                              await aiGatewayRequest('/api/keys/google/test', {
+                                method: 'POST',
+                                body: JSON.stringify({
+                                  mode: key.mode,
+                                  keyId: key.keyId,
+                                  proofToken,
+                                }),
+                              });
+                              await fetchGoogleKeys();
+                            } catch (error) {
+                              setGoogleKeysError(error instanceof Error ? error.message : 'Key test failed');
+                            } finally {
+                              setGoogleActionLoading(null);
+                            }
+                          }}
+                          className="rounded-full border border-gray-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-gray-600 hover:text-gray-900"
+                        >
+                          {googleActionLoading === `test:${key.keyId}` ? 'Testing...' : 'Test'}
+                        </button>
+                        {key.status === 'paused' ? (
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              setGoogleKeysError(null);
+                              try {
+                                setGoogleActionLoading(`resume:${key.keyId}`);
+                                await aiGatewayRequest('/api/keys/google/resume', {
+                                  method: 'POST',
+                                  body: JSON.stringify({
+                                    mode: key.mode,
+                                    keyId: key.keyId,
+                                  }),
+                                });
+                                await fetchGoogleKeys();
+                              } catch (error) {
+                                setGoogleKeysError(error instanceof Error ? error.message : 'Resume failed');
+                              } finally {
+                                setGoogleActionLoading(null);
+                              }
+                            }}
+                            className="rounded-full border border-gray-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-gray-600 hover:text-gray-900"
+                          >
+                            Resume
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              setGoogleKeysError(null);
+                              try {
+                                setGoogleActionLoading(`pause:${key.keyId}`);
+                                await aiGatewayRequest('/api/keys/google/pause', {
+                                  method: 'POST',
+                                  body: JSON.stringify({
+                                    mode: key.mode,
+                                    keyId: key.keyId,
+                                    reason: 'manual',
+                                  }),
+                                });
+                                await fetchGoogleKeys();
+                              } catch (error) {
+                                setGoogleKeysError(error instanceof Error ? error.message : 'Pause failed');
+                              } finally {
+                                setGoogleActionLoading(null);
+                              }
+                            }}
+                            className="rounded-full border border-gray-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-gray-600 hover:text-gray-900"
+                          >
+                            Pause
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            setGoogleKeysError(null);
+                            try {
+                              setGoogleActionLoading(`delete:${key.keyId}`);
+                              const proofToken = await requestStepUpProof('key:delete');
+                              await aiGatewayRequest(`/api/keys/google/${key.keyId}`, {
+                                method: 'DELETE',
+                                body: JSON.stringify({
+                                  mode: key.mode,
+                                  proofToken,
+                                }),
+                              });
+                              await fetchGoogleKeys();
+                            } catch (error) {
+                              setGoogleKeysError(error instanceof Error ? error.message : 'Delete failed');
+                            } finally {
+                              setGoogleActionLoading(null);
+                            }
+                          }}
+                          className="rounded-full border border-red-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-red-700"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
         </div>
       </article>
 
@@ -912,6 +1274,15 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
               <p className="text-base font-semibold text-gray-900">Beta program</p>
               <p className="mt-1">Reffo is currently in beta testing and free to use.</p>
               <p className="mt-1">Pricing will be announced later, and you’ll be notified well in advance.</p>
+            </div>
+            <div className="mt-3 rounded-2xl border border-gray-200 bg-white p-4 text-sm text-gray-700">
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">AI usage (monthly)</p>
+              <p className="mt-1 text-lg font-semibold text-gray-900">
+                ${Number(monthlyAiSpend?.totalUsd ?? 0).toFixed(4)}
+              </p>
+              <p className="text-xs text-gray-500">
+                {monthlyAiSpend?.monthKey ?? 'Current month'} · {monthlyAiSpend?.entriesCount ?? 0} ledger entries
+              </p>
             </div>
           </article>
 

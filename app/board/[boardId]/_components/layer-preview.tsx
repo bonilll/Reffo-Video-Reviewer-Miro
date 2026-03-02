@@ -20,6 +20,7 @@ import {
   FrameLayer,
   TableLayer,
   TodoWidgetLayer,
+  SubnetworkCardLayer,
   Layer,
   CanvasState,
   CanvasMode,
@@ -41,6 +42,7 @@ import { File } from "./file";
 import { VideoPlayer } from "./VideoPlayer";
 import { Id } from "@/convex/_generated/dataModel";
 import { MediaDrawingOverlay } from "./media-drawing-overlay";
+import { SubnetworkCard } from "./subnetwork-card";
 
 type LayerPreviewProps = {
   id: string;
@@ -64,6 +66,10 @@ type LayerPreviewProps = {
   onDrawingModeEnd?: (point: Point) => void;
   onCommentClick?: (point: Point) => void;
   runtimeMode?: "desktop" | "mobile";
+  isViewer?: boolean;
+  onOpenSubnetwork?: (subnetworkId: string) => void;
+  onOpenSubnetworkOutputs?: (subnetworkId: string) => void;
+  subnetworkTitlesById?: Record<string, string>;
 };
 
 const videoPreviewCache = new Map<string, string>();
@@ -252,7 +258,7 @@ const createVideoPreviewFromUrl = (url: string): Promise<string | undefined> => 
 };
 
 export const LayerPreview = memo(
-	  ({ id, onLayerPointerDown, onLayerContextMenu, selectionColor, lastUsedColor, camera, cameraRef, lodBucket = "high", canvasState, backgroundColor = "#f5f5f5", onDrawingStart, onDrawingContinue, onDrawingEnd, onDrawingModeStart, onDrawingModeMove, onDrawingModeEnd, onCommentClick, runtimeMode = "desktop" }: LayerPreviewProps) => {
+	  ({ id, onLayerPointerDown, onLayerContextMenu, selectionColor, lastUsedColor, camera, cameraRef, lodBucket = "high", canvasState, backgroundColor = "#f5f5f5", onDrawingStart, onDrawingContinue, onDrawingEnd, onDrawingModeStart, onDrawingModeMove, onDrawingModeEnd, onCommentClick, runtimeMode = "desktop", isViewer = false, onOpenSubnetwork, onOpenSubnetworkOutputs, subnetworkTitlesById }: LayerPreviewProps) => {
 	    const layer = useStorage((root) => root.layers.get(id));
 	    const selection = useSelf((me) => me.presence.selection);
 	    const [isDraggingOverTable, setIsDraggingOverTable] = useState(false);
@@ -1096,6 +1102,23 @@ export const LayerPreview = memo(
               />
             </div>
           </foreignObject>
+        );
+      case LayerType.SubnetworkCard:
+        const subnetworkLayer = layer as SubnetworkCardLayer;
+        const displayTitle =
+          subnetworkTitlesById?.[subnetworkLayer.subnetworkId] ??
+          subnetworkLayer.title;
+        return (
+          <SubnetworkCard
+            id={id}
+            layer={subnetworkLayer}
+            onPointerDown={onLayerPointerDown}
+            selectionColor={selectionColor}
+            isViewer={isViewer}
+            displayTitle={displayTitle}
+            onOpen={onOpenSubnetwork}
+            onOutputs={onOpenSubnetworkOutputs}
+          />
         );
       default:
         console.warn("Unknown layer type");

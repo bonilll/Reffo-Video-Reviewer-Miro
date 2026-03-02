@@ -55,32 +55,57 @@ export const liveblocksAuth = httpAction(async (ctx, request) => {
     );
   }
 
-  let permissions: { canRead: boolean; resourceExists: boolean } | null = null;
-  try {
-    permissions = await ctx.runQuery(api.boards.getBoardPermissions, {
-      boardId: room as Id<"boards">,
-    });
-  } catch (error) {
-    return new Response(
-      JSON.stringify({
-        error: "Bad Request",
-        details: "Invalid board id",
-      }),
-      {
-        status: 400,
-        headers: {
-          ...corsHeaders,
-          "Content-Type": "application/json",
-        },
-      }
-    );
+  const isSubnetworkRoom = room.startsWith("subnetwork:");
+  const subnetworkId = isSubnetworkRoom ? room.slice("subnetwork:".length) : null;
+
+  let permissions: { canRead: boolean; canWrite: boolean; resourceExists: boolean } | null = null;
+  if (isSubnetworkRoom) {
+    try {
+      permissions = await ctx.runQuery(api.aiSubnetworks.getSubnetworkPermissions, {
+        subnetworkId: subnetworkId as Id<"aiSubnetworks">,
+      });
+    } catch {
+      return new Response(
+        JSON.stringify({
+          error: "Bad Request",
+          details: "Invalid subnetwork id",
+        }),
+        {
+          status: 400,
+          headers: {
+            ...corsHeaders,
+            "Content-Type": "application/json",
+          },
+        }
+      );
+    }
+  } else {
+    try {
+      permissions = await ctx.runQuery(api.boards.getBoardPermissions, {
+        boardId: room as Id<"boards">,
+      });
+    } catch {
+      return new Response(
+        JSON.stringify({
+          error: "Bad Request",
+          details: "Invalid board id",
+        }),
+        {
+          status: 400,
+          headers: {
+            ...corsHeaders,
+            "Content-Type": "application/json",
+          },
+        }
+      );
+    }
   }
 
   if (!permissions?.resourceExists) {
     return new Response(
       JSON.stringify({
         error: "Not Found",
-        details: "Board not found",
+        details: isSubnetworkRoom ? "Subnetwork not found" : "Board not found",
       }),
       {
         status: 404,
@@ -96,7 +121,7 @@ export const liveblocksAuth = httpAction(async (ctx, request) => {
     return new Response(
       JSON.stringify({
         error: "Forbidden",
-        details: "Access denied",
+        details: isSubnetworkRoom ? "Editors only" : "Access denied",
       }),
       {
         status: 403,
@@ -139,6 +164,7 @@ export const liveblocksAuth = httpAction(async (ctx, request) => {
 
     const { status, body } = await ctx.runAction(api.liveblocks.authorize, {
       room,
+      canWrite: permissions.canWrite,
       user: {
         id: userId,
         name: userName,

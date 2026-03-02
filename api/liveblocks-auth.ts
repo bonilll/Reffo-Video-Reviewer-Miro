@@ -10,6 +10,10 @@ type ConvexUdfResponse =
   | { status: "success"; value: unknown; logLines?: string[] }
   | { status: "error"; errorMessage: string; errorData?: unknown; logLines?: string[] };
 
+type RoomTarget =
+  | { type: "board"; id: string }
+  | { type: "subnetwork"; id: string };
+
 const readJsonBody = async (req: any): Promise<JsonBody> => {
   // Vercel may already parse JSON. If not, fall back to reading the raw stream.
   if (req.body && typeof req.body === "object") return req.body as JsonBody;
@@ -87,6 +91,19 @@ const decodeJwtSub = (token: string): string | null => {
   }
 };
 
+const parseRoomTarget = (room: string): RoomTarget => {
+  if (room.startsWith("subnetwork:")) {
+    return {
+      type: "subnetwork",
+      id: room.slice("subnetwork:".length),
+    };
+  }
+  return {
+    type: "board",
+    id: room,
+  };
+};
+
 const setCors = (req: any, res: any) => {
   const origin = req.headers?.origin ?? "*";
   res.setHeader("Access-Control-Allow-Origin", origin);
@@ -161,28 +178,63 @@ export default async function handler(req: IncomingMessage & any, res: ServerRes
 
     const token = getBearerToken(req);
 
-    // Always validate board permissions first. Public mural rooms can be accessed without auth.
-    const permissions = await convexQuery<any>(
-      CONVEX_URL,
-      "boards:getBoardPermissions",
-      { boardId: room },
-      token
-    );
+    const target = parseRoomTarget(room);
 
-    if (!permissions?.resourceExists) {
-      res.statusCode = 404;
-      res.setHeader("Content-Type", "application/json");
-      res.setHeader("Cache-Control", "no-store");
-      res.end(JSON.stringify({ error: "NOT_FOUND", details: "Board not found" }));
-      return;
-    }
+    let permissions: { resourceExists: boolean; canRead: boolean; canWrite: boolean };
+    if (target.type === "subnetwork") {
+      if (!token) {
+        res.statusCode = 401;
+        res.setHeader("Content-Type", "application/json");
+        res.setHeader("Cache-Control", "no-store");
+        res.end(JSON.stringify({ error: "UNAUTHORIZED", details: "Authentication required" }));
+        return;
+      }
 
-    if (!permissions.canRead) {
-      res.statusCode = 403;
-      res.setHeader("Content-Type", "application/json");
-      res.setHeader("Cache-Control", "no-store");
-      res.end(JSON.stringify({ error: "FORBIDDEN", details: "Access denied" }));
-      return;
+      permissions = await convexQuery<any>(
+        CONVEX_URL,
+        "aiSubnetworks:getSubnetworkPermissions",
+        { subnetworkId: target.id },
+        token
+      );
+
+      if (!permissions?.resourceExists) {
+        res.statusCode = 404;
+        res.setHeader("Content-Type", "application/json");
+        res.setHeader("Cache-Control", "no-store");
+        res.end(JSON.stringify({ error: "NOT_FOUND", details: "Subnetwork not found" }));
+        return;
+      }
+
+      if (!permissions.canRead) {
+        res.statusCode = 403;
+        res.setHeader("Content-Type", "application/json");
+        res.setHeader("Cache-Control", "no-store");
+        res.end(JSON.stringify({ error: "FORBIDDEN", details: "Editors only" }));
+        return;
+      }
+    } else {
+      permissions = await convexQuery<any>(
+        CONVEX_URL,
+        "boards:getBoardPermissions",
+        { boardId: target.id },
+        token
+      );
+
+      if (!permissions?.resourceExists) {
+        res.statusCode = 404;
+        res.setHeader("Content-Type", "application/json");
+        res.setHeader("Cache-Control", "no-store");
+        res.end(JSON.stringify({ error: "NOT_FOUND", details: "Board not found" }));
+        return;
+      }
+
+      if (!permissions.canRead) {
+        res.statusCode = 403;
+        res.setHeader("Content-Type", "application/json");
+        res.setHeader("Cache-Control", "no-store");
+        res.end(JSON.stringify({ error: "FORBIDDEN", details: "Access denied" }));
+        return;
+      }
     }
 
     const liveblocks = new Liveblocks({ secret: LIVEBLOCKS_SECRET_KEY });

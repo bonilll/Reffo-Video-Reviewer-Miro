@@ -4,7 +4,7 @@ import { useCallback, useMemo, useState, useEffect, useRef } from "react";
 import { nanoid } from "nanoid";
 import { LiveObject } from "@liveblocks/client";
 import { toast } from "sonner";
-import { useQuery } from "convex/react";
+import { useMutation as useConvexMutation, useQuery } from "convex/react";
 
 import {
   useHistory,
@@ -252,6 +252,8 @@ export const Canvas = ({
     permissions
   } = useBoardToolbarActions(boardId, { onShareBoard: onOpenShare });
 
+  const createAiSubnetwork = useConvexMutation(api.aiSubnetworks.create);
+
   // CAMERA CONTEXT - per sincronizzare con componenti esterni
   const { camera: contextCamera, setCamera: setContextCamera } = useCamera();
 
@@ -391,13 +393,16 @@ export const Canvas = ({
     lastY: number;
     button: number | null;
     pointerId: number | null;
+    moved: boolean;
   }>({
     active: false,
     lastX: 0,
     lastY: 0,
     button: null,
     pointerId: null,
+    moved: false,
   });
+  const suppressBoardContextMenuRef = useRef(false);
   const panRafRef = useRef<number | null>(null);
   const pendingPanDeltaRef = useRef<Point>({ x: 0, y: 0 });
 
@@ -433,6 +438,45 @@ export const Canvas = ({
     x: number;
     y: number;
   } | null>(null);
+
+  const [boardContextMenu, setBoardContextMenu] = useState<{
+    x: number;
+    y: number;
+    canvasPoint: Point;
+  } | null>(null);
+  const [tabCommandMenu, setTabCommandMenu] = useState<{
+    x: number;
+    y: number;
+    canvasPoint: Point;
+  } | null>(null);
+  const [tabCommandQuery, setTabCommandQuery] = useState("");
+  const tabCommandMenuRef = useRef<HTMLDivElement | null>(null);
+  const tabCommandInputRef = useRef<HTMLInputElement | null>(null);
+
+  const [outputsDrawerSubnetworkId, setOutputsDrawerSubnetworkId] = useState<string | null>(null);
+
+  const boardSubnetworkOutputs = useQuery(
+    api.aiOutputs.listForBoard,
+    outputsDrawerSubnetworkId
+      ? {
+          boardId: boardId as Id<"boards">,
+          subnetworkId: outputsDrawerSubnetworkId as Id<"aiSubnetworks">,
+          limit: 200,
+        }
+      : "skip"
+  );
+
+  const boardSubnetworks = useQuery(api.aiSubnetworks.listByBoard, {
+    boardId: boardId as Id<"boards">,
+  });
+
+  const subnetworkTitlesById = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const subnetwork of boardSubnetworks ?? []) {
+      map[String(subnetwork._id)] = subnetwork.title ?? "Subnetwork AI";
+    }
+    return map;
+  }, [boardSubnetworks]);
 
   // Stato per la clipboard (copia e incolla)
   const [clipboard, setClipboard] = useState<Array<any> | null>(null);
@@ -2985,12 +3029,16 @@ export const Canvas = ({
 
   const startPanning = useCallback(
     (clientX: number, clientY: number, button: number, pointerId: number | null = null) => {
+    setBoardContextMenu(null);
+    setTabCommandMenu(null);
+    setTabCommandQuery("");
     panStateRef.current = {
       active: true,
       lastX: clientX,
       lastY: clientY,
       button,
       pointerId,
+      moved: false,
     };
     document.body.style.cursor = "grabbing";
     },
@@ -2998,9 +3046,15 @@ export const Canvas = ({
   );
 
   const stopPanning = useCallback(() => {
+    const shouldSuppressContextMenu =
+      panStateRef.current.button === 2 && panStateRef.current.moved;
+    if (shouldSuppressContextMenu) {
+      suppressBoardContextMenuRef.current = true;
+    }
     panStateRef.current.active = false;
     panStateRef.current.button = null;
     panStateRef.current.pointerId = null;
+    panStateRef.current.moved = false;
     pendingPanDeltaRef.current = { x: 0, y: 0 };
     if (panRafRef.current !== null) {
       window.cancelAnimationFrame(panRafRef.current);
@@ -3061,6 +3115,9 @@ export const Canvas = ({
         const deltaY = e.clientY - panState.lastY;
         panStateRef.current.lastX = e.clientX;
         panStateRef.current.lastY = e.clientY;
+        if (deltaX !== 0 || deltaY !== 0) {
+          panStateRef.current.moved = true;
+        }
         schedulePanCameraUpdate(deltaX, deltaY);
 
         if (typeof (e as any).buttons === "number" && (e as any).buttons === 0) {
@@ -3171,6 +3228,9 @@ export const Canvas = ({
       const deltaY = e.clientY - panState.lastY;
       panStateRef.current.lastX = e.clientX;
       panStateRef.current.lastY = e.clientY;
+      if (deltaX !== 0 || deltaY !== 0) {
+        panStateRef.current.moved = true;
+      }
       schedulePanCameraUpdate(deltaX, deltaY);
 
       if (typeof e.buttons === "number" && e.buttons === 0) {
@@ -3193,6 +3253,9 @@ export const Canvas = ({
       const deltaY = e.clientY - panState.lastY;
       panStateRef.current.lastX = e.clientX;
       panStateRef.current.lastY = e.clientY;
+      if (deltaX !== 0 || deltaY !== 0) {
+        panStateRef.current.moved = true;
+      }
       schedulePanCameraUpdate(deltaX, deltaY);
     };
 
@@ -3234,6 +3297,7 @@ export const Canvas = ({
       panStateRef.current.active = false;
       panStateRef.current.button = null;
       panStateRef.current.pointerId = null;
+      panStateRef.current.moved = false;
     };
   }, [schedulePanCameraUpdate, stopPanning]);
 
@@ -3319,6 +3383,50 @@ export const Canvas = ({
       document.removeEventListener('contextmenu', handleClickOutside);
     };
   }, [frameContextMenu]);
+
+  useEffect(() => {
+    if (!boardContextMenu) return;
+
+    const handleDismiss = () => setBoardContextMenu(null);
+    const handleEsc = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setBoardContextMenu(null);
+      }
+    };
+
+    document.addEventListener("click", handleDismiss);
+    document.addEventListener("contextmenu", handleDismiss);
+    document.addEventListener("keydown", handleEsc);
+
+    return () => {
+      document.removeEventListener("click", handleDismiss);
+      document.removeEventListener("contextmenu", handleDismiss);
+      document.removeEventListener("keydown", handleEsc);
+    };
+  }, [boardContextMenu]);
+
+  useEffect(() => {
+    if (!tabCommandMenu) return;
+
+    const focusRaf = window.requestAnimationFrame(() => {
+      tabCommandInputRef.current?.focus();
+      tabCommandInputRef.current?.select();
+    });
+
+    const handleDismiss = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (target && tabCommandMenuRef.current?.contains(target)) return;
+      setTabCommandMenu(null);
+      setTabCommandQuery("");
+    };
+
+    document.addEventListener("mousedown", handleDismiss, true);
+
+    return () => {
+      window.cancelAnimationFrame(focusRaf);
+      document.removeEventListener("mousedown", handleDismiss, true);
+    };
+  }, [tabCommandMenu]);
 
   const onWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault();
@@ -3690,6 +3798,17 @@ export const Canvas = ({
       // Controlla se siamo in modalità editing
       const activeElement = document.activeElement;
       const isEditing = isEditableElement(activeElement);
+      const targetElement = e.target instanceof Element ? e.target : null;
+      const isWithinTabCommandMenu = !!targetElement?.closest?.("[data-tab-command-menu='true']");
+
+      if (tabCommandMenu && isWithinTabCommandMenu) {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          setTabCommandMenu(null);
+          setTabCommandQuery("");
+        }
+        return;
+      }
       
       // Track Shift key state
       if (e.key === 'Shift') {
@@ -3911,6 +4030,30 @@ export const Canvas = ({
             break;
           }
         }
+        case "Tab": {
+          if (!isEditing && !isViewer) {
+            e.preventDefault();
+            e.stopPropagation();
+            setBoardContextMenu(null);
+            if (tabCommandMenu) {
+              setTabCommandMenu(null);
+              setTabCommandQuery("");
+            } else {
+              const centerX = window.innerWidth / 2;
+              const centerY = window.innerHeight / 2;
+              setTabCommandMenu({
+                x: Math.max(16, centerX - 160),
+                y: Math.max(16, centerY - 130),
+                canvasPoint: {
+                  x: (centerX - camera.x) / camera.scale,
+                  y: (centerY - camera.y) / camera.scale,
+                },
+              });
+              setTabCommandQuery("");
+            }
+            break;
+          }
+        }
         case "Delete":
         case "Backspace":
         case "Canc": // Supporto per tastiere italiane
@@ -3933,6 +4076,12 @@ export const Canvas = ({
             break;
           }
         case "Escape": {
+          if (tabCommandMenu) {
+            e.preventDefault();
+            setTabCommandMenu(null);
+            setTabCommandQuery("");
+            break;
+          }
           // Annulla operazioni in corso
           if (canvasState.mode === CanvasMode.Inserting ||
               canvasState.mode === CanvasMode.Drawing ||
@@ -4014,7 +4163,7 @@ export const Canvas = ({
         document.removeEventListener("keyup", onKeyUp);
         document.removeEventListener("paste", onPaste);
     };
-  }, [deleteLayers, history, mySelection, canvasState.mode, setCanvasState, unselectLayers, copySelectedLayers, pasteClipboardLayers, selectAllLayers, smoothZoom, camera, clipboard, createLinkPreviewFromUrl, isViewer]);
+  }, [deleteLayers, history, mySelection, canvasState.mode, setCanvasState, unselectLayers, copySelectedLayers, pasteClipboardLayers, selectAllLayers, smoothZoom, camera, clipboard, createLinkPreviewFromUrl, isViewer, tabCommandMenu]);
 
   const selectionBounds = useSelectionBounds();
 
@@ -5001,9 +5150,199 @@ export const Canvas = ({
     isViewer,
   ]);
 
-  const onContextMenu = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
+  const createSubnetworkCardLayer = useMutation(
+    ({ storage, setMyPresence }, payload: { point: Point; subnetworkId: string; title: string }) => {
+      const liveLayers = storage.get("layers");
+      const liveLayerIds = storage.get("layerIds");
+
+      const layerId = nanoid();
+      const width = 248;
+      const height = 138;
+
+      const layer = new LiveObject({
+        type: LayerType.SubnetworkCard,
+        x: payload.point.x - width / 2,
+        y: payload.point.y - height / 2,
+        width,
+        height,
+        fill: { r: 255, g: 255, b: 255 },
+        subnetworkId: payload.subnetworkId,
+        title: payload.title,
+        icon: "network",
+        layout: "default",
+      } as any);
+
+      liveLayers.set(layerId, layer);
+      liveLayerIds.push(layerId);
+      setMyPresence({ selection: [layerId] }, { addToHistory: true });
+    },
+    []
+  );
+
+  const insertSubnetworkOutputLayer = useMutation(
+    ({ storage, setMyPresence }, payload: { point: Point; output: any }) => {
+      const liveLayers = storage.get("layers");
+      const liveLayerIds = storage.get("layerIds");
+      const layerId = nanoid();
+
+      const inferredType =
+        payload.output.outputType === "video" || String(payload.output.mimeType ?? "").startsWith("video/")
+          ? LayerType.Video
+          : LayerType.Image;
+
+      const width =
+        typeof payload.output.width === "number" && payload.output.width > 0
+          ? Math.min(480, Math.max(180, payload.output.width))
+          : 320;
+      const height =
+        typeof payload.output.height === "number" && payload.output.height > 0
+          ? Math.min(360, Math.max(120, payload.output.height))
+          : 220;
+
+      const baseLayer = {
+        type: inferredType,
+        x: payload.point.x - width / 2,
+        y: payload.point.y - height / 2,
+        width,
+        height,
+        url: payload.output.publicUrl || payload.output.storageKey || "",
+        previewUrl: payload.output.publicUrl || undefined,
+        title: payload.output.title || "AI Output",
+      } as any;
+
+      liveLayers.set(layerId, new LiveObject(baseLayer));
+      liveLayerIds.push(layerId);
+      setMyPresence({ selection: [layerId] }, { addToHistory: true });
+    },
+    []
+  );
+
+  const openSubnetworkRoute = useCallback((subnetworkId: string) => {
+    const path = `/board/${boardId}/subnetwork/${subnetworkId}`;
+    try {
+      window.history.pushState({}, "", path);
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    } catch {
+      window.location.assign(path);
+    }
+  }, [boardId]);
+
+  const handleOpenSubnetworkOutputs = useCallback((subnetworkId: string) => {
+    setOutputsDrawerSubnetworkId(subnetworkId);
   }, []);
+
+  const handleCreateSubnetworkCard = useCallback(
+    async (point?: Point) => {
+      if (isViewer) return;
+
+      const centerX = window.innerWidth / 2;
+      const centerY = window.innerHeight / 2;
+      const fallbackPoint: Point = {
+        x: (centerX - camera.x) / camera.scale,
+        y: (centerY - camera.y) / camera.scale,
+      };
+
+      const canvasPoint = point ?? fallbackPoint;
+
+      const subnetworkId = await createAiSubnetwork({
+        boardId: boardId as Id<"boards">,
+        title: "Subnetwork AI",
+      });
+
+      createSubnetworkCardLayer({
+        point: canvasPoint,
+        subnetworkId: String(subnetworkId),
+        title: "Subnetwork AI",
+      });
+    },
+    [isViewer, camera, createAiSubnetwork, boardId, createSubnetworkCardLayer]
+  );
+
+  const tabCommandItems = useMemo(() => {
+    const query = tabCommandQuery.trim().toLowerCase();
+    const items = [
+      {
+        id: "create-subnetwork",
+        title: "Create Subnetwork AI",
+        description: "Create a new AI subnetwork card in this board",
+      },
+    ];
+
+    if (!query) {
+      return items;
+    }
+
+    return items.filter((item) => {
+      const haystack = `${item.title} ${item.description}`.toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [tabCommandQuery]);
+
+  const runTabCommand = useCallback(
+    (commandId: string, point: Point) => {
+      if (commandId === "create-subnetwork") {
+        void handleCreateSubnetworkCard(point);
+      }
+      setTabCommandMenu(null);
+      setTabCommandQuery("");
+    },
+    [handleCreateSubnetworkCard]
+  );
+
+  const onContextMenu = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      if (isViewer) return;
+      if (suppressBoardContextMenuRef.current) {
+        suppressBoardContextMenuRef.current = false;
+        return;
+      }
+
+      const target = e.target as HTMLElement | null;
+      const layerTarget = target?.closest?.("[data-layer-id]");
+      if (layerTarget) {
+        setBoardContextMenu(null);
+        return;
+      }
+
+      setTabCommandMenu(null);
+      setTabCommandQuery("");
+      setBoardContextMenu({
+        x: e.clientX,
+        y: e.clientY,
+        canvasPoint: pointerEventToCanvasPoint(e as any, camera),
+      });
+    },
+    [isViewer, camera]
+  );
+
+  const onCanvasDragOver = useCallback(
+    (e: React.DragEvent<SVGSVGElement>) => {
+      if (isViewer) return;
+      const hasOutput = Array.from(e.dataTransfer.types).includes("application/x-reffo-ai-output");
+      if (!hasOutput) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "copy";
+    },
+    [isViewer]
+  );
+
+  const onCanvasDrop = useCallback(
+    (e: React.DragEvent<SVGSVGElement>) => {
+      if (isViewer) return;
+      const raw = e.dataTransfer.getData("application/x-reffo-ai-output");
+      if (!raw) return;
+      e.preventDefault();
+      try {
+        const output = JSON.parse(raw);
+        const point = pointerEventToCanvasPoint(e as any, camera);
+        insertSubnetworkOutputLayer({ point, output });
+      } catch {
+        // ignore malformed payloads
+      }
+    },
+    [camera, insertSubnetworkOutputLayer, isViewer]
+  );
 
   const createTodoWidget = useMutation(
     ({ storage, setMyPresence }, titleOverride?: string) => {
@@ -5147,6 +5486,8 @@ export const Canvas = ({
 	        ref={svgRef}
 	        className="h-[100vh] w-[100vw] select-none"
 	        onWheel={onWheel}
+          onDragOver={onCanvasDragOver}
+          onDrop={onCanvasDrop}
 		        onPointerMove={onPointerMove}
 		        onPointerLeave={onPointerLeave}
 		        onPointerDown={onPointerDown}
@@ -5201,6 +5542,10 @@ export const Canvas = ({
                   onDrawingModeStart={handleDrawingModeStart}
                   onDrawingModeMove={handleDrawingModeMove}
                   onDrawingModeEnd={handleDrawingModeEnd}
+                  isViewer={isViewer}
+                  onOpenSubnetwork={openSubnetworkRoute}
+                  onOpenSubnetworkOutputs={handleOpenSubnetworkOutputs}
+                  subnetworkTitlesById={subnetworkTitlesById}
                   runtimeMode={runtimeMode}
                 />
               );
@@ -5246,6 +5591,10 @@ export const Canvas = ({
                   onDrawingModeStart={handleDrawingModeStart}
                   onDrawingModeMove={handleDrawingModeMove}
                   onDrawingModeEnd={handleDrawingModeEnd}
+                  isViewer={isViewer}
+                  onOpenSubnetwork={openSubnetworkRoute}
+                  onOpenSubnetworkOutputs={handleOpenSubnetworkOutputs}
+                  subnetworkTitlesById={subnetworkTitlesById}
                   runtimeMode={runtimeMode}
                 />
               );
@@ -5291,6 +5640,10 @@ export const Canvas = ({
                   onDrawingModeStart={handleDrawingModeStart}
                   onDrawingModeMove={handleDrawingModeMove}
                   onDrawingModeEnd={handleDrawingModeEnd}
+                  isViewer={isViewer}
+                  onOpenSubnetwork={openSubnetworkRoute}
+                  onOpenSubnetworkOutputs={handleOpenSubnetworkOutputs}
+                  subnetworkTitlesById={subnetworkTitlesById}
                   runtimeMode={runtimeMode}
                 />
               );
@@ -5633,6 +5986,174 @@ export const Canvas = ({
           onManualResize={handleManualResize}
           onDelete={handleDeleteFrame}
         />
+      )}
+
+      {boardContextMenu && !isViewer && (
+        <div
+          className="absolute z-[80] w-56 rounded-xl border border-slate-200 bg-white p-2 shadow-2xl"
+          style={{ left: boardContextMenu.x, top: boardContextMenu.y }}
+          data-no-board-gestures="true"
+        >
+          <button
+            type="button"
+            className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm font-medium text-slate-700 hover:bg-slate-50 hover:text-slate-900"
+            onClick={() => {
+              void handleCreateSubnetworkCard(boardContextMenu.canvasPoint);
+              setBoardContextMenu(null);
+            }}
+          >
+            <span>Create Subnetwork AI</span>
+            <span className="rounded border border-slate-200 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500">
+              TAB
+            </span>
+          </button>
+        </div>
+      )}
+
+      {tabCommandMenu && !isViewer && (
+        <div
+          ref={tabCommandMenuRef}
+          className="absolute z-[85] w-80 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl"
+          style={{ left: tabCommandMenu.x, top: tabCommandMenu.y }}
+          data-no-board-gestures="true"
+          data-tab-command-menu="true"
+        >
+          <div className="border-b border-slate-200 px-3 py-2">
+            <input
+              ref={tabCommandInputRef}
+              type="text"
+              value={tabCommandQuery}
+              onChange={(event) => setTabCommandQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  setTabCommandMenu(null);
+                  setTabCommandQuery("");
+                  return;
+                }
+                if (event.key === "Enter") {
+                  const firstCommand = tabCommandItems[0];
+                  if (!firstCommand) return;
+                  event.preventDefault();
+                  runTabCommand(firstCommand.id, tabCommandMenu.canvasPoint);
+                }
+              }}
+              className="h-9 w-full rounded-md border border-slate-200 px-3 text-sm text-slate-700 outline-none ring-sky-500 placeholder:text-slate-400 focus:ring-2"
+              placeholder="Search commands..."
+            />
+          </div>
+          <div className="max-h-60 overflow-y-auto p-2">
+            {tabCommandItems.length === 0 ? (
+              <div className="rounded-lg px-3 py-3 text-sm text-slate-500">
+                No commands found.
+              </div>
+            ) : (
+              tabCommandItems.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className="flex w-full items-start justify-between rounded-lg px-3 py-2 text-left hover:bg-slate-50"
+                  onClick={() => runTabCommand(item.id, tabCommandMenu.canvasPoint)}
+                >
+                  <span className="min-w-0">
+                    <span className="block text-sm font-medium text-slate-800">{item.title}</span>
+                    <span className="block text-xs text-slate-500">{item.description}</span>
+                  </span>
+                  <span className="ml-3 rounded border border-slate-200 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500">
+                    Enter
+                  </span>
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+
+      {outputsDrawerSubnetworkId && (
+        <aside
+          className="absolute right-0 top-0 z-[70] h-full w-[360px] border-l border-slate-200 bg-white/95 backdrop-blur"
+          data-no-board-gestures="true"
+        >
+          <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+            <div>
+              <h3 className="text-sm font-semibold text-slate-900">Subnetwork Outputs</h3>
+              <p className="text-xs text-slate-500">
+                {boardSubnetworkOutputs ? `${boardSubnetworkOutputs.length} assets` : "Loading..."}
+              </p>
+            </div>
+            <button
+              type="button"
+              className="rounded-lg border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-600 hover:text-slate-900"
+              onClick={() => setOutputsDrawerSubnetworkId(null)}
+            >
+              Close
+            </button>
+          </div>
+          <div className="h-[calc(100%-60px)] overflow-y-auto p-3">
+            <div className="space-y-2">
+              {(boardSubnetworkOutputs ?? []).map((output: any) => (
+                <div
+                  key={output._id}
+                  draggable={!isViewer}
+                  onDragStart={(event) => {
+                    if (isViewer) return;
+                    event.dataTransfer.setData(
+                      "application/x-reffo-ai-output",
+                      JSON.stringify({
+                        outputType: output.outputType,
+                        title: output.title,
+                        publicUrl: output.publicUrl,
+                        storageKey: output.storageKey,
+                        mimeType: output.mimeType,
+                        width: output.width,
+                        height: output.height,
+                      })
+                    );
+                    event.dataTransfer.effectAllowed = "copy";
+                  }}
+                  className="rounded-xl border border-slate-200 bg-white p-2 shadow-sm"
+                >
+                  {output.publicUrl && output.mimeType?.startsWith("image/") ? (
+                    <img
+                      src={output.publicUrl}
+                      alt={output.title ?? "AI output"}
+                      className="h-28 w-full rounded-lg border border-slate-100 object-cover"
+                    />
+                  ) : output.publicUrl && output.mimeType?.startsWith("video/") ? (
+                    <video
+                      src={output.publicUrl}
+                      className="h-28 w-full rounded-lg border border-slate-100 object-cover"
+                      muted
+                      playsInline
+                    />
+                  ) : (
+                    <div className="flex h-28 w-full items-center justify-center rounded-lg border border-dashed border-slate-200 bg-slate-50 text-xs font-medium text-slate-500">
+                      Asset
+                    </div>
+                  )}
+                  <div className="mt-2 flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="truncate text-xs font-semibold text-slate-800">
+                        {output.title || `${output.nodeTitle} v${output.version}`}
+                      </p>
+                      <p className="truncate text-[11px] text-slate-500">{output.nodeTitle}</p>
+                    </div>
+                    {!isViewer && (
+                      <span className="rounded border border-slate-200 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                        Drag
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))}
+              {(boardSubnetworkOutputs ?? []).length === 0 && (
+                <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4 text-center text-xs text-slate-500">
+                  No outputs yet.
+                </div>
+              )}
+            </div>
+          </div>
+        </aside>
       )}
 
       </div>

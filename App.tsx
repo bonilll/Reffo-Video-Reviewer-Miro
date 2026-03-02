@@ -32,6 +32,8 @@ import { LanguageSwitcher } from './components/legal/LanguageSwitcher';
 import { LEGAL_DOCUMENT_VERSIONS } from './legal/legalContent';
 import { BoardPageWrapper } from './components/board/BoardPageWrapper';
 import { AuthLanding } from './components/marketing/AuthLanding';
+import SubnetworkPage from './components/subnetwork/SubnetworkPage';
+import { isAiSubnetworkEnabled } from './lib/feature-flags';
 
 type LegalDocumentType = keyof typeof LEGAL_DOCUMENT_VERSIONS;
 
@@ -60,6 +62,7 @@ type Route =
   | { name: 'project'; id: string }
   | { name: 'review'; id: string }
   | { name: 'board'; id: string }
+  | { name: 'subnetwork'; boardId: string; subnetworkId: string }
   | { name: 'share'; token: string }
   | { name: 'legal'; page: LegalPage }
   | { name: 'edit'; id: string };
@@ -131,6 +134,14 @@ function parseRoute(pathname: string): Route {
   if (pathname === '/terms' || pathname === '/terms-of-use') return { name: 'legal', page: 'terms' };
   const editMatch = pathname.match(/^\/edit\/([^\/?#]+)/);
   if (editMatch) return { name: 'edit', id: editMatch[1] };
+  const subnetworkMatch = pathname.match(/^\/board\/([^\/?#]+)\/subnetwork\/([^\/?#]+)/);
+  if (subnetworkMatch) {
+    return {
+      name: 'subnetwork',
+      boardId: subnetworkMatch[1],
+      subnetworkId: subnetworkMatch[2],
+    };
+  }
   const boardMatch = pathname.match(/^\/board\/([^\/?#]+)/);
   if (boardMatch) return { name: 'board', id: boardMatch[1] };
   const projectMatch = pathname.match(/^\/project\/([^\/?#]+)/);
@@ -219,10 +230,11 @@ const getClerkErrorMessage = (error: unknown): string => {
 
 const App: React.FC = () => {
   const [route, setRoute] = useState<Route>(() => parseRoute(window.location.pathname));
-  const [view, setView] = useState<'workspaces' | 'library' | 'reviewer' | 'profile' | 'project' | 'legal' | 'editor' | 'board'>('workspaces');
+  const [view, setView] = useState<'workspaces' | 'library' | 'reviewer' | 'profile' | 'project' | 'legal' | 'editor' | 'board' | 'subnetwork'>('workspaces');
   const [legalPage, setLegalPage] = useState<LegalPage>('privacy');
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [activeBoardId, setActiveBoardId] = useState<string | null>(null);
+  const [activeSubnetworkId, setActiveSubnetworkId] = useState<string | null>(null);
   const [sharedSelectedVideo, setSharedSelectedVideo] = useState<Video | null>(null);
   const [selectedVideoId, setSelectedVideoId] = useState<string | null>(null);
   const [reviewSourceUrl, setReviewSourceUrl] = useState<string | null>(null);
@@ -1149,6 +1161,8 @@ const App: React.FC = () => {
       title = `Review | ${defaultTitle}`;
     } else if (route.name === "board") {
       title = `Board | ${defaultTitle}`;
+    } else if (route.name === "subnetwork") {
+      title = `AI Subnetwork | ${defaultTitle}`;
     } else if (route.name === "edit") {
       title = `Editor | ${defaultTitle}`;
     } else if (route.name === "share") {
@@ -1160,8 +1174,11 @@ const App: React.FC = () => {
 
   useEffect(() => {
     setActiveCompositionId(null);
-    if (route.name !== 'board') {
+    if (route.name !== 'board' && route.name !== 'subnetwork') {
       setActiveBoardId(null);
+    }
+    if (route.name !== 'subnetwork') {
+      setActiveSubnetworkId(null);
     }
     // derive view + IDs from route
     if (route.name === 'home') {
@@ -1209,6 +1226,16 @@ const App: React.FC = () => {
       setView('board');
       return;
     }
+    if (route.name === 'subnetwork') {
+      if (!isAiSubnetworkEnabled()) {
+        navigate(`/board/${route.boardId}`, true);
+        return;
+      }
+      setActiveBoardId(route.boardId);
+      setActiveSubnetworkId(route.subnetworkId);
+      setView('subnetwork');
+      return;
+    }
     if (route.name === 'review') {
       setSelectedVideoId(route.id);
       setView('reviewer');
@@ -1232,6 +1259,7 @@ const App: React.FC = () => {
     setActiveProjectId(null);
     setSelectedVideoId(null);
     setActiveBoardId(null);
+    setActiveSubnetworkId(null);
     setActiveCompositionId(null);
   }, [route]);
 
@@ -1535,6 +1563,12 @@ const App: React.FC = () => {
           />
         ) : view === 'board' && activeBoardId ? (
           <BoardPageWrapper boardId={activeBoardId} />
+        ) : view === 'subnetwork' && activeBoardId && activeSubnetworkId ? (
+          <SubnetworkPage
+            boardId={activeBoardId}
+            subnetworkId={activeSubnetworkId}
+            onBack={() => navigate(`/board/${activeBoardId}`)}
+          />
         ) : (
           <div className="min-h-screen flex flex-col">
             <AppHeader

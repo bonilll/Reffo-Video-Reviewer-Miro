@@ -31,7 +31,8 @@ export enum LayerType {
   Line = "line",
   Frame = "frame",
   TodoWidget = "todoWidget",
-  Table = "table"
+  Table = "table",
+  SubnetworkCard = "subnetworkCard",
 }
 
 export type RectangleLayer = {
@@ -343,6 +344,19 @@ export type TableLayer = {
   opacity?: number;
 };
 
+export type SubnetworkCardLayer = {
+  type: LayerType.SubnetworkCard;
+  x: number;
+  y: number;
+  height: number;
+  width: number;
+  fill: Color;
+  subnetworkId: string;
+  title: string;
+  icon?: string;
+  layout?: "compact" | "default";
+};
+
 export type Point = {
   x: number;
   y: number;
@@ -453,7 +467,8 @@ export type Layer =
   | LineLayer
   | FrameLayer
   | TodoWidgetLayer
-  | TableLayer;
+  | TableLayer
+  | SubnetworkCardLayer;
 
 // ----- REVIEW & ANNOTATION SYSTEM TYPES -----
 

@@ -375,6 +375,10 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
   const prevCompareUrlRef = useRef<string | null>(null);
   const appliedFocusRef = useRef<string | null>(null);
   const [compareOffsetFrames, setCompareOffsetFrames] = useState<number>(0);
+  // Use native HTML video loop only in simple single-video mode.
+  // Compare mode and A-B loop use manual looping to avoid desync/races.
+  const nativeMainLoopEnabled = loopEnabled && !abLoopEnabled && !compareSource;
+  const manualGlobalLoopEnabled = loopEnabled && !nativeMainLoopEnabled;
 
   useEffect(() => {
     // Ensure 'Friends' are synced from groups even when landing directly in reviewer.
@@ -815,7 +819,8 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
         return;
       }
       el.muted = true;
-      el.loop = loopEnabled;
+      // Comparison elements are driven by syncCompareElement + manual loop logic.
+      el.loop = false;
       const sync = () => {
         const mainTime = videoRef.current?.currentTime ?? 0;
         if (!Number.isNaN(mainTime)) syncCompareElement(el, mainTime);
@@ -827,7 +832,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
       }
     });
     // Also resync when layout/mode or offset changes so newly mounted element plays in sync
-  }, [isImageReview, compareSource, compareMode, compareOffsetFrames, video.fps, loopEnabled, isPlaying, compareElements, syncCompareElement]);
+  }, [isImageReview, compareSource, compareMode, compareOffsetFrames, video.fps, isPlaying, compareElements, syncCompareElement]);
 
   useEffect(() => {
     if (isImageReview) return;
@@ -999,52 +1004,6 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
     historyRecordingRef.current = true;
   }, [video.id]);
 
-	  const handleTimeUpdate = (time: number, frame: number) => {
-      if (isImageReview) {
-        if (currentTime !== 0) setCurrentTime(0);
-        if (currentFrame !== 0) setCurrentFrame(0);
-        return;
-      }
-	    // Keep React updates bounded; the <video> paints itself, so UI can update slower than the decode rate.
-	    const now = performance.now();
-	    pendingTimeRef.current = time;
-	    pendingFrameRef.current = frame;
-	    const UI_INTERVAL_MS = isPlaying ? 33 : 0; // ~30Hz while playing; immediate when paused/seeking
-	    if (
-	      timeRafRef.current == null &&
-	      (UI_INTERVAL_MS === 0 || now - lastUiCommitRef.current >= UI_INTERVAL_MS)
-	    ) {
-	      timeRafRef.current = window.requestAnimationFrame(() => {
-	        timeRafRef.current = null;
-	        setCurrentTime(pendingTimeRef.current);
-	        setCurrentFrame(pendingFrameRef.current);
-	        lastUiCommitRef.current = performance.now();
-	      });
-	    }
-	    // Enforce A–B loop if enabled and valid
-	    const fpsCanonical = Math.max(1, Math.floor(video.fps || 24));
-	    const epsilon = 1 / fpsCanonical;
-	    if (abLoopEnabled && abA != null && abB != null && abB > abA + epsilon) {
-	      if (time >= abB - epsilon) {
-        handleSeek(abA);
-        if (!isPlaying) setIsPlaying(true);
-        return;
-      }
-    }
-    if (!isImageReview && compareSource) {
-      const els = compareElements();
-      for (const el of els) syncCompareElement(el, time);
-    }
-    if (loopEnabled && duration > 0) {
-      // Fallback epsilon equals one frame duration
-      const epsilon2 = 1 / Math.max(1, video.fps);
-      if (time >= duration - epsilon2) {
-        handleSeek(0);
-        if (!isPlaying) setIsPlaying(true);
-      }
-	    }
-	  };
-	  
 	  const applySeek = useCallback(
 	    (time: number) => {
         if (isImageReview) return;
@@ -1073,17 +1032,97 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
 	      }
 
 	      if (compareSource) {
-	        compareElements().forEach((cmp) => {
-	          const anyCmp = cmp as any;
-	          try {
-	            if (typeof anyCmp.fastSeek === "function") anyCmp.fastSeek(clamped);
-	            else cmp.currentTime = clamped;
-	          } catch {}
-	        });
-	      }
+          compareElements().forEach((cmp) => {
+            syncCompareElement(cmp, clamped);
+          });
+        }
 	    },
-	    [isImageReview, compareElements, compareSource, duration, video.fps],
+	    [isImageReview, compareElements, compareSource, duration, syncCompareElement, video.fps],
 	  );
+
+  const performLoopSeek = useCallback(
+    (targetTime: number) => {
+      if (isImageReview) return;
+
+      const mainEl = videoRef.current;
+      const wasPlaying = Boolean(mainEl && !mainEl.paused);
+
+      applySeek(targetTime);
+
+      const shouldContinuePlayback = wasPlaying || isPlaying;
+      if (!shouldContinuePlayback) return;
+
+      if (mainEl) {
+        try {
+          const p = mainEl.play();
+          (p as any)?.catch?.(() => undefined);
+        } catch {
+          // noop
+        }
+      }
+
+      if (compareSource) {
+        compareElements().forEach((cmp) => {
+          syncCompareElement(cmp, targetTime);
+          try {
+            const p = cmp.play();
+            (p as any)?.catch?.(() => undefined);
+          } catch {
+            // noop
+          }
+        });
+      }
+
+      if (!isPlaying) {
+        setIsPlaying(true);
+      }
+    },
+    [applySeek, compareElements, compareSource, isImageReview, isPlaying, syncCompareElement],
+  );
+
+	  const handleTimeUpdate = (time: number, frame: number) => {
+      if (isImageReview) {
+        if (currentTime !== 0) setCurrentTime(0);
+        if (currentFrame !== 0) setCurrentFrame(0);
+        return;
+      }
+	    // Keep React updates bounded; the <video> paints itself, so UI can update slower than the decode rate.
+	    const now = performance.now();
+	    pendingTimeRef.current = time;
+	    pendingFrameRef.current = frame;
+	    const UI_INTERVAL_MS = isPlaying ? 33 : 0; // ~30Hz while playing; immediate when paused/seeking
+	    if (
+	      timeRafRef.current == null &&
+	      (UI_INTERVAL_MS === 0 || now - lastUiCommitRef.current >= UI_INTERVAL_MS)
+	    ) {
+	      timeRafRef.current = window.requestAnimationFrame(() => {
+	        timeRafRef.current = null;
+	        setCurrentTime(pendingTimeRef.current);
+	        setCurrentFrame(pendingFrameRef.current);
+	        lastUiCommitRef.current = performance.now();
+	      });
+	    }
+	    // Enforce A–B loop if enabled and valid
+	    const fpsCanonical = Math.max(1, Math.floor(video.fps || 24));
+	    const epsilon = 1 / fpsCanonical;
+	    if (abLoopEnabled && abA != null && abB != null && abB > abA + epsilon) {
+	      if (time >= abB - epsilon) {
+          performLoopSeek(abA);
+          return;
+        }
+      }
+      if (compareSource) {
+        const els = compareElements();
+        for (const el of els) syncCompareElement(el, time);
+      }
+      if (manualGlobalLoopEnabled && duration > 0) {
+        // Fallback epsilon equals one frame duration
+        const epsilon2 = 1 / Math.max(1, video.fps);
+        if (time >= duration - epsilon2) {
+          performLoopSeek(0);
+        }
+	    }
+	  };
 
 	  const handleSeek = useCallback(
 	    (time: number) => {
@@ -2455,7 +2494,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
                     currentFrame={currentFrame}
                     externalControls
                     onDuration={setDuration}
-                    loopEnabled={loopEnabled}
+                    loopEnabled={nativeMainLoopEnabled}
                   />
                   <AnnotationCanvas
                     video={video}
@@ -2505,7 +2544,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
                       try {
                         const el = e.currentTarget as HTMLVideoElement;
                         el.muted = true;
-                        el.loop = loopEnabled;
+                        el.loop = false;
                         const t = videoRef.current?.currentTime ?? 0;
                         syncCompareElement(el, Number.isFinite(t) ? t : 0);
                       } catch {}
@@ -2529,7 +2568,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
                   externalControls
                   onDuration={setDuration}
                   onFps={(fps) => { setEffectiveFps(Math.max(1, Math.round(fps))); setFpsDetected(true); }}
-                  loopEnabled={loopEnabled}
+                  loopEnabled={nativeMainLoopEnabled}
                 />
                 <AnnotationCanvas
                   video={video}
@@ -2579,7 +2618,7 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
                       try {
                         const el = e.currentTarget as HTMLVideoElement;
                         el.muted = true;
-                        el.loop = loopEnabled;
+                        el.loop = false;
                         const t = videoRef.current?.currentTime ?? 0;
                         syncCompareElement(el, Number.isFinite(t) ? t : 0);
                       } catch {}
@@ -2735,13 +2774,23 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
                     onAbChange={(which, t) => {
                       const clamped = Math.max(0, Math.min(duration, t));
                       if (which === 'a') {
-                        setAbA(clamped);
+                        if (abB != null && clamped > abB) {
+                          setAbA(abB);
+                          setAbB(clamped);
+                        } else {
+                          setAbA(clamped);
+                        }
                         // If current time is before new A, jump inside loop when active
                         if (abLoopEnabled && abB != null && clamped < (abB as number) && currentTime < clamped) {
                           handleSeek(clamped);
                         }
                       } else {
-                        setAbB(clamped);
+                        if (abA != null && clamped < abA) {
+                          setAbB(abA);
+                          setAbA(clamped);
+                        } else {
+                          setAbB(clamped);
+                        }
                         const fpsCanonical = Math.max(1, Math.floor(video.fps || 24));
                         const epsilon = 1 / fpsCanonical;
                         if (abLoopEnabled && abA != null && clamped > (abA as number) && currentTime >= clamped - epsilon) {
@@ -2774,21 +2823,59 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
                           Global loop: {loopEnabled ? 'On' : 'Off'}
                         </button>
                         <button
-                          onClick={() => setAbLoopEnabled((v) => !v)}
+                          onClick={() => {
+                            if (abLoopEnabled) {
+                              setAbLoopEnabled(false);
+                              return;
+                            }
+                            if (abA == null || abB == null) {
+                              toast.error('Set both A and B before enabling A–B loop');
+                              return;
+                            }
+                            const a = Math.min(abA, abB);
+                            const b = Math.max(abA, abB);
+                            const fpsCanonical = Math.max(1, Math.floor(video.fps || 24));
+                            const epsilon = 1 / fpsCanonical;
+                            if (b <= a + epsilon) {
+                              toast.error('A–B range is too short');
+                              return;
+                            }
+                            if (a !== abA || b !== abB) {
+                              setAbA(a);
+                              setAbB(b);
+                            }
+                            setAbLoopEnabled(true);
+                          }}
                           className={`block w-full px-3 py-2 text-left text-xs ${isDark ? 'hover:bg-white/10' : 'hover:bg-gray-50'}`}
                         >
                           A–B loop: {abLoopEnabled ? 'On' : 'Off'}
                         </button>
                         <div className={`my-1 h-px ${isDark ? 'bg-white/10' : 'bg-gray-200'}`} />
                         <button
-                          onClick={() => setAbA(currentTime)}
+                          onClick={() => {
+                            const t = Math.max(0, Math.min(duration, currentTime));
+                            if (abB != null && t > abB) {
+                              setAbA(abB);
+                              setAbB(t);
+                            } else {
+                              setAbA(t);
+                            }
+                          }}
                           className={`block w-full px-3 py-2 text-left text-xs ${isDark ? 'hover:bg-white/10' : 'hover:bg-gray-50'}`}
                           title="Set point A at current time"
                         >
                           Set A at current time
                         </button>
                         <button
-                          onClick={() => setAbB(currentTime)}
+                          onClick={() => {
+                            const t = Math.max(0, Math.min(duration, currentTime));
+                            if (abA != null && t < abA) {
+                              setAbB(abA);
+                              setAbA(t);
+                            } else {
+                              setAbB(t);
+                            }
+                          }}
                           className={`block w-full px-3 py-2 text-left text-xs ${isDark ? 'hover:bg-white/10' : 'hover:bg-gray-50'}`}
                           title="Set point B at current time"
                         >

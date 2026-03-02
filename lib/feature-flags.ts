@@ -10,3 +10,8 @@ export const isMobileBoardV2Enabled = () => {
 export const isMobileBoardReadOnlyEnabled = () => {
   return isTruthyEnvValue(import.meta.env.VITE_MOBILE_BOARD_READONLY);
 };
+
+export const isAiSubnetworkEnabled = () => {
+  if (import.meta.env.DEV) return true;
+  return isTruthyEnvValue(import.meta.env.VITE_AI_SUBNETWORK_ENABLED);
+};
