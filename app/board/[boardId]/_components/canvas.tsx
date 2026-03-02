@@ -60,7 +60,7 @@ import {
   isLayerMode,
   reduceMobileInputState,
 } from "./mobile-input-engine";
-import { isMobileBoardReadOnlyEnabled } from "@/lib/feature-flags";
+import { isAiSubnetworkEnabled, isMobileBoardReadOnlyEnabled } from "@/lib/feature-flags";
 
 import { 
   colorToCSS, 
@@ -239,6 +239,7 @@ export const Canvas = ({
   const isMobileReadOnly = isMobileRuntime && isMobileBoardReadOnlyEnabled();
   // Editing is disabled for true viewers and for mobile-readonly mode.
   const isViewer = isRoleViewer || isMobileReadOnly;
+  const isAiSubnetworkCreationEnabled = isAiSubnetworkEnabled();
   
   // Get board permissions and project info for todo list selector
   const { projectId } = useResourcePermissions("board", boardId as Id<"boards">);
@@ -4031,7 +4032,7 @@ export const Canvas = ({
           }
         }
         case "Tab": {
-          if (!isEditing && !isViewer) {
+          if (!isEditing && !isViewer && isAiSubnetworkCreationEnabled) {
             e.preventDefault();
             e.stopPropagation();
             setBoardContextMenu(null);
@@ -4163,7 +4164,7 @@ export const Canvas = ({
         document.removeEventListener("keyup", onKeyUp);
         document.removeEventListener("paste", onPaste);
     };
-  }, [deleteLayers, history, mySelection, canvasState.mode, setCanvasState, unselectLayers, copySelectedLayers, pasteClipboardLayers, selectAllLayers, smoothZoom, camera, clipboard, createLinkPreviewFromUrl, isViewer, tabCommandMenu]);
+  }, [deleteLayers, history, mySelection, canvasState.mode, setCanvasState, unselectLayers, copySelectedLayers, pasteClipboardLayers, selectAllLayers, smoothZoom, camera, clipboard, createLinkPreviewFromUrl, isViewer, isAiSubnetworkCreationEnabled, tabCommandMenu]);
 
   const selectionBounds = useSelectionBounds();
 
@@ -5234,6 +5235,10 @@ export const Canvas = ({
   const handleCreateSubnetworkCard = useCallback(
     async (point?: Point) => {
       if (isViewer) return;
+      if (!isAiSubnetworkCreationEnabled) {
+        toast.error("AI Subnetwork creation is disabled by feature flag.");
+        return;
+      }
 
       const centerX = window.innerWidth / 2;
       const centerY = window.innerHeight / 2;
@@ -5255,10 +5260,13 @@ export const Canvas = ({
         title: "Subnetwork AI",
       });
     },
-    [isViewer, camera, createAiSubnetwork, boardId, createSubnetworkCardLayer]
+    [isViewer, isAiSubnetworkCreationEnabled, camera, createAiSubnetwork, boardId, createSubnetworkCardLayer]
   );
 
   const tabCommandItems = useMemo(() => {
+    if (!isAiSubnetworkCreationEnabled) {
+      return [];
+    }
     const query = tabCommandQuery.trim().toLowerCase();
     const items = [
       {
@@ -5276,7 +5284,7 @@ export const Canvas = ({
       const haystack = `${item.title} ${item.description}`.toLowerCase();
       return haystack.includes(query);
     });
-  }, [tabCommandQuery]);
+  }, [isAiSubnetworkCreationEnabled, tabCommandQuery]);
 
   const runTabCommand = useCallback(
     (commandId: string, point: Point) => {
@@ -5293,6 +5301,7 @@ export const Canvas = ({
     (e: React.MouseEvent) => {
       e.preventDefault();
       if (isViewer) return;
+      if (!isAiSubnetworkCreationEnabled) return;
       if (suppressBoardContextMenuRef.current) {
         suppressBoardContextMenuRef.current = false;
         return;
@@ -5313,7 +5322,7 @@ export const Canvas = ({
         canvasPoint: pointerEventToCanvasPoint(e as any, camera),
       });
     },
-    [isViewer, camera]
+    [isViewer, isAiSubnetworkCreationEnabled, camera]
   );
 
   const onCanvasDragOver = useCallback(
@@ -5988,7 +5997,7 @@ export const Canvas = ({
         />
       )}
 
-      {boardContextMenu && !isViewer && (
+      {boardContextMenu && !isViewer && isAiSubnetworkCreationEnabled && (
         <div
           className="absolute z-[80] w-56 rounded-xl border border-slate-200 bg-white p-2 shadow-2xl"
           style={{ left: boardContextMenu.x, top: boardContextMenu.y }}
@@ -6010,7 +6019,7 @@ export const Canvas = ({
         </div>
       )}
 
-      {tabCommandMenu && !isViewer && (
+      {tabCommandMenu && !isViewer && isAiSubnetworkCreationEnabled && (
         <div
           ref={tabCommandMenuRef}
           className="absolute z-[85] w-80 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl"

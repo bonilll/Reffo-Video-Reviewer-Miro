@@ -33,7 +33,6 @@ import { LEGAL_DOCUMENT_VERSIONS } from './legal/legalContent';
 import { BoardPageWrapper } from './components/board/BoardPageWrapper';
 import { AuthLanding } from './components/marketing/AuthLanding';
 import SubnetworkPage from './components/subnetwork/SubnetworkPage';
-import { isAiSubnetworkEnabled } from './lib/feature-flags';
 
 type LegalDocumentType = keyof typeof LEGAL_DOCUMENT_VERSIONS;
 
@@ -1227,10 +1226,6 @@ const App: React.FC = () => {
       return;
     }
     if (route.name === 'subnetwork') {
-      if (!isAiSubnetworkEnabled()) {
-        navigate(`/board/${route.boardId}`, true);
-        return;
-      }
       setActiveBoardId(route.boardId);
       setActiveSubnetworkId(route.subnetworkId);
       setView('subnetwork');

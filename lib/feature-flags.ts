@@ -13,5 +13,9 @@ export const isMobileBoardReadOnlyEnabled = () => {
 
 export const isAiSubnetworkEnabled = () => {
   if (import.meta.env.DEV) return true;
-  return isTruthyEnvValue(import.meta.env.VITE_AI_SUBNETWORK_ENABLED);
+  const raw = import.meta.env.VITE_AI_SUBNETWORK_ENABLED;
+  // Fail-open in production when env is missing to avoid breaking access
+  // to existing subnetworks after deployment/config drift.
+  if (raw === undefined || raw === null || String(raw).trim() === "") return true;
+  return isTruthyEnvValue(raw);
 };
