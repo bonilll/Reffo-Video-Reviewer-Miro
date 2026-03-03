@@ -62,7 +62,7 @@ import {
   isLayerMode,
   reduceMobileInputState,
 } from "./mobile-input-engine";
-import { isAiSubnetworkEnabled, isMobileBoardReadOnlyEnabled } from "@/lib/feature-flags";
+import { isMobileBoardReadOnlyEnabled } from "@/lib/feature-flags";
 
 import { 
   colorToCSS, 
@@ -241,8 +241,7 @@ export const Canvas = ({
   const isMobileReadOnly = isMobileRuntime && isMobileBoardReadOnlyEnabled();
   // Editing is disabled for true viewers and for mobile-readonly mode.
   const isViewer = isRoleViewer || isMobileReadOnly;
-  const isAiSubnetworkCreationEnabled = isAiSubnetworkEnabled();
-  const canUseSubnetworkCommands = isAiSubnetworkCreationEnabled && !publicHomeMode;
+  const canUseSubnetworkCommands = !publicHomeMode;
   
   // Get board permissions and project info for todo list selector
   const { projectId } = useResourcePermissions("board", boardId as Id<"boards">);

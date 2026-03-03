@@ -5,6 +5,33 @@ import { requireSubnetworkRead, requireSubnetworkWrite } from "./aiAccess";
 
 const nowTs = () => Date.now();
 
+const importedNodeValidator = v.object({
+  id: v.string(),
+  type: v.string(),
+  title: v.string(),
+  position: v.object({
+    x: v.number(),
+    y: v.number(),
+  }),
+  size: v.optional(
+    v.object({
+      width: v.number(),
+      height: v.number(),
+    })
+  ),
+  config: v.optional(v.any()),
+  inputs: v.optional(v.array(v.any())),
+  outputs: v.optional(v.array(v.any())),
+  runPolicy: v.optional(v.any()),
+});
+
+const importedEdgeValidator = v.object({
+  sourceNodeId: v.string(),
+  sourcePort: v.string(),
+  targetNodeId: v.string(),
+  targetPort: v.string(),
+});
+
 type GraphNode = {
   _id: Id<"aiNodes">;
 };
@@ -348,5 +375,128 @@ export const validateDag = query({
       .collect();
 
     return getTopologicalValidation(nodes as GraphNode[], edges as GraphEdge[]);
+  },
+});
+
+export const replaceGraphFromSnapshot = mutation({
+  args: {
+    subnetworkId: v.id("aiSubnetworks"),
+    nodes: v.array(importedNodeValidator),
+    edges: v.array(importedEdgeValidator),
+  },
+  handler: async (ctx, args) => {
+    const { subnetwork, user } = await requireSubnetworkWrite(ctx, args.subnetworkId);
+
+    if (args.nodes.length > 500) {
+      throw new ConvexError("AI_IMPORT_NODE_LIMIT_EXCEEDED");
+    }
+    if (args.edges.length > 2500) {
+      throw new ConvexError("AI_IMPORT_EDGE_LIMIT_EXCEEDED");
+    }
+
+    const uniqueNodeIds = new Set<string>();
+    for (const node of args.nodes) {
+      const importId = node.id.trim();
+      if (!importId) {
+        throw new ConvexError("AI_IMPORT_NODE_ID_REQUIRED");
+      }
+      if (uniqueNodeIds.has(importId)) {
+        throw new ConvexError("AI_IMPORT_DUPLICATE_NODE_ID");
+      }
+      uniqueNodeIds.add(importId);
+      assertNodeTypeSupported(node.type);
+    }
+
+    const normalizedEdges = args.edges.map((edge) => ({
+      sourceNodeId: edge.sourceNodeId.trim(),
+      sourcePort: edge.sourcePort.trim() || "output",
+      targetNodeId: edge.targetNodeId.trim(),
+      targetPort: edge.targetPort.trim() || "input",
+    }));
+
+    for (const edge of normalizedEdges) {
+      if (!uniqueNodeIds.has(edge.sourceNodeId) || !uniqueNodeIds.has(edge.targetNodeId)) {
+        throw new ConvexError("AI_IMPORT_EDGE_NODE_NOT_FOUND");
+      }
+      if (edge.sourceNodeId === edge.targetNodeId) {
+        throw new ConvexError("AI_GRAPH_SELF_EDGE_NOT_ALLOWED");
+      }
+    }
+
+    const pseudoNodes = args.nodes.map((node) => ({
+      _id: node.id as unknown as Id<"aiNodes">,
+    }));
+    const pseudoEdges = normalizedEdges.map((edge) => ({
+      sourceNodeId: edge.sourceNodeId as unknown as Id<"aiNodes">,
+      targetNodeId: edge.targetNodeId as unknown as Id<"aiNodes">,
+    }));
+    const validation = getTopologicalValidation(pseudoNodes, pseudoEdges);
+    if (!validation.valid) {
+      throw new ConvexError("AI_GRAPH_CYCLE_NOT_ALLOWED");
+    }
+
+    const existingEdges = await ctx.db
+      .query("aiEdges")
+      .withIndex("bySubnetwork", (q) => q.eq("subnetworkId", subnetwork._id))
+      .collect();
+    const existingNodes = await ctx.db
+      .query("aiNodes")
+      .withIndex("bySubnetwork", (q) => q.eq("subnetworkId", subnetwork._id))
+      .collect();
+
+    for (const edge of existingEdges) {
+      await ctx.db.delete(edge._id);
+    }
+    for (const node of existingNodes) {
+      await ctx.db.delete(node._id);
+    }
+
+    const now = nowTs();
+    const idMap = new Map<string, Id<"aiNodes">>();
+
+    for (const node of args.nodes) {
+      const nodeId = await ctx.db.insert("aiNodes", {
+        subnetworkId: subnetwork._id,
+        boardId: subnetwork.boardId,
+        ownerId: user._id,
+        type: assertNodeTypeSupported(node.type),
+        title: node.title.trim() || "Node",
+        position: node.position,
+        size: node.size,
+        config: node.config,
+        inputs: node.inputs,
+        outputs: node.outputs,
+        runPolicy: node.runPolicy,
+        createdAt: now,
+        updatedAt: now,
+      });
+      idMap.set(node.id.trim(), nodeId);
+    }
+
+    for (const edge of normalizedEdges) {
+      const sourceNodeId = idMap.get(edge.sourceNodeId);
+      const targetNodeId = idMap.get(edge.targetNodeId);
+      if (!sourceNodeId || !targetNodeId) {
+        throw new ConvexError("AI_IMPORT_EDGE_NODE_NOT_FOUND");
+      }
+
+      await ctx.db.insert("aiEdges", {
+        subnetworkId: subnetwork._id,
+        boardId: subnetwork.boardId,
+        sourceNodeId,
+        sourcePort: edge.sourcePort,
+        targetNodeId,
+        targetPort: edge.targetPort,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+
+    await ctx.db.patch(subnetwork._id, { updatedAt: now });
+
+    return {
+      nodeCount: args.nodes.length,
+      edgeCount: normalizedEdges.length,
+    };
   },
 });
