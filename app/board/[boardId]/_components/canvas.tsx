@@ -5,6 +5,7 @@ import { nanoid } from "nanoid";
 import { LiveObject } from "@liveblocks/client";
 import { toast } from "sonner";
 import { useMutation as useConvexMutation, useQuery } from "convex/react";
+import { MousePointer2, Pencil, StickyNote, Type } from "lucide-react";
 
 import {
   useHistory,
@@ -44,6 +45,7 @@ import { api } from "@/convex/_generated/api";
 import { Info } from "./info";
 import { Participants } from "./participants";
 import { SecureToolbar, useBoardToolbarActions } from "./secure-toolbar";
+import { ToolButton } from "./tool-button";
 import { CursorsPresence } from "./cursors-presence";
 import { SelectionBox } from "./selection-box";
 import { LayerPreview } from "./layer-preview";
@@ -240,6 +242,7 @@ export const Canvas = ({
   // Editing is disabled for true viewers and for mobile-readonly mode.
   const isViewer = isRoleViewer || isMobileReadOnly;
   const isAiSubnetworkCreationEnabled = isAiSubnetworkEnabled();
+  const canUseSubnetworkCommands = isAiSubnetworkCreationEnabled && !publicHomeMode;
   
   // Get board permissions and project info for todo list selector
   const { projectId } = useResourcePermissions("board", boardId as Id<"boards">);
@@ -467,9 +470,14 @@ export const Canvas = ({
       : "skip"
   );
 
-  const boardSubnetworks = useQuery(api.aiSubnetworks.listByBoard, {
-    boardId: boardId as Id<"boards">,
-  });
+  const boardSubnetworks = useQuery(
+    api.aiSubnetworks.listByBoard,
+    publicHomeMode
+      ? "skip"
+      : {
+          boardId: boardId as Id<"boards">,
+        }
+  );
 
   const subnetworkTitlesById = useMemo(() => {
     const map: Record<string, string> = {};
@@ -4032,28 +4040,30 @@ export const Canvas = ({
           }
         }
         case "Tab": {
-          if (!isEditing && !isViewer && isAiSubnetworkCreationEnabled) {
+          if (!isEditing && !isViewer) {
             e.preventDefault();
             e.stopPropagation();
-            setBoardContextMenu(null);
-            if (tabCommandMenu) {
-              setTabCommandMenu(null);
-              setTabCommandQuery("");
-            } else {
-              const centerX = window.innerWidth / 2;
-              const centerY = window.innerHeight / 2;
-              setTabCommandMenu({
-                x: Math.max(16, centerX - 160),
-                y: Math.max(16, centerY - 130),
-                canvasPoint: {
-                  x: (centerX - camera.x) / camera.scale,
-                  y: (centerY - camera.y) / camera.scale,
-                },
-              });
-              setTabCommandQuery("");
+            if (canUseSubnetworkCommands) {
+              setBoardContextMenu(null);
+              if (tabCommandMenu) {
+                setTabCommandMenu(null);
+                setTabCommandQuery("");
+              } else {
+                const centerX = window.innerWidth / 2;
+                const centerY = window.innerHeight / 2;
+                setTabCommandMenu({
+                  x: Math.max(16, centerX - 160),
+                  y: Math.max(16, centerY - 130),
+                  canvasPoint: {
+                    x: (centerX - camera.x) / camera.scale,
+                    y: (centerY - camera.y) / camera.scale,
+                  },
+                });
+                setTabCommandQuery("");
+              }
             }
-            break;
           }
+          break;
         }
         case "Delete":
         case "Backspace":
@@ -4164,7 +4174,7 @@ export const Canvas = ({
         document.removeEventListener("keyup", onKeyUp);
         document.removeEventListener("paste", onPaste);
     };
-  }, [deleteLayers, history, mySelection, canvasState.mode, setCanvasState, unselectLayers, copySelectedLayers, pasteClipboardLayers, selectAllLayers, smoothZoom, camera, clipboard, createLinkPreviewFromUrl, isViewer, isAiSubnetworkCreationEnabled, tabCommandMenu]);
+  }, [deleteLayers, history, mySelection, canvasState.mode, setCanvasState, unselectLayers, copySelectedLayers, pasteClipboardLayers, selectAllLayers, smoothZoom, camera, clipboard, createLinkPreviewFromUrl, isViewer, canUseSubnetworkCommands, tabCommandMenu]);
 
   const selectionBounds = useSelectionBounds();
 
@@ -5235,7 +5245,7 @@ export const Canvas = ({
   const handleCreateSubnetworkCard = useCallback(
     async (point?: Point) => {
       if (isViewer) return;
-      if (!isAiSubnetworkCreationEnabled) {
+      if (!canUseSubnetworkCommands) {
         toast.error("AI Subnetwork creation is disabled by feature flag.");
         return;
       }
@@ -5260,11 +5270,11 @@ export const Canvas = ({
         title: "Subnetwork AI",
       });
     },
-    [isViewer, isAiSubnetworkCreationEnabled, camera, createAiSubnetwork, boardId, createSubnetworkCardLayer]
+    [isViewer, canUseSubnetworkCommands, camera, createAiSubnetwork, boardId, createSubnetworkCardLayer]
   );
 
   const tabCommandItems = useMemo(() => {
-    if (!isAiSubnetworkCreationEnabled) {
+    if (!canUseSubnetworkCommands) {
       return [];
     }
     const query = tabCommandQuery.trim().toLowerCase();
@@ -5284,7 +5294,7 @@ export const Canvas = ({
       const haystack = `${item.title} ${item.description}`.toLowerCase();
       return haystack.includes(query);
     });
-  }, [isAiSubnetworkCreationEnabled, tabCommandQuery]);
+  }, [canUseSubnetworkCommands, tabCommandQuery]);
 
   const runTabCommand = useCallback(
     (commandId: string, point: Point) => {
@@ -5301,7 +5311,7 @@ export const Canvas = ({
     (e: React.MouseEvent) => {
       e.preventDefault();
       if (isViewer) return;
-      if (!isAiSubnetworkCreationEnabled) return;
+      if (!canUseSubnetworkCommands) return;
       if (suppressBoardContextMenuRef.current) {
         suppressBoardContextMenuRef.current = false;
         return;
@@ -5322,7 +5332,7 @@ export const Canvas = ({
         canvasPoint: pointerEventToCanvasPoint(e as any, camera),
       });
     },
-    [isViewer, isAiSubnetworkCreationEnabled, camera]
+    [isViewer, canUseSubnetworkCommands, camera]
   );
 
   const onCanvasDragOver = useCallback(
@@ -5447,42 +5457,99 @@ export const Canvas = ({
           publicHomeMode={publicHomeMode}
         />
       )}
-      {!isMobileBoardUI && (
-        <SecureToolbar
-          canvasState={canvasState}
-          setCanvasState={setCanvasState}
-          undo={history.undo}
-          redo={history.redo}
-          canUndo={canUndo}
-          canRedo={canRedo}
-          camera={camera}
-          setCamera={setCamera}
-          smoothZoom={smoothZoom}
-          setLastUsedColor={setLastUsedColor}
-          centerOnLayers={centerOnLayers}
-          boardId={boardId}
-          gridConfig={gridConfig}
-          onGridConfigChange={updateGridConfig}
-          autoSaveToLibrary={autoSaveToLibrary}
-          onAutoSaveToLibraryChange={updateAutoSaveToLibrary}
-          canEnableAutoSave={canEnableAutoSave}
-          pencilStrokeWidth={pencilStrokeWidth}
-          setPencilStrokeWidth={setPencilStrokeWidth}
-          lastUsedColor={lastUsedColor}
-          setLastUsedFontSize={setLastUsedFontSize}
-          setLastUsedFontWeight={setLastUsedFontWeight}
-          onToggleFrameAutoResize={handleToggleAutoResize}
-          onManualFrameResize={handleManualResize}
-          isTouchDevice={isTouchDevice}
-          onShareBoard={permissions.canShare ? handleShareBoard : undefined}
-          onDownloadBoard={handleDownloadBoard}
-          onDeleteBoard={permissions.canDelete ? handleDeleteBoard : undefined}
-          onBoardSettings={permissions.canAdmin ? handleBoardSettings : undefined}
-          onCreateTodoWidget={handleCreateTodoWidget}
-          showPermissionInfo={false}
-          userRole={isViewer ? "viewer" : userRole}
-        />
-      )}
+      {!isMobileBoardUI &&
+        (publicHomeMode ? (
+          <div className="toolbar-container pointer-events-none absolute bottom-6 left-1/2 z-50 flex -translate-x-1/2 flex-col items-center">
+            <div className="pointer-events-auto relative w-max rounded-2xl border border-slate-200/80 bg-white/95 shadow-xl shadow-slate-200/40 backdrop-blur-md px-2.5 py-2">
+              <div className="flex items-center gap-1.5">
+                <ToolButton
+                  label="Selection"
+                  icon={MousePointer2}
+                  onClick={() => setCanvasState({ mode: CanvasMode.None })}
+                  isActive={
+                    canvasState.mode === CanvasMode.None ||
+                    canvasState.mode === CanvasMode.Translating ||
+                    canvasState.mode === CanvasMode.SelectionNet ||
+                    canvasState.mode === CanvasMode.Pressing ||
+                    canvasState.mode === CanvasMode.Resizing
+                  }
+                />
+                <ToolButton
+                  label="Text"
+                  icon={Type}
+                  onClick={() =>
+                    setCanvasState({
+                      mode: CanvasMode.Inserting,
+                      layerType: LayerType.Text,
+                    })
+                  }
+                  isActive={
+                    canvasState.mode === CanvasMode.Inserting &&
+                    canvasState.layerType === LayerType.Text
+                  }
+                  isDisabled={isViewer}
+                />
+                <ToolButton
+                  label="Sticky note"
+                  icon={StickyNote}
+                  onClick={() =>
+                    setCanvasState({
+                      mode: CanvasMode.Inserting,
+                      layerType: LayerType.Note,
+                    })
+                  }
+                  isActive={
+                    canvasState.mode === CanvasMode.Inserting &&
+                    canvasState.layerType === LayerType.Note
+                  }
+                  isDisabled={isViewer}
+                />
+                <ToolButton
+                  label="Pencil"
+                  icon={Pencil}
+                  onClick={() => setCanvasState({ mode: CanvasMode.Pencil })}
+                  isActive={canvasState.mode === CanvasMode.Pencil}
+                  isDisabled={isViewer}
+                />
+              </div>
+            </div>
+          </div>
+        ) : (
+          <SecureToolbar
+            canvasState={canvasState}
+            setCanvasState={setCanvasState}
+            undo={history.undo}
+            redo={history.redo}
+            canUndo={canUndo}
+            canRedo={canRedo}
+            camera={camera}
+            setCamera={setCamera}
+            smoothZoom={smoothZoom}
+            setLastUsedColor={setLastUsedColor}
+            centerOnLayers={centerOnLayers}
+            boardId={boardId}
+            gridConfig={gridConfig}
+            onGridConfigChange={updateGridConfig}
+            autoSaveToLibrary={autoSaveToLibrary}
+            onAutoSaveToLibraryChange={updateAutoSaveToLibrary}
+            canEnableAutoSave={canEnableAutoSave}
+            pencilStrokeWidth={pencilStrokeWidth}
+            setPencilStrokeWidth={setPencilStrokeWidth}
+            lastUsedColor={lastUsedColor}
+            setLastUsedFontSize={setLastUsedFontSize}
+            setLastUsedFontWeight={setLastUsedFontWeight}
+            onToggleFrameAutoResize={handleToggleAutoResize}
+            onManualFrameResize={handleManualResize}
+            isTouchDevice={isTouchDevice}
+            onShareBoard={permissions.canShare ? handleShareBoard : undefined}
+            onDownloadBoard={handleDownloadBoard}
+            onDeleteBoard={permissions.canDelete ? handleDeleteBoard : undefined}
+            onBoardSettings={permissions.canAdmin ? handleBoardSettings : undefined}
+            onCreateTodoWidget={handleCreateTodoWidget}
+            showPermissionInfo={false}
+            userRole={isViewer ? "viewer" : userRole}
+          />
+        ))}
       {isMobileBoardUI && (
         <div className="absolute top-3 right-3 z-40" data-no-board-gestures="true">
           <span className="inline-flex items-center rounded-lg border border-slate-200/80 bg-white/95 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600 shadow-md backdrop-blur-md">
@@ -5997,7 +6064,7 @@ export const Canvas = ({
         />
       )}
 
-      {boardContextMenu && !isViewer && isAiSubnetworkCreationEnabled && (
+      {boardContextMenu && !isViewer && canUseSubnetworkCommands && (
         <div
           className="absolute z-[80] w-56 rounded-xl border border-slate-200 bg-white p-2 shadow-2xl"
           style={{ left: boardContextMenu.x, top: boardContextMenu.y }}
@@ -6019,7 +6086,7 @@ export const Canvas = ({
         </div>
       )}
 
-      {tabCommandMenu && !isViewer && isAiSubnetworkCreationEnabled && (
+      {tabCommandMenu && !isViewer && canUseSubnetworkCommands && (
         <div
           ref={tabCommandMenuRef}
           className="absolute z-[85] w-80 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl"
