@@ -1441,6 +1441,20 @@ const EditorSurface = ({ boardId, subnetworkId, onBack }: SubnetworkPageProps) =
     return grouped;
   }, [outputs]);
 
+  const activeNodeRunByNodeId = useMemo(() => {
+    const map = new Map<string, any>();
+    const sorted = [...(nodeRuns ?? [])].sort((a: any, b: any) => b.createdAt - a.createdAt);
+    for (const run of sorted) {
+      const status = String(run.status ?? "").toLowerCase();
+      if (status !== "queued" && status !== "processing") continue;
+      const key = String(run.nodeId);
+      if (!map.has(key)) {
+        map.set(key, run);
+      }
+    }
+    return map;
+  }, [nodeRuns]);
+
   const referenceCountByNodeId = useMemo(() => {
     const map = new Map<string, number>();
     const nodeTypeById = new Map(
@@ -1498,6 +1512,15 @@ const EditorSurface = ({ boardId, subnetworkId, onBack }: SubnetworkPageProps) =
       .sort((a: any, b: any) => b.createdAt - a.createdAt)
       .slice(0, 10);
   }, [nodeRuns, selectedNodeLayout]);
+  const selectedNodeActiveRun = selectedNodeLayout
+    ? activeNodeRunByNodeId.get(selectedNodeLayout.id) ?? null
+    : null;
+  const selectedNodeActiveRunStatus = selectedNodeActiveRun
+    ? String(selectedNodeActiveRun.status ?? "").toLowerCase()
+    : null;
+  const selectedNodeIsBusy = Boolean(
+    (selectedNodeLayout && runningNodeId === selectedNodeLayout.id) || selectedNodeActiveRun
+  );
 
   useEffect(() => {
     setNodeOutputIndexByNodeId((current) => {
@@ -2230,7 +2253,7 @@ const EditorSurface = ({ boardId, subnetworkId, onBack }: SubnetworkPageProps) =
               >
                 {nodeLayouts.map((layout) => {
                   const selected = selectedNodeId === layout.id;
-                  const isRunning = runningNodeId === layout.id;
+                  const isLaunching = runningNodeId === layout.id;
                   const outputCount = outputsByNode.get(layout.id)?.length ?? 0;
                   const Icon = layout.template.icon;
                   const nodeType = normalizeSubnetworkNodeType(layout.node.type);
@@ -2251,6 +2274,13 @@ const EditorSurface = ({ boardId, subnetworkId, onBack }: SubnetworkPageProps) =
                     ? NANO_BANANA_CAPABILITIES[nanoConfig.modelId]
                     : null;
                   const connectedReferencesCount = referenceCountByNodeId.get(layout.id) ?? 0;
+                  const activeNodeRun = activeNodeRunByNodeId.get(layout.id) ?? null;
+                  const activeNodeRunStatus = activeNodeRun
+                    ? String(activeNodeRun.status ?? "").toLowerCase()
+                    : null;
+                  const isNodeQueued = activeNodeRunStatus === "queued";
+                  const isNodeProcessing = activeNodeRunStatus === "processing";
+                  const isNodeBusy = isLaunching || isNodeQueued || isNodeProcessing;
                   const referencesLimitExceeded =
                     isNanoBananaNode &&
                     nanoModelCapability &&
@@ -2464,6 +2494,15 @@ const EditorSurface = ({ boardId, subnetworkId, onBack }: SubnetworkPageProps) =
                                 </button>
                               </>
                             ) : null}
+
+                            {isNodeBusy ? (
+                              <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-white/68 backdrop-blur-[1px]">
+                                <div className="inline-flex items-center gap-2 rounded-full border border-black/15 bg-white px-3 py-1.5 text-[11px] font-semibold text-black/70 shadow-[0_8px_18px_rgba(15,23,42,0.12)]">
+                                  <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-black/25 border-t-black" />
+                                  {isNodeQueued ? "Queued..." : "Processing..."}
+                                </div>
+                              </div>
+                            ) : null}
                           </div>
 
                           <div className="px-1 text-[11px] text-black/55">
@@ -2475,7 +2514,7 @@ const EditorSurface = ({ boardId, subnetworkId, onBack }: SubnetworkPageProps) =
                           </div>
                           <button
                             type="button"
-                            disabled={isRunning || Boolean(referencesLimitExceeded)}
+                            disabled={isNodeBusy || Boolean(referencesLimitExceeded)}
                             onClick={(event) => {
                               event.stopPropagation();
                               void handleRunNode(layout.id);
@@ -2483,7 +2522,7 @@ const EditorSurface = ({ boardId, subnetworkId, onBack }: SubnetworkPageProps) =
                             className="inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-xl border border-black/15 bg-white text-xs font-semibold text-black transition hover:border-black/35 hover:bg-black hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
                           >
                             <Play className="h-3.5 w-3.5" />
-                            {isRunning ? "Running..." : "Run Node"}
+                            {isNodeQueued ? "Queued..." : isNodeProcessing ? "Running..." : isLaunching ? "Starting..." : "Run Node"}
                           </button>
                         </div>
                       )}
@@ -2876,19 +2915,22 @@ const EditorSurface = ({ boardId, subnetworkId, onBack }: SubnetworkPageProps) =
                       <div className="mb-2.5 flex items-center justify-between gap-2">
                         <p className="text-sm font-semibold text-black">Node Details</p>
                         {selectedNodeType !== "prompt" && selectedNodeType !== "image_reference" && (
-                            <button
-                              type="button"
-                              onClick={() => void handleRunNode(selectedNodeLayout.id)}
-                              disabled={
-                                runningNodeId === selectedNodeLayout.id ||
-                                Boolean(selectedNanoReferencesLimitExceeded)
-                              }
-                              className="inline-flex h-8 items-center gap-1 rounded-xl border border-black/15 bg-white px-2.5 text-xs font-semibold text-black transition hover:border-black/35 hover:bg-black hover:text-white disabled:opacity-45"
-                            >
-                              <Play className="h-3.5 w-3.5" />
-                              Run
-                            </button>
-                          )}
+                          <button
+                            type="button"
+                            onClick={() => void handleRunNode(selectedNodeLayout.id)}
+                            disabled={selectedNodeIsBusy || Boolean(selectedNanoReferencesLimitExceeded)}
+                            className="inline-flex h-8 items-center gap-1 rounded-xl border border-black/15 bg-white px-2.5 text-xs font-semibold text-black transition hover:border-black/35 hover:bg-black hover:text-white disabled:opacity-45"
+                          >
+                            <Play className="h-3.5 w-3.5" />
+                            {selectedNodeActiveRunStatus === "queued"
+                              ? "Queued..."
+                              : selectedNodeActiveRunStatus === "processing"
+                              ? "Running..."
+                              : runningNodeId === selectedNodeLayout.id
+                              ? "Starting..."
+                              : "Run"}
+                          </button>
+                        )}
                       </div>
 
                       <label className="text-[11px] uppercase tracking-wide text-black/45">Title</label>
