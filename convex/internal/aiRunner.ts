@@ -488,6 +488,87 @@ const callGoogleBatchDownloadFile = async (params: {
   };
 };
 
+const normalizeGoogleFileDownloadUrl = (fileUri: string) => {
+  const trimmed = fileUri.trim();
+  if (!trimmed) {
+    throw new RunnerExecutionError("GOOGLE_FILE_URI_EMPTY", {
+      code: "PROVIDER_RESPONSE_INVALID",
+      providerErrorMessage: "Google file URI is empty.",
+    });
+  }
+
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+    if (trimmed.includes("alt=media")) return trimmed;
+    const separator = trimmed.includes("?") ? "&" : "?";
+    return `${trimmed}${separator}alt=media`;
+  }
+
+  const normalized = trimmed.replace(/^\/+/, "");
+  if (normalized.startsWith("files/")) {
+    return `https://generativelanguage.googleapis.com/download/v1beta/${encodeResourcePath(
+      normalized
+    )}:download?alt=media`;
+  }
+  if (normalized.startsWith("v1beta/files/")) {
+    const fileName = normalized.slice("v1beta/".length);
+    return `https://generativelanguage.googleapis.com/download/v1beta/${encodeResourcePath(
+      fileName
+    )}:download?alt=media`;
+  }
+
+  return `https://generativelanguage.googleapis.com/download/v1beta/${encodeResourcePath(
+    normalized
+  )}:download?alt=media`;
+};
+
+const downloadGoogleOutputFile = async (params: {
+  apiKey: string;
+  fileUri: string;
+}) => {
+  const endpoint = normalizeGoogleFileDownloadUrl(params.fileUri);
+  const response = await withTimeout(
+    (signal) =>
+      fetch(endpoint, {
+        method: "GET",
+        signal,
+        headers: {
+          "x-goog-api-key": params.apiKey,
+        },
+      }),
+    REQUEST_TIMEOUT_MS
+  );
+
+  const providerRequestId =
+    response.headers.get("x-request-id") ??
+    response.headers.get("x-goog-request-id") ??
+    undefined;
+
+  if (!response.ok) {
+    const rawText = await response.text();
+    let payload: any = null;
+    try {
+      payload = rawText ? JSON.parse(rawText) : null;
+    } catch {
+      payload = null;
+    }
+    const parsed = parseGoogleError(response.status, payload, rawText);
+    throw new RunnerExecutionError("GOOGLE_FILE_DOWNLOAD_FAILED", {
+      code: "PROVIDER_REQUEST_FAILED",
+      providerErrorCode: parsed.providerCode,
+      providerErrorMessage: parsed.providerMessage,
+      providerRequestId,
+    });
+  }
+
+  const bytes = Buffer.from(await response.arrayBuffer());
+  const mimeTypeHeader = response.headers.get("content-type");
+  return {
+    bytes,
+    mimeType: inferMimeType(mimeTypeHeader || undefined),
+    providerRequestId,
+  };
+};
+
 const extractBatchName = (payload: any) => {
   const candidates = [
     payload?.name,
@@ -701,23 +782,44 @@ const persistNanoBananaOutputs = async (params: {
   workerId: string;
   config: NanoBananaNodeConfig;
   parsedResponses: any[];
+  apiKey: string;
   providerRequestId?: string;
   providerJobId?: string;
   providerJobState?: string;
 }) => {
-  const mergedImages: Array<{ mimeType: string; base64Data: string }> = [];
+  const mergedImages: Array<{ mimeType: string; base64Data?: string; fileUri?: string }> = [];
   const mergedTextParts: string[] = [];
+  const mergedFinishReasons = new Set<string>();
+  const mergedBlockReasons = new Set<string>();
 
   for (const responsePayload of params.parsedResponses) {
     const parsed = parseGoogleInteractiveResponse(responsePayload);
     mergedImages.push(...parsed.images);
     mergedTextParts.push(...parsed.textParts);
+    for (const reason of parsed.finishReasons) {
+      if (reason) mergedFinishReasons.add(reason);
+    }
+    if (parsed.blockReason) mergedBlockReasons.add(parsed.blockReason);
   }
 
   if (!mergedImages.length) {
+    const diagnosticPieces: string[] = [];
+    if (mergedFinishReasons.size > 0) {
+      diagnosticPieces.push(`finishReason=${Array.from(mergedFinishReasons).join(",")}`);
+    }
+    if (mergedBlockReasons.size > 0) {
+      diagnosticPieces.push(`blockReason=${Array.from(mergedBlockReasons).join(",")}`);
+    }
+    if (mergedTextParts.length > 0) {
+      diagnosticPieces.push(`text=${mergedTextParts.join(" ").slice(0, 220)}`);
+    }
+
     throw new RunnerExecutionError("PROVIDER_EMPTY_OUTPUT", {
       code: "PROVIDER_EMPTY_OUTPUT",
-      providerErrorMessage: "Google response contains no image outputs.",
+      providerErrorMessage:
+        diagnosticPieces.length > 0
+          ? `Google response contains no image outputs (${diagnosticPieces.join(" | ")}).`
+          : "Google response contains no image outputs.",
       providerRequestId: params.providerRequestId,
       providerJobId: params.providerJobId,
       providerJobState: params.providerJobState,
@@ -729,7 +831,27 @@ const persistNanoBananaOutputs = async (params: {
   for (let i = 0; i < mergedImages.length; i += 1) {
     const item = mergedImages[i];
     const mimeType = inferMimeType(item.mimeType);
-    const bytes = Buffer.from(item.base64Data, "base64");
+
+    let bytes: Buffer;
+    let resolvedMimeType = mimeType;
+    let resolvedProviderRequestId = params.providerRequestId;
+
+    if (item.base64Data) {
+      bytes = Buffer.from(item.base64Data, "base64");
+    } else if (item.fileUri) {
+      const downloaded = await downloadGoogleOutputFile({
+        apiKey: params.apiKey,
+        fileUri: item.fileUri,
+      });
+      bytes = downloaded.bytes;
+      resolvedMimeType = inferMimeType(item.mimeType || downloaded.mimeType);
+      if (!resolvedProviderRequestId && downloaded.providerRequestId) {
+        resolvedProviderRequestId = downloaded.providerRequestId;
+      }
+    } else {
+      continue;
+    }
+
     const stored = await uploadOutputImage({
       launchedBy: String(params.claimed.nodeRun.launchedBy),
       boardId: String(params.claimed.nodeRun.boardId),
@@ -737,7 +859,7 @@ const persistNanoBananaOutputs = async (params: {
       nodeId: String(params.claimed.nodeRun.nodeId),
       nodeRunId: String(params.claimed.nodeRun._id),
       imageIndex: i,
-      mimeType,
+      mimeType: resolvedMimeType,
       bytes,
     });
 
@@ -746,12 +868,28 @@ const persistNanoBananaOutputs = async (params: {
       title: mergedImages.length > 1 ? `Image ${i + 1}` : "Image",
       storageKey: stored.storageKey,
       publicUrl: stored.publicUrl,
-      mimeType,
+      mimeType: resolvedMimeType,
       byteSize: bytes.byteLength,
       metadata: {
         modelId: params.config.modelId,
         runMode: params.config.runMode,
+        source: item.base64Data ? "inlineData" : "fileData",
+        fileUri: item.fileUri,
       },
+    });
+
+    if (resolvedProviderRequestId) {
+      params.providerRequestId = resolvedProviderRequestId;
+    }
+  }
+
+  if (!outputs.length) {
+    throw new RunnerExecutionError("PROVIDER_EMPTY_OUTPUT", {
+      code: "PROVIDER_EMPTY_OUTPUT",
+      providerErrorMessage: "Google returned image parts, but all were empty/unreadable.",
+      providerRequestId: params.providerRequestId,
+      providerJobId: params.providerJobId,
+      providerJobState: params.providerJobState,
     });
   }
 
@@ -832,6 +970,7 @@ const executeNanoBananaInteractive = async (ctx: any, claimed: any, workerId: st
     workerId,
     config: prepared.config,
     parsedResponses: [google.payload],
+    apiKey,
     providerRequestId: google.providerRequestId,
     providerJobState: "done",
   });
@@ -891,6 +1030,7 @@ const startNanoBananaBatch = async (ctx: any, claimed: any, workerId: string) =>
         workerId,
         config: prepared.config,
         parsedResponses: extracted.responses,
+        apiKey,
         providerRequestId: batchCreate.providerRequestId,
         providerJobId: batchName,
         providerJobState: batchState,
@@ -1089,6 +1229,7 @@ const processBatchPoll = async (ctx: any, params: {
     workerId: params.workerId,
     config: prepared.config,
     parsedResponses: responses,
+    apiKey,
     providerRequestId: statusResponse.providerRequestId,
     providerJobId: batchName,
     providerJobState: batchState,

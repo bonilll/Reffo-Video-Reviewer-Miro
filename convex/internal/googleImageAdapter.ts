@@ -35,9 +35,12 @@ type GoogleGenerateRequest = {
 export type ParsedGoogleImageOutput = {
   images: Array<{
     mimeType: string;
-    base64Data: string;
+    base64Data?: string;
+    fileUri?: string;
   }>;
   textParts: string[];
+  finishReasons: string[];
+  blockReason?: string;
 };
 
 const toGoogleImageSize = (size: string) => {
@@ -100,20 +103,54 @@ export const buildGoogleInteractiveGenerateRequest = (
 };
 
 export const parseGoogleInteractiveResponse = (payload: any): ParsedGoogleImageOutput => {
-  const candidates = Array.isArray(payload?.candidates) ? payload.candidates : [];
+  const root = payload?.response ?? payload;
+  const candidates = Array.isArray(root?.candidates) ? root.candidates : [];
   const images: ParsedGoogleImageOutput["images"] = [];
   const textParts: string[] = [];
+  const finishReasons: string[] = [];
+  const blockReason =
+    typeof root?.promptFeedback?.blockReason === "string"
+      ? root.promptFeedback.blockReason
+      : typeof root?.prompt_feedback?.block_reason === "string"
+        ? root.prompt_feedback.block_reason
+        : undefined;
 
   for (const candidate of candidates) {
+    const finishReason =
+      typeof candidate?.finishReason === "string"
+        ? candidate.finishReason
+        : typeof candidate?.finish_reason === "string"
+          ? candidate.finish_reason
+          : null;
+    if (finishReason && !finishReasons.includes(finishReason)) {
+      finishReasons.push(finishReason);
+    }
+
     const parts = Array.isArray(candidate?.content?.parts) ? candidate.content.parts : [];
+
     for (const part of parts) {
       if (typeof part?.text === "string" && part.text.trim().length > 0) {
         textParts.push(part.text);
       }
-      if (part?.inlineData?.data) {
+
+      const inlineData = part?.inlineData ?? part?.inline_data;
+      if (inlineData?.data) {
         images.push({
-          mimeType: part.inlineData.mimeType || "image/png",
-          base64Data: String(part.inlineData.data),
+          mimeType: inlineData.mimeType || inlineData.mime_type || "image/png",
+          base64Data: String(inlineData.data),
+        });
+      }
+
+      const fileData = part?.fileData ?? part?.file_data;
+      const fileUri = typeof fileData?.fileUri === "string"
+        ? fileData.fileUri
+        : typeof fileData?.file_uri === "string"
+          ? fileData.file_uri
+          : null;
+      if (fileUri) {
+        images.push({
+          mimeType: fileData?.mimeType || fileData?.mime_type || "image/png",
+          fileUri,
         });
       }
     }
@@ -122,5 +159,7 @@ export const parseGoogleInteractiveResponse = (payload: any): ParsedGoogleImageO
   return {
     images,
     textParts,
+    finishReasons,
+    blockReason,
   };
 };
