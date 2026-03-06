@@ -7,7 +7,7 @@ import {
   isLikelyApiKey,
   newProofToken,
   redactSecrets,
-} from "../../lib/server/ai-key-security";
+} from "../../lib/server/ai-key-security.js";
 import {
   convexMutation,
   convexQuery,
@@ -18,7 +18,7 @@ import {
   requireAuthenticatedUser,
   sendJson,
   setCors,
-} from "../../lib/server/convex-gateway";
+} from "../../lib/server/convex-gateway.js";
 
 type GoogleKeyMode = "session" | "persistent";
 

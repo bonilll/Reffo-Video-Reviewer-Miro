@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { proxyMultipart } from "./_proxy";
+import { proxyMultipart } from "./_proxy.js";
 
 export const config = {
   runtime: "nodejs",

@@ -8,8 +8,8 @@ import {
   requireAuthenticatedUser,
   sendJson,
   setCors,
-} from "../../../lib/server/convex-gateway";
-import { buildGatewayEnvelope, hashProofToken, newProofToken } from "../../../lib/server/ai-key-security";
+} from "../../../lib/server/convex-gateway.js";
+import { buildGatewayEnvelope, hashProofToken, newProofToken } from "../../../lib/server/ai-key-security.js";
 
 type StepUpRequest = {
   action?: unknown;
