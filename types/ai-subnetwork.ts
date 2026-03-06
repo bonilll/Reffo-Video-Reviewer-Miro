@@ -1,4 +1,15 @@
-export type AiNodeType = "prompt" | "image_reference" | "nano_banana_pro" | "veo3";
+export type GoogleImageModelId =
+  | "gemini-2.5-flash-image"
+  | "gemini-3.1-flash-image-preview"
+  | "gemini-3-pro-image-preview";
+
+export type NanoBananaRunMode = "interactive" | "batch";
+export type NanoBananaResponseMode = "image_only" | "text_and_image";
+export type NanoBananaImageSize = "512" | "1K" | "2K" | "4K";
+
+export type AiNodeType = "prompt" | "image_reference" | "nano_banana" | "nano_banana_pro" | "veo3";
+
+export type CanonicalAiNodeType = "prompt" | "image_reference" | "nano_banana" | "veo3";
 
 export type NodeRunStatus =
   | "blocked"
@@ -34,12 +45,15 @@ export type ImageRefNode = {
 };
 
 export type NanoBananaNode = {
-  type: "nano_banana_pro";
+  type: "nano_banana" | "nano_banana_pro";
   promptInput: "prompt";
   imageInput: "images";
-  resolution?: string;
-  variations?: number;
-  stylePreset?: string;
+  modelId: GoogleImageModelId;
+  runMode: NanoBananaRunMode;
+  responseMode: NanoBananaResponseMode;
+  aspectRatio: string;
+  imageSize: NanoBananaImageSize;
+  enableSearchGrounding: boolean;
 };
 
 export type Veo3Node = {

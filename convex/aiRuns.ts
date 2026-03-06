@@ -3,6 +3,15 @@ import { internalMutation, mutation, query } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { requireSubnetworkRead, requireSubnetworkWrite } from "./aiAccess";
+import {
+  assertNanoBananaConfigCompatible,
+  estimateNanoBananaCostUsd,
+  NANO_BANANA_CANONICAL_NODE_TYPE,
+  NANO_BANANA_LEGACY_NODE_TYPE,
+  normalizeNanoBananaConfig,
+  normalizeNanoNodeType,
+  resolveNanoBananaModelForNode,
+} from "./googleImageModelRegistry";
 
 const RUN_STATUS_QUEUED = "queued";
 const RUN_STATUS_PROCESSING = "processing";
@@ -14,12 +23,13 @@ const NODE_STATUS_BLOCKED = "blocked";
 const ESTIMATED_MODEL_COST_USD: Record<string, number> = {
   prompt: 0,
   image_reference: 0,
-  nano_banana_pro: 0.12,
+  [NANO_BANANA_CANONICAL_NODE_TYPE]: 0.12,
+  [NANO_BANANA_LEGACY_NODE_TYPE]: 0.12,
   veo3: 0.45,
 };
 
 const estimateNodeCost = (nodeType: string) => {
-  const normalized = nodeType.trim().toLowerCase();
+  const normalized = normalizeNanoNodeType(nodeType);
   return ESTIMATED_MODEL_COST_USD[normalized] ?? 0.05;
 };
 
@@ -29,6 +39,156 @@ const toMonthKey = (value: Date) => {
 };
 
 const nowTs = () => Date.now();
+
+const toStableJson = (value: unknown): string => {
+  const normalize = (input: any): any => {
+    if (Array.isArray(input)) return input.map((item) => normalize(item));
+    if (!input || typeof input !== "object") return input;
+    return Object.keys(input)
+      .sort()
+      .reduce((acc: Record<string, unknown>, key) => {
+        acc[key] = normalize(input[key]);
+        return acc;
+      }, {});
+  };
+  return JSON.stringify(normalize(value));
+};
+
+const hashSha256Hex = async (value: string) => {
+  if (globalThis.crypto?.subtle) {
+    const digest = await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+    return Array.from(new Uint8Array(digest))
+      .map((byte) => byte.toString(16).padStart(2, "0"))
+      .join("");
+  }
+
+  let hash = 2166136261;
+  for (let i = 0; i < value.length; i += 1) {
+    hash ^= value.charCodeAt(i);
+    hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
+  }
+  return `fnv1a-${(hash >>> 0).toString(16).padStart(8, "0")}`;
+};
+
+const extractImageReferences = (config: any) => {
+  if (Array.isArray(config?.images)) {
+    return config.images
+      .filter((image: any) => image && typeof image.url === "string")
+      .map((image: any) => ({
+        url: String(image.url),
+        title: typeof image.title === "string" ? image.title : undefined,
+        mimeType: typeof image.mimeType === "string" ? image.mimeType : undefined,
+        width: typeof image.width === "number" ? image.width : undefined,
+        height: typeof image.height === "number" ? image.height : undefined,
+        storageKey: typeof image.storageKey === "string" ? image.storageKey : undefined,
+      }));
+  }
+  if (typeof config?.urlsText === "string") {
+    return String(config.urlsText)
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((url) => ({ url }));
+  }
+  return [];
+};
+
+type PreparedNodeRunInput = {
+  estimatedUsd: number;
+  providerModelId?: string;
+  executionMode: "interactive" | "batch";
+  resolvedConfig?: Record<string, unknown>;
+  inputSnapshot?: Record<string, unknown>;
+  requestHash?: string;
+};
+
+const prepareNodeRunInput = async (
+  node: Doc<"aiNodes">,
+  allNodes: Array<Doc<"aiNodes">>,
+  allEdges: Array<Doc<"aiEdges">>
+): Promise<PreparedNodeRunInput> => {
+  const normalizedType = normalizeNanoNodeType(node.type);
+  const nodeById = new Map(allNodes.map((candidate) => [String(candidate._id), candidate]));
+
+  if (normalizedType !== NANO_BANANA_CANONICAL_NODE_TYPE) {
+    return {
+      estimatedUsd: estimateNodeCost(normalizedType),
+      providerModelId: normalizedType,
+      executionMode: "interactive",
+    };
+  }
+
+  const incoming = allEdges.filter((edge) => String(edge.targetNodeId) === String(node._id));
+  const promptEdge = incoming.find((edge) => edge.targetPort === "prompt");
+  if (!promptEdge) {
+    throw new ConvexError("CONFIG_INVALID_PROMPT_REQUIRED");
+  }
+  const promptNode = nodeById.get(String(promptEdge.sourceNodeId));
+  if (!promptNode || normalizeNanoNodeType(promptNode.type) !== "prompt") {
+    throw new ConvexError("CONFIG_INVALID_PROMPT_SOURCE");
+  }
+
+  const promptText = String((promptNode.config as any)?.text ?? "").trim();
+  if (!promptText) {
+    throw new ConvexError("CONFIG_INVALID_PROMPT_EMPTY");
+  }
+
+  const referenceEdges = incoming.filter((edge) => edge.targetPort === "references");
+  const references = referenceEdges
+    .map((edge) => nodeById.get(String(edge.sourceNodeId)))
+    .filter(Boolean)
+    .filter((sourceNode) => normalizeNanoNodeType(sourceNode!.type) === "image_reference")
+    .flatMap((sourceNode) => extractImageReferences(sourceNode!.config));
+
+  const dedup = new Map<string, (typeof references)[number]>();
+  for (const item of references) {
+    const key = item.storageKey || item.url;
+    if (!dedup.has(key)) dedup.set(key, item);
+  }
+  const normalizedReferences = Array.from(dedup.values());
+
+  const { config } = normalizeNanoBananaConfig(node.config);
+  assertNanoBananaConfigCompatible(config, normalizedReferences.length);
+
+  const estimatedUsd = estimateNanoBananaCostUsd({
+    modelId: config.modelId,
+    runMode: config.runMode,
+    imageSize: config.imageSize,
+    referencesCount: normalizedReferences.length,
+    expectedImagesCount: 1,
+  });
+
+  const inputSnapshot = {
+    prompt: promptText,
+    references: normalizedReferences,
+    referencesCount: normalizedReferences.length,
+  };
+
+  const resolvedConfig = {
+    modelId: config.modelId,
+    runMode: config.runMode,
+    responseMode: config.responseMode,
+    imageSize: config.imageSize,
+    aspectRatio: config.aspectRatio,
+    enableSearchGrounding: config.enableSearchGrounding,
+  };
+
+  const requestHash = await hashSha256Hex(
+    toStableJson({
+      inputSnapshot,
+      resolvedConfig,
+    })
+  );
+
+  return {
+    estimatedUsd,
+    providerModelId: config.modelId,
+    executionMode: config.runMode,
+    resolvedConfig,
+    inputSnapshot,
+    requestHash,
+  };
+};
 
 const ensureNoActiveNodeRun = async (ctx: any, nodeId: Id<"aiNodes">) => {
   const queued = await ctx.db
@@ -198,11 +358,22 @@ export const launchNode = mutation({
 
     await ensureNoActiveNodeRun(ctx, node._id);
 
+    const nodes = await ctx.db
+      .query("aiNodes")
+      .withIndex("bySubnetwork", (q) => q.eq("subnetworkId", subnetwork._id))
+      .collect();
+    const edges = await ctx.db
+      .query("aiEdges")
+      .withIndex("bySubnetwork", (q) => q.eq("subnetworkId", subnetwork._id))
+      .collect();
+
+    const prepared = await prepareNodeRunInput(node, nodes, edges);
+
     const keyRef = await resolveLauncherKey(ctx, user._id);
     await markKeyUsed(ctx, user._id, keyRef);
 
     const now = nowTs();
-    const estimatedUsd = estimateNodeCost(node.type);
+    const estimatedUsd = prepared.estimatedUsd;
 
     const workflowRunId = await ctx.db.insert("aiWorkflowRuns", {
       subnetworkId: subnetwork._id,
@@ -231,6 +402,12 @@ export const launchNode = mutation({
       attempts: 0,
       maxAttempts: 1,
       estimatedUsd,
+      providerModelId: prepared.providerModelId,
+      executionMode: prepared.executionMode,
+      resolvedConfig: prepared.resolvedConfig,
+      inputSnapshot: prepared.inputSnapshot,
+      requestHash: prepared.requestHash,
+      providerJobState: prepared.executionMode === "batch" ? "queued" : undefined,
       createdAt: now,
       updatedAt: now,
     });
@@ -243,7 +420,7 @@ export const launchNode = mutation({
       workflowRunId,
       nodeRunId,
       estimatedUsd,
-      node.type
+      prepared.providerModelId ?? resolveNanoBananaModelForNode(node.type, node.config) ?? node.type
     );
 
     await ctx.db.patch(subnetwork._id, { updatedAt: now });
@@ -291,7 +468,27 @@ export const launchWorkflow = mutation({
 
     const now = nowTs();
 
-    const estimatedUsd = nodes.reduce((acc, node) => acc + estimateNodeCost(node.type), 0);
+    const preparedByNodeId = new Map<
+      string,
+      {
+        estimatedUsd: number;
+        providerModelId?: string;
+        executionMode: "interactive" | "batch";
+        resolvedConfig?: Record<string, unknown>;
+        inputSnapshot?: Record<string, unknown>;
+        requestHash?: string;
+      }
+    >();
+
+    for (const node of nodes) {
+      const prepared = await prepareNodeRunInput(node, nodes, edges);
+      preparedByNodeId.set(String(node._id), prepared);
+    }
+
+    const estimatedUsd = Array.from(preparedByNodeId.values()).reduce(
+      (acc, prepared) => acc + prepared.estimatedUsd,
+      0
+    );
 
     const workflowRunId = await ctx.db.insert("aiWorkflowRuns", {
       subnetworkId: subnetwork._id,
@@ -316,7 +513,8 @@ export const launchWorkflow = mutation({
     for (const node of nodes) {
       const inDegree = graph.inDegree.get(String(node._id)) ?? 0;
       const nodeStatus = inDegree === 0 ? RUN_STATUS_QUEUED : NODE_STATUS_BLOCKED;
-      const estimatedNodeUsd = estimateNodeCost(node.type);
+      const prepared = preparedByNodeId.get(String(node._id));
+      const estimatedNodeUsd = prepared?.estimatedUsd ?? estimateNodeCost(node.type);
 
       const nodeRunId = await ctx.db.insert("aiNodeRuns", {
         workflowRunId,
@@ -328,6 +526,12 @@ export const launchWorkflow = mutation({
         attempts: 0,
         maxAttempts: 1,
         estimatedUsd: estimatedNodeUsd,
+        providerModelId: prepared?.providerModelId,
+        executionMode: prepared?.executionMode,
+        resolvedConfig: prepared?.resolvedConfig,
+        inputSnapshot: prepared?.inputSnapshot,
+        requestHash: prepared?.requestHash,
+        providerJobState: prepared?.executionMode === "batch" ? "queued" : undefined,
         createdAt: now,
         updatedAt: now,
       });
@@ -341,7 +545,9 @@ export const launchWorkflow = mutation({
         workflowRunId,
         nodeRunId,
         estimatedNodeUsd,
-        nodeIdMap.get(String(node._id))?.type ?? node.type
+        prepared?.providerModelId ??
+          resolveNanoBananaModelForNode(nodeIdMap.get(String(node._id))?.type ?? node.type, node.config) ??
+          (nodeIdMap.get(String(node._id))?.type ?? node.type)
       );
     }
 
@@ -398,7 +604,14 @@ export const listNodeRunsForSubnetwork = query({
     return sliced.map((run) => ({
       ...run,
       nodeTitle: nodeMap.get(String(run.nodeId))?.title ?? "Node",
-      nodeType: nodeMap.get(String(run.nodeId))?.type ?? "unknown",
+      nodeType: normalizeNanoNodeType(nodeMap.get(String(run.nodeId))?.type ?? "unknown"),
+      providerModelId:
+        run.providerModelId ??
+        resolveNanoBananaModelForNode(
+          nodeMap.get(String(run.nodeId))?.type ?? "",
+          nodeMap.get(String(run.nodeId))?.config
+        ) ??
+        normalizeNanoNodeType(nodeMap.get(String(run.nodeId))?.type ?? "unknown"),
     }));
   },
 });
@@ -486,6 +699,21 @@ export const claimNodeRun = internalMutation({
     const node = await ctx.db.get(candidate.nodeId);
     const subnetwork = await ctx.db.get(candidate.subnetworkId);
 
+    const normalizedNodeType = node ? normalizeNanoNodeType(node.type) : "unknown";
+    const resolvedConfig =
+      candidate.resolvedConfig ??
+      (node && normalizedNodeType === NANO_BANANA_CANONICAL_NODE_TYPE
+        ? normalizeNanoBananaConfig(node.config).config
+        : undefined);
+    const providerModelId =
+      candidate.providerModelId ??
+      (node ? resolveNanoBananaModelForNode(node.type, node.config) ?? normalizedNodeType : undefined);
+    const executionMode =
+      candidate.executionMode ??
+      (resolvedConfig && typeof (resolvedConfig as any).runMode === "string"
+        ? ((resolvedConfig as any).runMode as "interactive" | "batch")
+        : "interactive");
+
     return {
       nodeRun: {
         ...candidate,
@@ -493,6 +721,13 @@ export const claimNodeRun = internalMutation({
         lockOwner: args.workerId,
         lockedAt: now,
         startedAt: candidate.startedAt ?? now,
+      },
+      execution: {
+        nodeType: normalizedNodeType,
+        providerModelId,
+        executionMode,
+        resolvedConfig,
+        inputSnapshot: candidate.inputSnapshot ?? undefined,
       },
       workflowRun,
       node,
@@ -529,6 +764,9 @@ export const completeNodeRun = internalMutation({
     workerId: v.string(),
     actualUsd: v.optional(v.number()),
     providerRequestId: v.optional(v.string()),
+    providerJobId: v.optional(v.string()),
+    providerJobState: v.optional(v.string()),
+    resolvedConfig: v.optional(v.any()),
     outputs: v.optional(
       v.array(
         v.object({
@@ -563,6 +801,9 @@ export const completeNodeRun = internalMutation({
       completedAt: now,
       actualUsd: args.actualUsd ?? nodeRun.estimatedUsd,
       providerRequestId: args.providerRequestId,
+      providerJobId: args.providerJobId ?? nodeRun.providerJobId,
+      providerJobState: args.providerJobState ?? (nodeRun.executionMode === "batch" ? "succeeded" : "done"),
+      resolvedConfig: args.resolvedConfig ?? nodeRun.resolvedConfig,
       outputSummary: args.outputSummary,
       updatedAt: now,
     });
@@ -620,7 +861,10 @@ export const completeNodeRun = internalMutation({
       workflowRunId: workflowRun._id,
       nodeRunId: nodeRun._id,
       provider: "google",
-      model: node.type,
+      model:
+        nodeRun.providerModelId ??
+        resolveNanoBananaModelForNode(node.type, node.config) ??
+        normalizeNanoNodeType(node.type),
       metric: "actual",
       amountUsd: args.actualUsd ?? nodeRun.estimatedUsd ?? 0,
       currency: "USD",
@@ -645,6 +889,8 @@ export const failNodeRun = internalMutation({
     nodeRunId: v.id("aiNodeRuns"),
     workerId: v.string(),
     error: v.string(),
+    providerJobId: v.optional(v.string()),
+    providerJobState: v.optional(v.string()),
     providerErrorCode: v.optional(v.string()),
     providerErrorMessage: v.optional(v.string()),
     validationError: v.optional(v.string()),
@@ -664,6 +910,8 @@ export const failNodeRun = internalMutation({
       lockedAt: undefined,
       failedAt: now,
       error: args.error,
+      providerJobId: args.providerJobId ?? nodeRun.providerJobId,
+      providerJobState: args.providerJobState ?? (nodeRun.executionMode === "batch" ? "failed" : "failed"),
       providerErrorCode: args.providerErrorCode,
       providerErrorMessage: args.providerErrorMessage,
       validationError: args.validationError,

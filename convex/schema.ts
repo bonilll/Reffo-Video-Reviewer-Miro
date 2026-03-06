@@ -438,6 +438,12 @@ export default defineSchema({
     estimatedUsd: v.optional(v.number()),
     actualUsd: v.optional(v.number()),
     inputSnapshot: v.optional(v.any()),
+    resolvedConfig: v.optional(v.any()),
+    providerModelId: v.optional(v.string()),
+    executionMode: v.optional(v.string()), // interactive | batch
+    providerJobId: v.optional(v.string()),
+    providerJobState: v.optional(v.string()),
+    requestHash: v.optional(v.string()),
     outputSummary: v.optional(v.any()),
     providerRequestId: v.optional(v.string()),
     providerErrorCode: v.optional(v.string()),

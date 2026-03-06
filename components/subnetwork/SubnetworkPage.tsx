@@ -6,9 +6,11 @@ import {
   Cable,
   ChevronDown,
   ChevronLeft,
+  ChevronRight,
   Clock3,
   Command,
   Download,
+  Expand,
   FileText,
   ImageIcon,
   Link2,
@@ -24,6 +26,7 @@ import {
   Trash2,
   Upload,
   Video,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -40,6 +43,13 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useOthersMapped, useUpdateMyPresence } from "@/liveblocks.config";
 import { useResourcePermissions } from "@/hooks/use-resource-permissions";
+import {
+  NANO_BANANA_CAPABILITIES,
+  NANO_BANANA_MODEL_OPTIONS,
+  normalizeNanoBananaUiConfig,
+  normalizeSubnetworkNodeType,
+} from "@/lib/nano-banana-models";
+import { isAiGoogleBatchEnabled } from "@/lib/feature-flags";
 import { cn } from "@/lib/utils";
 import type { AiNodeType } from "@/types/ai-subnetwork";
 
@@ -69,7 +79,7 @@ type PortDefinition = {
 };
 
 type NodeTemplate = {
-  type: AiNodeType;
+  type: "prompt" | "image_reference" | "nano_banana" | "veo3";
   title: string;
   description: string;
   icon: React.ComponentType<{ className?: string }>;
@@ -141,19 +151,15 @@ const NODE_TEMPLATES: NodeTemplate[] = [
     },
   },
   {
-    type: "nano_banana_pro",
-    title: "Nano Banana Pro",
-    description: "Google image generation node with prompt + references",
+    type: "nano_banana",
+    title: "Nano Banana",
+    description: "Google image generation node with explicit model selection",
     icon: Sparkles,
     accentClass: "text-amber-700",
     borderClass: "border-amber-200",
     glowClass: "shadow-[0_0_0_1px_rgba(245,158,11,0.35),0_10px_26px_rgba(217,119,6,0.18)]",
     size: { width: 286, height: 178 },
-    defaultConfig: {
-      resolution: "1024x1024",
-      variations: 1,
-      stylePreset: "",
-    },
+    defaultConfig: normalizeNanoBananaUiConfig({}),
   },
   {
     type: "veo3",
@@ -172,7 +178,7 @@ const NODE_TEMPLATES: NodeTemplate[] = [
   },
 ];
 
-const NODE_PORTS: Record<AiNodeType, { inputs: PortDefinition[]; outputs: PortDefinition[] }> = {
+const NODE_PORTS: Record<string, { inputs: PortDefinition[]; outputs: PortDefinition[] }> = {
   prompt: {
     inputs: [],
     outputs: [{ id: "prompt", label: "Prompt", kind: "text" }],
@@ -181,7 +187,7 @@ const NODE_PORTS: Record<AiNodeType, { inputs: PortDefinition[]; outputs: PortDe
     inputs: [],
     outputs: [{ id: "images", label: "Images", kind: "images" }],
   },
-  nano_banana_pro: {
+  nano_banana: {
     inputs: [
       { id: "prompt", label: "Prompt", kind: "text" },
       { id: "references", label: "References", kind: "images", optional: true },
@@ -217,7 +223,7 @@ const kindCompatible = (source: PortKind, target: PortKind) => {
 };
 
 const getTemplateForType = (type: string): NodeTemplate => {
-  const normalized = (type || "").toLowerCase() as AiNodeType;
+  const normalized = normalizeSubnetworkNodeType(type) as AiNodeType;
   return (
     TEMPLATE_BY_TYPE.get(normalized) ?? {
       type: "prompt",
@@ -242,7 +248,7 @@ const clonePlain = <T,>(value: T): T => {
 };
 
 const getNodePorts = (type: string) => {
-  const normalized = (type || "").toLowerCase() as AiNodeType;
+  const normalized = normalizeSubnetworkNodeType(type);
   return NODE_PORTS[normalized] ?? { inputs: [], outputs: [] };
 };
 
@@ -282,6 +288,30 @@ const getErrorMessage = (error: unknown) => {
   }
   if (raw.includes("AI_GRAPH_SELF_EDGE_NOT_ALLOWED")) {
     return "Connection rejected: a node cannot connect to itself.";
+  }
+  if (raw.includes("CONFIG_INVALID_PROMPT_REQUIRED")) {
+    return "Nano Banana requires a connected Prompt node.";
+  }
+  if (raw.includes("CONFIG_INVALID_PROMPT_SOURCE")) {
+    return "Nano Banana prompt input must come from a Prompt node.";
+  }
+  if (raw.includes("CONFIG_INVALID_PROMPT_EMPTY")) {
+    return "Prompt input is empty. Add text in the Prompt node.";
+  }
+  if (raw.includes("CONFIG_INVALID_REFERENCE_LIMIT")) {
+    return "Too many references for selected model. Reduce connected image references.";
+  }
+  if (raw.includes("CONFIG_INVALID_IMAGE_SIZE")) {
+    return "Selected image size is not valid for the current model.";
+  }
+  if (raw.includes("CONFIG_INVALID_ASPECT_RATIO")) {
+    return "Selected aspect ratio is not valid for the current model.";
+  }
+  if (raw.includes("CONFIG_INVALID_GROUNDING_UNSUPPORTED")) {
+    return "Search grounding is not supported for the selected model.";
+  }
+  if (raw.includes("CONFIG_BATCH_DISABLED")) {
+    return "Batch mode is currently disabled.";
   }
   if (raw.includes("FORBIDDEN")) {
     return "Action not allowed for your current role.";
@@ -549,6 +579,7 @@ const PresenceTracker = () => {
 const EditorSurface = ({ boardId, subnetworkId, onBack }: SubnetworkPageProps) => {
   const permissions = useResourcePermissions("board", boardId as Id<"boards">);
   const canWrite = permissions.canWrite;
+  const batchModeEnabled = isAiGoogleBatchEnabled();
 
   const subnetwork = useQuery(api.aiSubnetworks.getByBoardAndId, {
     boardId: boardId as Id<"boards">,
@@ -633,6 +664,10 @@ const EditorSurface = ({ boardId, subnetworkId, onBack }: SubnetworkPageProps) =
 
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
+  const [nodeOutputIndexByNodeId, setNodeOutputIndexByNodeId] = useState<Record<string, number>>({});
+  const [fullscreenOutputState, setFullscreenOutputState] = useState<{ nodeId: string; index: number } | null>(
+    null
+  );
   const [nodePositionOverrides, setNodePositionOverrides] = useState<Record<string, Vec2>>({});
   const nodePositionOverridesRef = useRef<Record<string, Vec2>>({});
 
@@ -1342,11 +1377,22 @@ const EditorSurface = ({ boardId, subnetworkId, onBack }: SubnetworkPageProps) =
   const nodeLayouts = useMemo<NodeLayout[]>(() => {
     return graphNodes.map((node: any) => {
       const id = String(node._id);
-      const template = getTemplateForType(node.type);
-      const ports = getNodePorts(node.type);
+      const normalizedType = normalizeSubnetworkNodeType(node.type);
+      const normalizedConfig =
+        normalizedType === "nano_banana" ? normalizeNanoBananaUiConfig(node.config) : node.config;
+      const normalizedNode =
+        normalizedType === node.type && normalizedConfig === node.config
+          ? node
+          : {
+              ...node,
+              type: normalizedType,
+              config: normalizedConfig,
+            };
+      const template = getTemplateForType(normalizedType);
+      const ports = getNodePorts(normalizedType);
       return {
         id,
-        node,
+        node: normalizedNode,
         position: nodePositionOverrides[id] ?? node.position ?? { x: 0, y: 0 },
         size: node.size ?? template.size,
         inputs: ports.inputs,
@@ -1382,22 +1428,58 @@ const EditorSurface = ({ boardId, subnetworkId, onBack }: SubnetworkPageProps) =
       list.push(output);
       grouped.set(key, list);
     }
+    for (const [key, list] of grouped.entries()) {
+      grouped.set(
+        key,
+        [...list].sort((a, b) => {
+          const byCreatedAt = Number(b.createdAt ?? 0) - Number(a.createdAt ?? 0);
+          if (byCreatedAt !== 0) return byCreatedAt;
+          return Number(b.version ?? 0) - Number(a.version ?? 0);
+        })
+      );
+    }
     return grouped;
   }, [outputs]);
 
-  const latestNodeRunByNodeId = useMemo(() => {
-    const map = new Map<string, any>();
-    const sorted = [...(nodeRuns ?? [])].sort((a: any, b: any) => b.createdAt - a.createdAt);
-    for (const run of sorted) {
-      const key = String(run.nodeId);
-      if (!map.has(key)) {
-        map.set(key, run);
-      }
+  const referenceCountByNodeId = useMemo(() => {
+    const map = new Map<string, number>();
+    const nodeTypeById = new Map(
+      nodeLayouts.map((layout) => [layout.id, normalizeSubnetworkNodeType(layout.node.type)])
+    );
+
+    for (const edge of graphEdges) {
+      if (edge.targetPort !== "references") continue;
+      const targetNodeId = String(edge.targetNodeId);
+      const sourceNodeId = String(edge.sourceNodeId);
+      if (nodeTypeById.get(targetNodeId) !== "nano_banana") continue;
+      if (nodeTypeById.get(sourceNodeId) !== "image_reference") continue;
+      map.set(targetNodeId, (map.get(targetNodeId) ?? 0) + 1);
     }
     return map;
-  }, [nodeRuns]);
+  }, [graphEdges, nodeLayouts]);
 
   const selectedNodeLayout = selectedNodeId ? nodeLayoutById.get(selectedNodeId) ?? null : null;
+  const selectedNodeType = selectedNodeLayout
+    ? normalizeSubnetworkNodeType(selectedNodeLayout.node.type)
+    : null;
+  const selectedNanoConfig =
+    selectedNodeType === "nano_banana"
+      ? normalizeNanoBananaUiConfig(nodeDraft?.config ?? selectedNodeLayout?.node?.config)
+      : null;
+  const selectedNanoCapability = selectedNanoConfig
+    ? NANO_BANANA_CAPABILITIES[selectedNanoConfig.modelId]
+    : null;
+  const selectedNanoReferenceCount = selectedNodeLayout
+    ? referenceCountByNodeId.get(selectedNodeLayout.id) ?? 0
+    : 0;
+  const selectedNanoReferencesLimitExceeded =
+    selectedNodeType === "nano_banana" &&
+    selectedNanoCapability &&
+    selectedNanoReferenceCount > selectedNanoCapability.maxReferences;
+  const selectedNanoReferencesWarning =
+    selectedNodeType === "nano_banana" &&
+    selectedNanoCapability &&
+    selectedNanoReferenceCount > selectedNanoCapability.recommendedReferenceWarningThreshold;
 
   const selectedNodeOutputs = useQuery(
     api.aiOutputs.listNodeVersions,
@@ -1416,6 +1498,97 @@ const EditorSurface = ({ boardId, subnetworkId, onBack }: SubnetworkPageProps) =
       .sort((a: any, b: any) => b.createdAt - a.createdAt)
       .slice(0, 10);
   }, [nodeRuns, selectedNodeLayout]);
+
+  useEffect(() => {
+    setNodeOutputIndexByNodeId((current) => {
+      const next: Record<string, number> = {};
+      let changed = false;
+      for (const layout of nodeLayouts) {
+        const list = outputsByNode.get(layout.id) ?? [];
+        if (list.length === 0) continue;
+        const previous = current[layout.id] ?? 0;
+        const clamped = clamp(previous, 0, list.length - 1);
+        next[layout.id] = clamped;
+        if (clamped !== previous || !(layout.id in current)) changed = true;
+      }
+      if (Object.keys(current).length !== Object.keys(next).length) changed = true;
+      return changed ? next : current;
+    });
+  }, [nodeLayouts, outputsByNode]);
+
+  useEffect(() => {
+    if (!fullscreenOutputState) return;
+    const nodeOutputs = outputsByNode.get(fullscreenOutputState.nodeId) ?? [];
+    if (nodeOutputs.length === 0) {
+      setFullscreenOutputState(null);
+      return;
+    }
+    const nextIndex = clamp(fullscreenOutputState.index, 0, nodeOutputs.length - 1);
+    if (nextIndex !== fullscreenOutputState.index) {
+      setFullscreenOutputState({
+        nodeId: fullscreenOutputState.nodeId,
+        index: nextIndex,
+      });
+    }
+  }, [fullscreenOutputState, outputsByNode]);
+
+  const shiftNodeOutputIndex = useCallback(
+    (nodeId: string, delta: -1 | 1) => {
+      const list = outputsByNode.get(nodeId) ?? [];
+      if (list.length <= 1) return;
+      setNodeOutputIndexByNodeId((current) => {
+        const currentIndex = current[nodeId] ?? 0;
+        const nextIndex = (currentIndex + delta + list.length) % list.length;
+        return {
+          ...current,
+          [nodeId]: nextIndex,
+        };
+      });
+      setFullscreenOutputState((current) => {
+        if (!current || current.nodeId !== nodeId) return current;
+        const nextIndex = (current.index + delta + list.length) % list.length;
+        return {
+          ...current,
+          index: nextIndex,
+        };
+      });
+    },
+    [outputsByNode]
+  );
+
+  useEffect(() => {
+    if (!fullscreenOutputState) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setFullscreenOutputState(null);
+        return;
+      }
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        shiftNodeOutputIndex(fullscreenOutputState.nodeId, -1);
+        return;
+      }
+      if (event.key === "ArrowRight") {
+        event.preventDefault();
+        shiftNodeOutputIndex(fullscreenOutputState.nodeId, 1);
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [fullscreenOutputState, shiftNodeOutputIndex]);
+
+  const fullscreenNodeOutputs = fullscreenOutputState
+    ? outputsByNode.get(fullscreenOutputState.nodeId) ?? []
+    : [];
+  const fullscreenOutput = fullscreenOutputState
+    ? fullscreenNodeOutputs[clamp(fullscreenOutputState.index, 0, Math.max(fullscreenNodeOutputs.length - 1, 0))] ??
+      null
+    : null;
+  const fullscreenNodeLayout = fullscreenOutputState
+    ? nodeLayoutById.get(fullscreenOutputState.nodeId) ?? null
+    : null;
 
   const selectedNodeCostSummary = useQuery(
     api.aiCosts.getSummary,
@@ -1436,10 +1609,13 @@ const EditorSurface = ({ boardId, subnetworkId, onBack }: SubnetworkPageProps) =
 
     setNodeDraft({
       title: selectedNodeLayout.node.title ?? selectedNodeLayout.template.title,
-      config: clonePlain((selectedNodeLayout.node.config as Record<string, any>) ?? {}),
+      config:
+        selectedNodeType === "nano_banana"
+          ? clonePlain(normalizeNanoBananaUiConfig(selectedNodeLayout.node.config))
+          : clonePlain((selectedNodeLayout.node.config as Record<string, any>) ?? {}),
     });
     setNodeDraftDirty(false);
-  }, [selectedNodeLayout?.id, selectedNodeLayout?.node.updatedAt]);
+  }, [selectedNodeLayout?.id, selectedNodeLayout?.node.updatedAt, selectedNodeType]);
 
   const edgeRenderData = useMemo(() => {
     return graphEdges
@@ -1643,17 +1819,25 @@ const EditorSurface = ({ boardId, subnetworkId, onBack }: SubnetworkPageProps) =
   const saveNodeDraft = useCallback(async () => {
     if (!selectedNodeLayout || !nodeDraft || !nodeDraftDirty) return;
     try {
+      const normalizedNanoConfig = normalizeNanoBananaUiConfig(nodeDraft.config);
+      const normalizedConfig =
+        selectedNodeType === "nano_banana"
+          ? {
+              ...normalizedNanoConfig,
+              runMode: batchModeEnabled ? normalizedNanoConfig.runMode : "interactive",
+            }
+          : nodeDraft.config;
       await updateNode({
         nodeId: selectedNodeLayout.node._id as Id<"aiNodes">,
         title: nodeDraft.title.trim() || selectedNodeLayout.template.title,
-        config: nodeDraft.config,
+        config: normalizedConfig,
       });
       setNodeDraftDirty(false);
       toast.success("Node updated");
     } catch (error) {
       toast.error(getErrorMessage(error));
     }
-  }, [nodeDraft, nodeDraftDirty, selectedNodeLayout, updateNode]);
+  }, [nodeDraft, nodeDraftDirty, selectedNodeLayout, selectedNodeType, updateNode]);
 
   const commitSubnetworkRename = useCallback(async () => {
     if (!subnetwork) return;
@@ -2048,14 +2232,29 @@ const EditorSurface = ({ boardId, subnetworkId, onBack }: SubnetworkPageProps) =
                   const selected = selectedNodeId === layout.id;
                   const isRunning = runningNodeId === layout.id;
                   const outputCount = outputsByNode.get(layout.id)?.length ?? 0;
-                  const latestRun = latestNodeRunByNodeId.get(layout.id);
                   const Icon = layout.template.icon;
-                  const nodeType = String(layout.node.type || "").toLowerCase();
+                  const nodeType = normalizeSubnetworkNodeType(layout.node.type);
                   const isPromptNode = nodeType === "prompt";
                   const isImageReferenceNode = nodeType === "image_reference";
+                  const isNanoBananaNode = nodeType === "nano_banana";
                   const promptText = String((layout.node.config as any)?.text ?? "");
                   const imageItems = extractImageReferenceItems(layout.node.config);
                   const primaryImage = imageItems[0] ?? null;
+                  const nodeOutputs = outputsByNode.get(layout.id) ?? [];
+                  const activeOutputIndex =
+                    nodeOutputs.length > 0
+                      ? clamp(nodeOutputIndexByNodeId[layout.id] ?? 0, 0, nodeOutputs.length - 1)
+                      : 0;
+                  const activeOutput = nodeOutputs[activeOutputIndex] ?? null;
+                  const nanoConfig = isNanoBananaNode ? normalizeNanoBananaUiConfig(layout.node.config) : null;
+                  const nanoModelCapability = nanoConfig
+                    ? NANO_BANANA_CAPABILITIES[nanoConfig.modelId]
+                    : null;
+                  const connectedReferencesCount = referenceCountByNodeId.get(layout.id) ?? 0;
+                  const referencesLimitExceeded =
+                    isNanoBananaNode &&
+                    nanoModelCapability &&
+                    connectedReferencesCount > nanoModelCapability.maxReferences;
 
                   return (
                     <article
@@ -2106,11 +2305,21 @@ const EditorSurface = ({ boardId, subnetworkId, onBack }: SubnetworkPageProps) =
                         data-node-drag-handle="true"
                         className="flex cursor-grab items-start justify-between rounded-t-2xl border-b border-black/10 bg-gradient-to-b from-white to-[#f8f8f9] px-3.5 py-3 active:cursor-grabbing"
                       >
-                        <div className="min-w-0">
+                        <div className="min-w-0 space-y-1">
                           <p className="truncate text-[10px] font-semibold uppercase tracking-[0.12em] text-black/45">
                             {layout.node.type}
                           </p>
                           <h3 className="truncate text-sm font-semibold text-black">{layout.node.title}</h3>
+                          {isNanoBananaNode && nanoConfig ? (
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <span className="inline-flex rounded-md border border-black/15 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-black/75">
+                                {nanoConfig.modelId}
+                              </span>
+                              <span className="inline-flex rounded-md border border-black/15 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-black/60">
+                                {nanoConfig.runMode === "batch" ? "Batch" : "Interactive"}
+                              </span>
+                            </div>
+                          ) : null}
                         </div>
                         <div
                           className={cn(
@@ -2180,26 +2389,93 @@ const EditorSurface = ({ boardId, subnetworkId, onBack }: SubnetworkPageProps) =
                         </div>
                       ) : (
                         <div className="space-y-2.5 px-3.5 pb-3 pt-2.5 text-xs text-black/70">
-                          <div className="grid grid-cols-2 gap-1.5">
-                            <div className="rounded-lg border border-black/10 bg-[#fafafa] px-2 py-1.5">
-                              <p className="text-[10px] uppercase tracking-wide text-black/45">Outputs</p>
-                              <p className="mt-0.5 text-sm font-semibold text-black">{outputCount}</p>
-                            </div>
-                            <div className="rounded-lg border border-black/10 bg-[#fafafa] px-2 py-1.5">
-                              <p className="text-[10px] uppercase tracking-wide text-black/45">Status</p>
-                              <p
-                                className={cn(
-                                  "mt-1 inline-flex rounded-full border px-1.5 py-0.5 text-[10px] font-semibold",
-                                  getRunToneClasses(latestRun?.status)
-                                )}
+                          <div
+                            className="relative overflow-hidden rounded-xl border border-black/12 bg-[#f7f7f8]"
+                            onPointerDown={(event) => event.stopPropagation()}
+                          >
+                            {activeOutput ? (
+                              activeOutput.publicUrl && activeOutput.mimeType?.startsWith("image/") ? (
+                                <img
+                                  src={activeOutput.publicUrl}
+                                  alt={activeOutput.title ?? "Output"}
+                                  className="h-36 w-full object-cover"
+                                  draggable={false}
+                                />
+                              ) : activeOutput.publicUrl && activeOutput.mimeType?.startsWith("video/") ? (
+                                <video
+                                  src={activeOutput.publicUrl}
+                                  className="h-36 w-full object-cover"
+                                  muted
+                                  playsInline
+                                  autoPlay
+                                  loop
+                                />
+                              ) : (
+                                <div className="flex h-36 items-center justify-center text-[11px] text-black/50">
+                                  {activeOutput.outputType || "Output"}
+                                </div>
+                              )
+                            ) : (
+                              <div className="flex h-36 items-center justify-center text-[11px] text-black/50">
+                                No outputs yet
+                              </div>
+                            )}
+
+                            {activeOutput ? (
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setFullscreenOutputState({
+                                    nodeId: layout.id,
+                                    index: activeOutputIndex,
+                                  });
+                                }}
+                                className="absolute right-2 top-2 inline-flex h-7 w-7 items-center justify-center rounded-md border border-black/15 bg-white/95 text-black transition hover:bg-black hover:text-white"
+                                title="Open fullscreen"
                               >
-                                {latestRun ? formatStatus(latestRun.status) : "Idle"}
-                              </p>
-                            </div>
+                                <Expand className="h-3.5 w-3.5" />
+                              </button>
+                            ) : null}
+
+                            {nodeOutputs.length > 1 ? (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    shiftNodeOutputIndex(layout.id, -1);
+                                  }}
+                                  className="absolute left-2 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md border border-black/15 bg-white/95 text-black transition hover:bg-black hover:text-white"
+                                  title="Previous output"
+                                >
+                                  <ChevronLeft className="h-4 w-4" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    shiftNodeOutputIndex(layout.id, 1);
+                                  }}
+                                  className="absolute right-2 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md border border-black/15 bg-white/95 text-black transition hover:bg-black hover:text-white"
+                                  title="Next output"
+                                >
+                                  <ChevronRight className="h-4 w-4" />
+                                </button>
+                              </>
+                            ) : null}
+                          </div>
+
+                          <div className="px-1 text-[11px] text-black/55">
+                            <span className="text-black/55">
+                              {outputCount === 0
+                                ? "No versions"
+                                : `v${activeOutput?.version ?? "?"} · ${activeOutputIndex + 1}/${outputCount}`}
+                            </span>
                           </div>
                           <button
                             type="button"
-                            disabled={isRunning}
+                            disabled={isRunning || Boolean(referencesLimitExceeded)}
                             onClick={(event) => {
                               event.stopPropagation();
                               void handleRunNode(layout.id);
@@ -2344,6 +2620,91 @@ const EditorSurface = ({ boardId, subnetworkId, onBack }: SubnetworkPageProps) =
                         ? "Use a JSON setup file or an image file."
                         : "Existing nodes and connections will be replaced."}
                     </p>
+                  </div>
+                </div>
+              )}
+
+              {fullscreenOutputState && fullscreenOutput && (
+                <div
+                  className="absolute inset-0 z-[70] flex items-center justify-center bg-black/76 p-5 backdrop-blur-sm"
+                  onPointerDown={(event) => {
+                    if (event.target !== event.currentTarget) return;
+                    setFullscreenOutputState(null);
+                  }}
+                >
+                  <div className="relative flex h-full w-full max-w-[1360px] flex-col overflow-hidden rounded-2xl border border-white/20 bg-[#0a0a0b] text-white shadow-[0_24px_80px_rgba(0,0,0,0.55)]">
+                    <div className="flex items-center justify-between border-b border-white/15 px-4 py-3">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-white">
+                          {fullscreenNodeLayout?.node.title ?? "Output"}
+                        </p>
+                        <p className="text-xs text-white/65">
+                          {`v${fullscreenOutput.version ?? "?"} · ${fullscreenOutputState.index + 1}/${fullscreenNodeOutputs.length}`}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setFullscreenOutputState(null)}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/25 bg-white/10 text-white transition hover:bg-white hover:text-black"
+                        title="Close fullscreen"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+
+                    <div
+                      className="relative flex min-h-0 flex-1 items-center justify-center p-5"
+                      onPointerDown={(event) => event.stopPropagation()}
+                    >
+                      {fullscreenOutput.publicUrl && fullscreenOutput.mimeType?.startsWith("image/") ? (
+                        <img
+                          src={fullscreenOutput.publicUrl}
+                          alt={fullscreenOutput.title ?? "Output"}
+                          className="max-h-full max-w-full rounded-xl object-contain"
+                          draggable={false}
+                        />
+                      ) : fullscreenOutput.publicUrl && fullscreenOutput.mimeType?.startsWith("video/") ? (
+                        <video
+                          src={fullscreenOutput.publicUrl}
+                          className="max-h-full max-w-full rounded-xl object-contain"
+                          controls
+                          autoPlay
+                          loop
+                          playsInline
+                        />
+                      ) : (
+                        <div className="rounded-xl border border-white/20 bg-white/5 px-4 py-3 text-sm text-white/70">
+                          {fullscreenOutput.outputType || "Output"}
+                        </div>
+                      )}
+
+                      {fullscreenNodeOutputs.length > 1 ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              shiftNodeOutputIndex(fullscreenOutputState.nodeId, -1);
+                            }}
+                            className="absolute left-4 top-1/2 inline-flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-white/30 bg-black/45 text-white transition hover:bg-white hover:text-black"
+                            title="Previous output"
+                          >
+                            <ChevronLeft className="h-5 w-5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              shiftNodeOutputIndex(fullscreenOutputState.nodeId, 1);
+                            }}
+                            className="absolute right-4 top-1/2 inline-flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-white/30 bg-black/45 text-white transition hover:bg-white hover:text-black"
+                            title="Next output"
+                          >
+                            <ChevronRight className="h-5 w-5" />
+                          </button>
+                        </>
+                      ) : null}
+                    </div>
                   </div>
                 </div>
               )}
@@ -2514,12 +2875,14 @@ const EditorSurface = ({ boardId, subnetworkId, onBack }: SubnetworkPageProps) =
                     <div className={PANEL_CARD_CLASS}>
                       <div className="mb-2.5 flex items-center justify-between gap-2">
                         <p className="text-sm font-semibold text-black">Node Details</p>
-                        {selectedNodeLayout.node.type !== "prompt" &&
-                          selectedNodeLayout.node.type !== "image_reference" && (
+                        {selectedNodeType !== "prompt" && selectedNodeType !== "image_reference" && (
                             <button
                               type="button"
                               onClick={() => void handleRunNode(selectedNodeLayout.id)}
-                              disabled={runningNodeId === selectedNodeLayout.id}
+                              disabled={
+                                runningNodeId === selectedNodeLayout.id ||
+                                Boolean(selectedNanoReferencesLimitExceeded)
+                              }
                               className="inline-flex h-8 items-center gap-1 rounded-xl border border-black/15 bg-white px-2.5 text-xs font-semibold text-black transition hover:border-black/35 hover:bg-black hover:text-white disabled:opacity-45"
                             >
                               <Play className="h-3.5 w-3.5" />
@@ -2546,56 +2909,148 @@ const EditorSurface = ({ boardId, subnetworkId, onBack }: SubnetworkPageProps) =
                       />
 
                       <div className="mt-3 space-y-2 text-xs text-black/70">
-                        {selectedNodeLayout.node.type === "prompt" && (
+                        {selectedNodeType === "prompt" && (
                           <div className="rounded-xl border border-black/10 bg-[#fafafa] px-3 py-2 text-[11px] text-black/60">
                             Prompt text is edited directly inside the node.
                           </div>
                         )}
 
-                        {selectedNodeLayout.node.type === "image_reference" && (
+                        {selectedNodeType === "image_reference" && (
                           <div className="rounded-xl border border-black/10 bg-[#fafafa] px-3 py-2 text-[11px] text-black/60">
                             Image references are created by dropping images on the canvas.
                           </div>
                         )}
 
-                        {selectedNodeLayout.node.type === "nano_banana_pro" && (
+                        {selectedNodeType === "nano_banana" && selectedNanoConfig && selectedNanoCapability && (
                           <>
-                            <label className="text-[11px] uppercase tracking-wide text-black/45">Resolution</label>
+                            <label className="text-[11px] uppercase tracking-wide text-black/45">Model</label>
                             <select
-                              value={String(nodeDraft?.config?.resolution ?? "1024x1024")}
-                              onChange={(event) => updateNodeDraftConfig({ resolution: event.target.value })}
+                              value={selectedNanoConfig.modelId}
+                              onChange={(event) => {
+                                const nextModelId = event.target.value;
+                                const nextConfig = normalizeNanoBananaUiConfig({
+                                  ...(nodeDraft?.config ?? {}),
+                                  modelId: nextModelId,
+                                });
+                                updateNodeDraftConfig(nextConfig);
+                              }}
                               className={INPUT_CLASS}
                             >
-                              <option value="1024x1024">1024 x 1024</option>
-                              <option value="1536x1024">1536 x 1024</option>
-                              <option value="1024x1536">1024 x 1536</option>
+                              {NANO_BANANA_MODEL_OPTIONS.map((model) => (
+                                <option key={model.id} value={model.id}>
+                                  {model.label}
+                                </option>
+                              ))}
                             </select>
 
-                            <label className="text-[11px] uppercase tracking-wide text-black/45">Variations</label>
-                            <input
-                              type="number"
-                              min={1}
-                              max={8}
-                              value={Number(nodeDraft?.config?.variations ?? 1)}
+                            <label className="text-[11px] uppercase tracking-wide text-black/45">Run mode</label>
+                            <select
+                              value={batchModeEnabled ? selectedNanoConfig.runMode : "interactive"}
                               onChange={(event) =>
                                 updateNodeDraftConfig({
-                                  variations: clamp(Number(event.target.value) || 1, 1, 8),
+                                  ...selectedNanoConfig,
+                                  runMode: event.target.value === "batch" ? "batch" : "interactive",
                                 })
                               }
                               className={INPUT_CLASS}
-                            />
+                            >
+                              <option value="interactive">Interactive</option>
+                              {batchModeEnabled ? <option value="batch">Batch</option> : null}
+                            </select>
+                            {!batchModeEnabled && (
+                              <p className="text-[11px] text-black/55">
+                                Batch mode is disabled by feature flag.
+                              </p>
+                            )}
 
-                            <label className="text-[11px] uppercase tracking-wide text-black/45">Style preset</label>
-                            <input
-                              value={String(nodeDraft?.config?.stylePreset ?? "")}
-                              onChange={(event) => updateNodeDraftConfig({ stylePreset: event.target.value })}
+                            <label className="text-[11px] uppercase tracking-wide text-black/45">Response mode</label>
+                            <select
+                              value={selectedNanoConfig.responseMode}
+                              onChange={(event) =>
+                                updateNodeDraftConfig({
+                                  ...selectedNanoConfig,
+                                  responseMode:
+                                    event.target.value === "text_and_image" ? "text_and_image" : "image_only",
+                                })
+                              }
                               className={INPUT_CLASS}
-                              placeholder="cinematic, realistic..."
-                            />
+                            >
+                              <option value="image_only">Image only</option>
+                              <option value="text_and_image">Text + image</option>
+                            </select>
+
+                            <label className="text-[11px] uppercase tracking-wide text-black/45">Image size</label>
+                            <select
+                              value={selectedNanoConfig.imageSize}
+                              onChange={(event) =>
+                                updateNodeDraftConfig({
+                                  ...selectedNanoConfig,
+                                  imageSize: event.target.value,
+                                })
+                              }
+                              className={INPUT_CLASS}
+                            >
+                              {selectedNanoCapability.imageSizes.map((size) => (
+                                <option key={size} value={size}>
+                                  {size}
+                                </option>
+                              ))}
+                            </select>
+
+                            <label className="text-[11px] uppercase tracking-wide text-black/45">Aspect ratio</label>
+                            <select
+                              value={selectedNanoConfig.aspectRatio}
+                              onChange={(event) =>
+                                updateNodeDraftConfig({
+                                  ...selectedNanoConfig,
+                                  aspectRatio: event.target.value,
+                                })
+                              }
+                              className={INPUT_CLASS}
+                            >
+                              {selectedNanoCapability.aspectRatios.map((ratio) => (
+                                <option key={ratio} value={ratio}>
+                                  {ratio}
+                                </option>
+                              ))}
+                            </select>
+
+                            {selectedNanoCapability.supportsSearchGrounding ? (
+                              <label className="flex items-center gap-2 rounded-xl border border-black/10 bg-[#fafafa] px-3 py-2 text-[11px]">
+                                <input
+                                  type="checkbox"
+                                  checked={selectedNanoConfig.enableSearchGrounding}
+                                  onChange={(event) =>
+                                    updateNodeDraftConfig({
+                                      ...selectedNanoConfig,
+                                      enableSearchGrounding: event.target.checked,
+                                    })
+                                  }
+                                />
+                                Enable search grounding
+                              </label>
+                            ) : (
+                              <div className="rounded-xl border border-black/10 bg-[#fafafa] px-3 py-2 text-[11px] text-black/60">
+                                Search grounding unavailable for this model.
+                              </div>
+                            )}
+
+                            <div
+                              className={cn(
+                                "rounded-xl border px-3 py-2 text-[11px]",
+                                selectedNanoReferencesLimitExceeded
+                                  ? "border-rose-200 bg-rose-50 text-rose-700"
+                                  : selectedNanoReferencesWarning
+                                  ? "border-amber-200 bg-amber-50 text-amber-700"
+                                  : "border-black/10 bg-[#fafafa] text-black/60"
+                              )}
+                            >
+                              References connected: {selectedNanoReferenceCount}/{selectedNanoCapability.maxReferences}
+                            </div>
                           </>
                         )}
 
-                        {selectedNodeLayout.node.type === "veo3" && (
+                        {selectedNodeType === "veo3" && (
                           <>
                             <label className="text-[11px] uppercase tracking-wide text-black/45">Duration (s)</label>
                             <input
@@ -2773,6 +3228,12 @@ const EditorSurface = ({ boardId, subnetworkId, onBack }: SubnetworkPageProps) =
                                 })}
                               </span>
                             </div>
+                            {(run.providerModelId || run.executionMode) && (
+                              <p className="mt-1 text-[10px] text-black/55">
+                                {run.providerModelId ? run.providerModelId : "model n/a"}
+                                {run.executionMode ? ` • ${run.executionMode}` : ""}
+                              </p>
+                            )}
                             {run.providerErrorMessage && (
                               <p className="mt-1 text-rose-600">{run.providerErrorMessage}</p>
                             )}
@@ -2891,6 +3352,12 @@ const EditorSurface = ({ boardId, subnetworkId, onBack }: SubnetworkPageProps) =
                           </span>
                         </div>
                         <p className="mt-1 text-black/45">{new Date(run.createdAt).toLocaleTimeString()}</p>
+                        {(run.providerModelId || run.executionMode) && (
+                          <p className="mt-1 text-[10px] text-black/55">
+                            {run.providerModelId ? run.providerModelId : "model n/a"}
+                            {run.executionMode ? ` • ${run.executionMode}` : ""}
+                          </p>
+                        )}
                         {(run.providerErrorMessage || run.validationError) && (
                           <p className="mt-1 text-rose-600">{run.providerErrorMessage || run.validationError}</p>
                         )}

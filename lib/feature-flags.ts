@@ -19,3 +19,17 @@ export const isAiSubnetworkEnabled = () => {
   if (raw === undefined || raw === null || String(raw).trim() === "") return true;
   return isTruthyEnvValue(raw);
 };
+
+export const isAiGoogleImageModelsV2Enabled = () => {
+  if (import.meta.env.DEV) return true;
+  const raw = import.meta.env.VITE_AI_GOOGLE_IMAGE_MODELS_V2;
+  if (raw === undefined || raw === null || String(raw).trim() === "") return true;
+  return isTruthyEnvValue(raw);
+};
+
+export const isAiGoogleBatchEnabled = () => {
+  if (import.meta.env.DEV) return true;
+  const raw = import.meta.env.VITE_AI_GOOGLE_BATCH_ENABLED;
+  if (raw === undefined || raw === null || String(raw).trim() === "") return true;
+  return isTruthyEnvValue(raw);
+};

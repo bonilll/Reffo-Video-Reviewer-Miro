@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useClerk, useUser } from '@clerk/clerk-react';
+import { useAuth, useClerk, useUser } from '@clerk/clerk-react';
 import { useAction, useMutation, useQuery } from 'convex/react';
 import { api } from '../convex/_generated/api';
 import { Project, ShareGroup, UserSettings } from '../types';
@@ -50,7 +50,8 @@ type GoogleKeyMetadata = {
 };
 
 const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBack }) => {
-  const { signOut } = useClerk();
+  const { signOut, session } = useClerk();
+  const { getToken } = useAuth();
   const { user: clerkUser } = useUser();
   const settingsDoc = useQuery(api.settings.getOrNull, {});
   const shareGroups = useQuery(api.shareGroups.list, {});
@@ -303,12 +304,31 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
   }, [clerkUser, deleteAccount, deleteConfirmText, deletingAccount, signOut]);
 
   const getConvexBearerToken = useCallback(async () => {
-    const token = await (clerkUser as any)?.getToken?.({ template: 'convex' });
-    if (!token) {
-      throw new Error('Authentication expired. Please sign in again.');
+    const tryToken = async (resolver: () => Promise<string | null | undefined>) => {
+      try {
+        const value = await resolver();
+        return value ?? null;
+      } catch {
+        return null;
+      }
+    };
+
+    const candidates = [
+      () => getToken({ template: 'convex' }),
+      () => (session as any)?.getToken?.({ template: 'convex' }),
+      () => getToken(),
+      () => (session as any)?.getToken?.(),
+      () => (clerkUser as any)?.getToken?.({ template: 'convex' }),
+      () => (clerkUser as any)?.getToken?.(),
+    ];
+
+    for (const candidate of candidates) {
+      const token = await tryToken(candidate);
+      if (token) return token;
     }
-    return token as string;
-  }, [clerkUser]);
+
+    throw new Error('Authentication expired. Please sign in again.');
+  }, [clerkUser, getToken, session]);
 
   const aiGatewayRequest = useCallback(
     async <T,>(path: string, init?: RequestInit): Promise<T> => {

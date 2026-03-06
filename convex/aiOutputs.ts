@@ -1,6 +1,7 @@
 import { ConvexError, v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { requireBoardRead, requireSubnetworkRead, requireSubnetworkWrite } from "./aiAccess";
+import { normalizeNanoNodeType } from "./googleImageModelRegistry";
 
 export const listNodeVersions = query({
   args: {
@@ -82,7 +83,7 @@ export const listForBoard = query({
     return sliced.map((output) => ({
       ...output,
       nodeTitle: nodeMap.get(String(output.nodeId))?.title ?? "Node",
-      nodeType: nodeMap.get(String(output.nodeId))?.type ?? "unknown",
+      nodeType: normalizeNanoNodeType(nodeMap.get(String(output.nodeId))?.type ?? "unknown"),
       subnetworkTitle: subnetworkMap.get(String(output.subnetworkId))?.title ?? "Subnetwork AI",
     }));
   },

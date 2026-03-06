@@ -127,6 +127,11 @@ export const complete = httpAction(async (ctx, request) => {
       actualUsd: typeof payload?.actualUsd === "number" ? payload.actualUsd : undefined,
       providerRequestId:
         typeof payload?.providerRequestId === "string" ? payload.providerRequestId : undefined,
+      providerJobId:
+        typeof payload?.providerJobId === "string" ? payload.providerJobId : undefined,
+      providerJobState:
+        typeof payload?.providerJobState === "string" ? payload.providerJobState : undefined,
+      resolvedConfig: payload?.resolvedConfig,
       outputs: Array.isArray(payload?.outputs) ? payload.outputs : undefined,
       outputSummary: payload?.outputSummary,
     });
@@ -170,6 +175,10 @@ export const fail = httpAction(async (ctx, request) => {
       nodeRunId,
       workerId,
       error: errorMessage,
+      providerJobId:
+        typeof payload?.providerJobId === "string" ? payload.providerJobId : undefined,
+      providerJobState:
+        typeof payload?.providerJobState === "string" ? payload.providerJobState : undefined,
       providerErrorCode:
         typeof payload?.providerErrorCode === "string" ? payload.providerErrorCode : undefined,
       providerErrorMessage:

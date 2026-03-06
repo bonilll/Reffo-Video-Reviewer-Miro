@@ -2,6 +2,12 @@ import { ConvexError, v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { requireSubnetworkRead, requireSubnetworkWrite } from "./aiAccess";
+import {
+  NANO_BANANA_CANONICAL_NODE_TYPE,
+  NANO_BANANA_LEGACY_NODE_TYPE,
+  normalizeNanoBananaConfig,
+  normalizeNanoNodeType,
+} from "./googleImageModelRegistry";
 
 const nowTs = () => Date.now();
 
@@ -91,11 +97,12 @@ const getTopologicalValidation = (nodes: GraphNode[], edges: GraphEdge[]) => {
 };
 
 const assertNodeTypeSupported = (type: string) => {
-  const normalized = type.trim().toLowerCase();
+  const normalized = normalizeNanoNodeType(type);
   const allowed = new Set([
     "prompt",
     "image_reference",
-    "nano_banana_pro",
+    NANO_BANANA_CANONICAL_NODE_TYPE,
+    NANO_BANANA_LEGACY_NODE_TYPE,
     "veo3",
   ]);
 
@@ -104,6 +111,13 @@ const assertNodeTypeSupported = (type: string) => {
   }
 
   return normalized;
+};
+
+const normalizeNodeConfigForType = (type: string, config: unknown) => {
+  if (type !== NANO_BANANA_CANONICAL_NODE_TYPE && type !== NANO_BANANA_LEGACY_NODE_TYPE) {
+    return config;
+  }
+  return normalizeNanoBananaConfig(config).config;
 };
 
 export const getGraph = query({
@@ -126,7 +140,14 @@ export const getGraph = query({
     return {
       subnetwork,
       role,
-      nodes,
+      nodes: nodes.map((node) => {
+        const normalizedType = assertNodeTypeSupported(node.type);
+        return {
+          ...node,
+          type: normalizedType,
+          config: normalizeNodeConfigForType(normalizedType, node.config),
+        };
+      }),
       edges,
       validation: getTopologicalValidation(nodes as GraphNode[], edges as GraphEdge[]),
     };
@@ -157,15 +178,16 @@ export const createNode = mutation({
     const { subnetwork, user } = await requireSubnetworkWrite(ctx, args.subnetworkId);
 
     const now = nowTs();
+    const normalizedType = assertNodeTypeSupported(args.type);
     const nodeId = await ctx.db.insert("aiNodes", {
       subnetworkId: subnetwork._id,
       boardId: subnetwork.boardId,
       ownerId: user._id,
-      type: assertNodeTypeSupported(args.type),
+      type: normalizedType,
       title: args.title.trim() || "Node",
       position: args.position,
       size: args.size,
-      config: args.config,
+      config: normalizeNodeConfigForType(normalizedType, args.config),
       inputs: args.inputs,
       outputs: args.outputs,
       runPolicy: args.runPolicy,
@@ -208,13 +230,19 @@ export const updateNode = mutation({
     const patch: any = {
       updatedAt: nowTs(),
     };
+    const normalizedExistingType = assertNodeTypeSupported(node.type);
+    if (normalizedExistingType !== node.type) {
+      patch.type = normalizedExistingType;
+    }
 
     if (typeof args.title === "string") {
       patch.title = args.title.trim() || "Node";
     }
     if (args.position) patch.position = args.position;
     if (args.size) patch.size = args.size;
-    if (args.config !== undefined) patch.config = args.config;
+    if (args.config !== undefined) {
+      patch.config = normalizeNodeConfigForType(normalizedExistingType, args.config);
+    }
     if (args.inputs !== undefined) patch.inputs = args.inputs;
     if (args.outputs !== undefined) patch.outputs = args.outputs;
     if (args.runPolicy !== undefined) patch.runPolicy = args.runPolicy;
@@ -456,6 +484,7 @@ export const replaceGraphFromSnapshot = mutation({
 
     for (const node of args.nodes) {
       const nodeId = await ctx.db.insert("aiNodes", {
+        // Imported legacy type is normalized to canonical nano_banana.
         subnetworkId: subnetwork._id,
         boardId: subnetwork.boardId,
         ownerId: user._id,
@@ -463,7 +492,7 @@ export const replaceGraphFromSnapshot = mutation({
         title: node.title.trim() || "Node",
         position: node.position,
         size: node.size,
-        config: node.config,
+        config: normalizeNodeConfigForType(node.type, node.config),
         inputs: node.inputs,
         outputs: node.outputs,
         runPolicy: node.runPolicy,
