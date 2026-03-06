@@ -342,15 +342,29 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
         },
       });
 
-      const json = await response.json().catch(() => ({}));
+      const raw = await response.text().catch(() => '');
+      const json = (() => {
+        if (!raw) return {};
+        try {
+          return JSON.parse(raw);
+        } catch {
+          return {};
+        }
+      })();
       if (!response.ok) {
         const message =
           typeof json?.details === 'string'
             ? json.details
             : typeof json?.error === 'string'
               ? json.error
-              : 'Request failed';
+              : raw
+                ? raw.slice(0, 240)
+                : `Request failed (${response.status})`;
         throw new Error(message);
+      }
+
+      if (!raw || typeof json !== 'object') {
+        throw new Error('Invalid gateway response');
       }
 
       return json as T;
@@ -362,7 +376,7 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
     setGoogleKeysLoading(true);
     setGoogleKeysError(null);
     try {
-      const result = await aiGatewayRequest<{ keys: GoogleKeyMetadata[] }>('/api/keys/google/list', {
+      const result = await aiGatewayRequest<{ keys: GoogleKeyMetadata[] }>('/api/keys/google?op=list', {
         method: 'GET',
       });
       setGoogleKeys(result.keys ?? []);
@@ -387,7 +401,7 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
       setGoogleStepUpLoading(true);
       try {
         const result = await aiGatewayRequest<{ proofToken: string; expiresAt: number }>(
-          '/api/security/step-up/validate',
+          '/api/keys/google?op=stepup',
           {
             method: 'POST',
             body: JSON.stringify({
@@ -943,7 +957,9 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
                     setGoogleActionLoading('save');
                     const proofToken = await requestStepUpProof('key:add');
                     await aiGatewayRequest(
-                      googleKeyMode === 'session' ? '/api/keys/google/session' : '/api/keys/google/persistent',
+                      googleKeyMode === 'session'
+                        ? '/api/keys/google?op=session'
+                        : '/api/keys/google?op=persistent',
                       {
                         method: 'POST',
                         body: JSON.stringify({
@@ -997,7 +1013,7 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
                             try {
                               setGoogleActionLoading(`test:${key.keyId}`);
                               const proofToken = await requestStepUpProof('key:test');
-                              await aiGatewayRequest('/api/keys/google/test', {
+                              await aiGatewayRequest('/api/keys/google?op=test', {
                                 method: 'POST',
                                 body: JSON.stringify({
                                   mode: key.mode,
@@ -1023,7 +1039,7 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
                               setGoogleKeysError(null);
                               try {
                                 setGoogleActionLoading(`resume:${key.keyId}`);
-                                await aiGatewayRequest('/api/keys/google/resume', {
+                                await aiGatewayRequest('/api/keys/google?op=resume', {
                                   method: 'POST',
                                   body: JSON.stringify({
                                     mode: key.mode,
@@ -1048,7 +1064,7 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
                               setGoogleKeysError(null);
                               try {
                                 setGoogleActionLoading(`pause:${key.keyId}`);
-                                await aiGatewayRequest('/api/keys/google/pause', {
+                                await aiGatewayRequest('/api/keys/google?op=pause', {
                                   method: 'POST',
                                   body: JSON.stringify({
                                     mode: key.mode,
@@ -1075,9 +1091,10 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, projects, onBac
                             try {
                               setGoogleActionLoading(`delete:${key.keyId}`);
                               const proofToken = await requestStepUpProof('key:delete');
-                              await aiGatewayRequest(`/api/keys/google/${key.keyId}`, {
-                                method: 'DELETE',
+                              await aiGatewayRequest('/api/keys/google?op=delete', {
+                                method: 'POST',
                                 body: JSON.stringify({
+                                  keyId: key.keyId,
                                   mode: key.mode,
                                   proofToken,
                                 }),
