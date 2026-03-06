@@ -35,6 +35,7 @@ import type * as http_liveblocksAuth from "../http/liveblocksAuth.js";
 import type * as http_uploadMultipart from "../http/uploadMultipart.js";
 import type * as http from "../http.js";
 import type * as internal_aiOrchestrator from "../internal/aiOrchestrator.js";
+import type * as internal_aiRunner from "../internal/aiRunner.js";
 import type * as internal_googleBatchAdapter from "../internal/googleBatchAdapter.js";
 import type * as internal_googleImageAdapter from "../internal/googleImageAdapter.js";
 import type * as liveblocks from "../liveblocks.js";
@@ -103,6 +104,7 @@ declare const fullApi: ApiFromModules<{
   "http/uploadMultipart": typeof http_uploadMultipart;
   http: typeof http;
   "internal/aiOrchestrator": typeof internal_aiOrchestrator;
+  "internal/aiRunner": typeof internal_aiRunner;
   "internal/googleBatchAdapter": typeof internal_googleBatchAdapter;
   "internal/googleImageAdapter": typeof internal_googleImageAdapter;
   liveblocks: typeof liveblocks;

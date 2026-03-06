@@ -33,7 +33,7 @@ export const NANO_BANANA_CAPABILITIES: Record<GoogleImageModelId, NanoBananaMode
     imageSizes: ["512", "1K", "2K", "4K"],
     aspectRatios: ["1:1", "3:4", "4:3", "9:16", "16:9", "1:4", "4:1", "1:8", "8:1"],
     maxReferences: 14,
-    supportsSearchGrounding: false,
+    supportsSearchGrounding: true,
     recommendedReferenceWarningThreshold: 10,
   },
   "gemini-3-pro-image-preview": {
@@ -80,7 +80,22 @@ export const normalizeNanoBananaUiConfig = (input: any): NanoBananaUiConfig => {
     typeof input?.resolution === "string"
       ? LEGACY_RESOLUTION_TO_SIZE[String(input.resolution).toLowerCase()]
       : undefined;
-  const imageSizeCandidate = (input?.imageSize ?? legacySize ?? capability.imageSizes[0]) as NanoBananaImageSize;
+  const rawImageSize = typeof input?.imageSize === "string" ? input.imageSize.trim() : "";
+  const normalizedImageSize =
+    rawImageSize.toLowerCase() === "512px"
+      ? "512"
+      : rawImageSize.toUpperCase() === "1K"
+        ? "1K"
+        : rawImageSize.toUpperCase() === "2K"
+          ? "2K"
+          : rawImageSize.toUpperCase() === "4K"
+            ? "4K"
+            : rawImageSize;
+  const imageSizeCandidate = (
+    normalizedImageSize ||
+    legacySize ||
+    capability.imageSizes[0]
+  ) as NanoBananaImageSize;
   const imageSize = capability.imageSizes.includes(imageSizeCandidate)
     ? imageSizeCandidate
     : capability.imageSizes[0];

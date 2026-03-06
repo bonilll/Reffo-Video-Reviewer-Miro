@@ -1,6 +1,6 @@
 "use node";
 
-import type { NanoBananaNodeConfig } from "../googleImageModelRegistry";
+import type { GoogleImageModelId, NanoBananaNodeConfig } from "../googleImageModelRegistry";
 import { buildGoogleInteractiveGenerateRequest } from "./googleImageAdapter";
 
 export type NanoBananaBatchLineInput = {
@@ -14,24 +14,16 @@ export type NanoBananaBatchLineInput = {
   config: NanoBananaNodeConfig;
 };
 
-const BATCH_METHOD = "models.generateContent";
-
-const toBatchMethodPath = (modelId: string) => `models/${modelId}:generateContent`;
-
 export const buildNanoBananaBatchJsonlLine = (line: NanoBananaBatchLineInput) => {
-  const body = buildGoogleInteractiveGenerateRequest({
+  const request = buildGoogleInteractiveGenerateRequest({
     prompt: line.prompt,
     references: line.references,
     config: line.config,
   });
 
   return JSON.stringify({
-    id: line.id,
-    request: {
-      method: BATCH_METHOD,
-      path: toBatchMethodPath(line.config.modelId),
-      body,
-    },
+    key: line.id,
+    request,
   });
 };
 
@@ -40,9 +32,25 @@ export const buildNanoBananaBatchJsonl = (lines: NanoBananaBatchLineInput[]) =>
 
 export const parseGoogleBatchTerminalStatus = (status: string | undefined) => {
   const normalized = String(status || "").toUpperCase();
-  if (normalized === "SUCCEEDED") return "succeeded" as const;
-  if (normalized === "FAILED") return "failed" as const;
-  if (normalized === "CANCELLED") return "canceled" as const;
-  if (normalized === "EXPIRED") return "expired" as const;
+  if (normalized === "SUCCEEDED" || normalized === "JOB_STATE_SUCCEEDED") return "succeeded" as const;
+  if (normalized === "FAILED" || normalized === "JOB_STATE_FAILED") return "failed" as const;
+  if (normalized === "CANCELLED" || normalized === "JOB_STATE_CANCELLED") return "canceled" as const;
+  if (normalized === "EXPIRED" || normalized === "JOB_STATE_EXPIRED") return "expired" as const;
   return "running" as const;
 };
+
+export const buildGoogleBatchCreatePayload = (params: {
+  model: GoogleImageModelId;
+  srcFileName: string;
+  destFileName?: string;
+}) => ({
+  model: `models/${params.model}`,
+  src: {
+    fileName: params.srcFileName,
+  },
+  config: {
+    dest: {
+      fileName: params.destFileName ?? "results.jsonl",
+    },
+  },
+});

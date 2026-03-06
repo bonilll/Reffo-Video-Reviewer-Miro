@@ -1,5 +1,5 @@
 import { ConvexError, v } from "convex/values";
-import { internalMutation, mutation, query } from "./_generated/server";
+import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { requireSubnetworkRead, requireSubnetworkWrite } from "./aiAccess";
@@ -196,6 +196,8 @@ const ensureNoActiveNodeRun = async (ctx: any, nodeId: Id<"aiNodes">) => {
     .withIndex("byNodeStatus", (q: any) => q.eq("nodeId", nodeId).eq("status", RUN_STATUS_QUEUED))
     .first();
   if (queued) {
+    // Best effort self-healing in case a queued run is waiting for a runner.
+    await ctx.scheduler.runAfter(0, (internal as any)["internal/aiRunner"].pumpQueue, {});
     throw new ConvexError("AI_NODE_BUSY");
   }
 
@@ -204,6 +206,8 @@ const ensureNoActiveNodeRun = async (ctx: any, nodeId: Id<"aiNodes">) => {
     .withIndex("byNodeStatus", (q: any) => q.eq("nodeId", nodeId).eq("status", RUN_STATUS_PROCESSING))
     .first();
   if (processing) {
+    // Keep nudging the runner so stale processing locks can settle.
+    await ctx.scheduler.runAfter(0, (internal as any)["internal/aiRunner"].pumpQueue, {});
     throw new ConvexError("AI_NODE_BUSY");
   }
 };
@@ -269,6 +273,54 @@ const markKeyUsed = async (
     usageCount: (key.usageCount ?? 0) + 1,
     updatedAt: now,
   });
+};
+
+const resolveWorkflowKeyMaterial = async (ctx: any, workflowRun: Doc<"aiWorkflowRuns">) => {
+  const mode = workflowRun.keyRefType;
+  const keyRefId = workflowRun.keyRefId;
+  const launcherId = workflowRun.launchedBy;
+  const now = nowTs();
+
+  if (!mode || !keyRefId) {
+    return null;
+  }
+
+  if (mode === "session") {
+    const key = await ctx.db.get(keyRefId as Id<"aiProviderKeySessions">);
+    if (!key) return null;
+    if (key.userId !== launcherId) return null;
+    if (key.provider !== "google") return null;
+    if (key.status !== "active") return null;
+    if (key.expiresAt <= now) return null;
+    return {
+      mode: "session" as const,
+      keyId: String(key._id),
+      ciphertext: key.ciphertext,
+      wrappedDek: key.wrappedDek,
+      kmsKeyVersion: key.kmsKeyVersion,
+      fingerprint: key.fingerprint,
+      last4: key.last4,
+    };
+  }
+
+  if (mode === "persistent") {
+    const key = await ctx.db.get(keyRefId as Id<"aiProviderKeys">);
+    if (!key) return null;
+    if (key.userId !== launcherId) return null;
+    if (key.provider !== "google") return null;
+    if (key.status !== "active") return null;
+    return {
+      mode: "persistent" as const,
+      keyId: String(key._id),
+      ciphertext: key.ciphertext,
+      wrappedDek: key.wrappedDek,
+      kmsKeyVersion: key.kmsKeyVersion,
+      fingerprint: key.fingerprint,
+      last4: key.last4,
+    };
+  }
+
+  return null;
 };
 
 const buildGraphInfo = (
@@ -425,6 +477,8 @@ export const launchNode = mutation({
 
     await ctx.db.patch(subnetwork._id, { updatedAt: now });
 
+    await ctx.scheduler.runAfter(0, (internal as any)["internal/aiRunner"].pumpQueue, {});
+
     return {
       workflowRunId,
       nodeRunId,
@@ -552,6 +606,8 @@ export const launchWorkflow = mutation({
     }
 
     await ctx.db.patch(subnetwork._id, { updatedAt: now });
+
+    await ctx.scheduler.runAfter(0, (internal as any)["internal/aiRunner"].pumpQueue, {});
 
     return {
       workflowRunId,
@@ -713,6 +769,7 @@ export const claimNodeRun = internalMutation({
       (resolvedConfig && typeof (resolvedConfig as any).runMode === "string"
         ? ((resolvedConfig as any).runMode as "interactive" | "batch")
         : "interactive");
+    const keyMaterial = await resolveWorkflowKeyMaterial(ctx, workflowRun);
 
     return {
       nodeRun: {
@@ -732,6 +789,7 @@ export const claimNodeRun = internalMutation({
       workflowRun,
       node,
       subnetwork,
+      keyMaterial,
     };
   },
 });
@@ -755,6 +813,84 @@ export const heartbeatNodeRun = internalMutation({
     });
 
     return { ok: true };
+  },
+});
+
+export const updateProcessingNodeRunProviderState = internalMutation({
+  args: {
+    nodeRunId: v.id("aiNodeRuns"),
+    workerId: v.string(),
+    providerRequestId: v.optional(v.string()),
+    providerJobId: v.optional(v.string()),
+    providerJobState: v.optional(v.string()),
+    resolvedConfig: v.optional(v.any()),
+  },
+  handler: async (ctx, args) => {
+    const nodeRun = await ctx.db.get(args.nodeRunId);
+    if (!nodeRun) throw new ConvexError("AI_NODE_RUN_NOT_FOUND");
+    if (nodeRun.lockOwner !== args.workerId) {
+      throw new ConvexError("AI_NODE_RUN_LOCK_MISMATCH");
+    }
+    if (nodeRun.status !== RUN_STATUS_PROCESSING) {
+      throw new ConvexError("AI_NODE_RUN_NOT_PROCESSING");
+    }
+
+    await ctx.db.patch(nodeRun._id, {
+      providerRequestId: args.providerRequestId ?? nodeRun.providerRequestId,
+      providerJobId: args.providerJobId ?? nodeRun.providerJobId,
+      providerJobState: args.providerJobState ?? nodeRun.providerJobState,
+      resolvedConfig: args.resolvedConfig ?? nodeRun.resolvedConfig,
+      updatedAt: nowTs(),
+    });
+
+    return { ok: true };
+  },
+});
+
+export const getProcessingNodeRunForWorker = internalQuery({
+  args: {
+    nodeRunId: v.id("aiNodeRuns"),
+  },
+  handler: async (ctx, args) => {
+    const nodeRun = await ctx.db.get(args.nodeRunId);
+    if (!nodeRun) return null;
+
+    const workflowRun = await ctx.db.get(nodeRun.workflowRunId);
+    if (!workflowRun) return null;
+
+    const node = await ctx.db.get(nodeRun.nodeId);
+    const subnetwork = await ctx.db.get(nodeRun.subnetworkId);
+
+    const normalizedNodeType = node ? normalizeNanoNodeType(node.type) : "unknown";
+    const resolvedConfig =
+      nodeRun.resolvedConfig ??
+      (node && normalizedNodeType === NANO_BANANA_CANONICAL_NODE_TYPE
+        ? normalizeNanoBananaConfig(node.config).config
+        : undefined);
+    const providerModelId =
+      nodeRun.providerModelId ??
+      (node ? resolveNanoBananaModelForNode(node.type, node.config) ?? normalizedNodeType : undefined);
+    const executionMode =
+      nodeRun.executionMode ??
+      (resolvedConfig && typeof (resolvedConfig as any).runMode === "string"
+        ? ((resolvedConfig as any).runMode as "interactive" | "batch")
+        : "interactive");
+    const keyMaterial = await resolveWorkflowKeyMaterial(ctx, workflowRun);
+
+    return {
+      nodeRun,
+      execution: {
+        nodeType: normalizedNodeType,
+        providerModelId,
+        executionMode,
+        resolvedConfig,
+        inputSnapshot: nodeRun.inputSnapshot ?? undefined,
+      },
+      workflowRun,
+      node,
+      subnetwork,
+      keyMaterial,
+    };
   },
 });
 

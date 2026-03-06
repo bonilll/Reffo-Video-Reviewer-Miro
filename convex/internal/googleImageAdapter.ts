@@ -41,10 +41,10 @@ export type ParsedGoogleImageOutput = {
 };
 
 const toGoogleImageSize = (size: string) => {
-  if (size === "512") return "IMAGE_SIZE_512";
-  if (size === "2K") return "IMAGE_SIZE_2K";
-  if (size === "4K") return "IMAGE_SIZE_4K";
-  return "IMAGE_SIZE_1K";
+  if (size === "512") return "512px";
+  if (size === "2K") return "2K";
+  if (size === "4K") return "4K";
+  return "1K";
 };
 
 const toResponseModalities = (mode: NanoBananaNodeConfig["responseMode"]) =>

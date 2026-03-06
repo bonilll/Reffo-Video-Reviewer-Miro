@@ -51,7 +51,7 @@ const MODEL_CAPABILITIES: Record<GoogleImageModelId, GoogleImageModelCapability>
     maxReferences: 14,
     imageSizes: ["512", "1K", "2K", "4K"],
     aspectRatios: ["1:1", "3:4", "4:3", "9:16", "16:9", "1:4", "4:1", "1:8", "8:1"],
-    supportsSearchGrounding: false,
+    supportsSearchGrounding: true,
     preview: true,
     recommendedReferenceWarningThreshold: 10,
   },
@@ -140,8 +140,18 @@ const normalizeSize = (
   capability: GoogleImageModelCapability
 ): NanoBananaImageSize => {
   const stringValue = typeof value === "string" ? value.trim() : "";
+  const normalizedInput =
+    stringValue.toLowerCase() === "512px"
+      ? "512"
+      : stringValue.toUpperCase() === "1K"
+        ? "1K"
+        : stringValue.toUpperCase() === "2K"
+          ? "2K"
+          : stringValue.toUpperCase() === "4K"
+            ? "4K"
+            : stringValue;
   const fromLegacy = LEGACY_RESOLUTION_TO_SIZE[normalizeToLower(value)];
-  const candidate = (fromLegacy ?? stringValue) as NanoBananaImageSize;
+  const candidate = (fromLegacy ?? normalizedInput) as NanoBananaImageSize;
   if (capability.imageSizes.includes(candidate)) return candidate;
   return capability.imageSizes[0];
 };
