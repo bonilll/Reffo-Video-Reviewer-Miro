@@ -78,6 +78,15 @@ export default defineSchema({
         scale: v.number(),
       })
     ),
+    customColors: v.optional(
+      v.array(
+        v.object({
+          r: v.number(),
+          g: v.number(),
+          b: v.number(),
+        })
+      )
+    ),
     createdAt: v.number(),
     updatedAt: v.number(),
   })

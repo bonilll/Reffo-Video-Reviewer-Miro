@@ -926,16 +926,20 @@ const TextStyleButton = memo(({ selectedLayerIds, styleType, icon: IconComponent
 const CompactColorPicker = memo(({ 
   onColorChange, 
   currentColor,
+  boardId,
   isVisible,
   onToggle,
   onStateChange
 }: { 
   onColorChange: (color: Color) => void;
   currentColor?: Color;
+  boardId?: string;
   isVisible: boolean;
   onToggle: () => void;
   onStateChange?: (isOpen: boolean) => void;
 }) => {
+  const [pickerInteractionActive, setPickerInteractionActive] = useState(false);
+
   const handleToggle = () => {
     const newState = !isVisible;
     onToggle();
@@ -946,10 +950,6 @@ const CompactColorPicker = memo(({
 
   const handleColorChange = (color: Color) => {
     onColorChange(color);
-    onToggle(); // Close the popup after color selection
-    if (onStateChange) {
-      onStateChange(false);
-    }
   };
   const { triggerRef, dropdownRef, placementClass, dropdownStyle } = useAdaptiveDropdownPlacement(isVisible);
 
@@ -966,14 +966,25 @@ const CompactColorPicker = memo(({
       
       {isVisible && (
         <>
-          <div className="fixed inset-0 z-40" onClick={handleToggle} />
+          <div
+            className="fixed inset-0 z-40"
+            onClick={() => {
+              if (pickerInteractionActive) return;
+              handleToggle();
+            }}
+          />
           <div 
             ref={dropdownRef}
             className={`${CONTROL_DROPDOWN_BASE} ${placementClass} p-3`}
             style={dropdownStyle}
             onClick={(e) => e.stopPropagation()}
           >
-            <ColorPicker onChange={handleColorChange} currentColor={currentColor} />
+            <ColorPicker
+              onChange={handleColorChange}
+              currentColor={currentColor}
+              boardId={boardId}
+              onPickerActiveChange={setPickerInteractionActive}
+            />
           </div>
         </>
       )}
@@ -1406,6 +1417,7 @@ export const SelectionTools = memo(
     onManualFrameResize,
     // Mobile support
     isTouchDevice,
+    boardId,
     embedded = false
   }: SelectionToolsProps) => {
     const selection = useSelf((me) => me.presence.selection);
@@ -2898,6 +2910,7 @@ export const SelectionTools = memo(
                     <CompactColorPicker
                       onColorChange={setFill}
                       currentColor={currentColor}
+                      boardId={boardId}
                       isVisible={showColorPicker}
                       onToggle={toggleColorPicker}
                       onStateChange={(isOpen) => {

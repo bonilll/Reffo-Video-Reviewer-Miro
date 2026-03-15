@@ -129,6 +129,7 @@ type ToolbarProps = {
 
 // Mobile Selection Bar Component
 const MobileSelectionBar = ({
+  boardId,
   camera,
   setCamera,
   setLastUsedColor,
@@ -144,6 +145,7 @@ const MobileSelectionBar = ({
   onActionHoverEnd,
   userRole,
 }: {
+  boardId: string;
   camera: Camera;
   setCamera: (camera: Camera) => void;
   setLastUsedColor: (color: Color) => void;
@@ -192,6 +194,7 @@ const MobileSelectionBar = ({
               onToggleFrameAutoResize={onToggleFrameAutoResize}
               onManualFrameResize={onManualFrameResize}
               isTouchDevice={true}
+              boardId={boardId}
             />
           </div>
         </div>
@@ -1128,6 +1131,7 @@ export const Toolbar = ({
             {/* Mobile Selection Bar */}
             {hasSelection && (
               <MobileSelectionBar
+                boardId={boardId}
                 camera={camera}
                 setCamera={setCamera}
                 setLastUsedColor={setLastUsedColor}
