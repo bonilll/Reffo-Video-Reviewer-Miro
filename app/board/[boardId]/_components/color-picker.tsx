@@ -889,6 +889,16 @@ const ChannelInput = ({ label, value, min, max, onCommit }: ChannelInputProps) =
     setDraftValue(String(clamped));
   }, [draftValue, max, min, onCommit, value]);
 
+  const adjustValue = useCallback((delta: number) => {
+    const parsed = Number.parseInt(draftValue.trim(), 10);
+    const base = Number.isNaN(parsed) ? value : parsed;
+    const next = Math.max(min, Math.min(max, base + delta));
+    setDraftValue(String(next));
+    if (next !== value) {
+      onCommit(next);
+    }
+  }, [draftValue, max, min, onCommit, value]);
+
   return (
     <label className="flex items-center gap-1 rounded-md border border-slate-200 bg-white px-1.5 h-7">
       <span className="text-[10px] font-semibold text-slate-500">{label}</span>
@@ -903,9 +913,16 @@ const ChannelInput = ({ label, value, min, max, onCommit }: ChannelInputProps) =
           commitValue();
         }}
         onKeyDown={(event) => {
-          if (event.key !== "Enter") return;
-          event.preventDefault();
-          event.currentTarget.blur();
+          if (event.key === "Enter") {
+            event.preventDefault();
+            event.currentTarget.blur();
+            return;
+          }
+          if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+            event.preventDefault();
+            const step = event.shiftKey ? 10 : 1;
+            adjustValue(event.key === "ArrowUp" ? step : -step);
+          }
         }}
         onChange={(event) => {
           const sanitized = event.target.value.replace(/[^0-9]/g, "");
