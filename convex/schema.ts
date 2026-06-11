@@ -675,7 +675,9 @@ export default defineSchema({
     .index("byOwnerProject", ["ownerId", "projectId"])
     .index("byGroupActive", ["groupId", "isActive"])
     .index("byLinkToken", ["linkToken"]) 
+    .index("byVideoActive", ["videoId", "isActive"])
     .index("byVideo", ["videoId"]) 
+    .index("byProjectVideo", ["projectId", "videoId"])
     .index("byProject", ["projectId"]),
 
   friends: defineTable({

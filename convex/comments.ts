@@ -10,67 +10,80 @@ const pointValidator = v.object({
   y: v.number(),
 });
 
+const MAX_SHARE_SCAN = 4096;
+const MAX_USER_MEMBERSHIPS = 1024;
+const MAX_MENTION_CANDIDATES = 500;
+const MAX_MENTION_FRIENDS = 500;
+const MAX_MENTION_GROUPS = 64;
+const MAX_MENTION_GROUP_MEMBERS_PER_GROUP = 200;
+const MAX_MENTION_COMMENT_AUTHORS = 1000;
+const MAX_USERS_PER_EMAIL = 8;
+
+const getActiveVideoShares = (ctx: any, videoId: Id<'videos'>) =>
+  ctx.db
+    .query('contentShares')
+    .withIndex('byVideoActive', (q: any) => q.eq('videoId', videoId).eq('isActive', true))
+    .take(MAX_SHARE_SCAN);
+
+const getActiveProjectLevelShares = (ctx: any, projectId: Id<'projects'>) =>
+  ctx.db
+    .query('contentShares')
+    .withIndex('byProjectVideo', (q: any) => q.eq('projectId', projectId).eq('videoId', undefined))
+    .filter((q: any) => q.eq(q.field('isActive'), true))
+    .take(MAX_SHARE_SCAN);
+
+const getUserGroupIds = async (ctx: any, email: string | null | undefined) => {
+  const normalized = normalizeEmail(email);
+  if (!normalized) return new Set<string>();
+  const memberships = await ctx.db
+    .query('shareGroupMembers')
+    .withIndex('byEmail', (q: any) => q.eq('email', normalized))
+    .take(MAX_USER_MEMBERSHIPS);
+  return new Set(memberships.map((membership: any) => membership.groupId as string));
+};
+
 async function canViewVideo(ctx: any, userId: Id<'users'>, videoId: Id<'videos'>) {
   const video = await ctx.db.get(videoId);
   if (!video) return false;
   if (video.ownerId === userId) return true;
-  // Shares attached to the specific video
-  const videoShares = await ctx.db.query('contentShares').withIndex('byVideo', (q: any) => q.eq('videoId', videoId)).collect();
-  let memberEmails = new Set<string>();
-  for (const s of videoShares) {
-    if (s.groupId) {
-      const members = await ctx.db.query('shareGroupMembers').withIndex('byGroup', (q: any) => q.eq('groupId', s.groupId)).collect();
-      members.forEach((m: any) => memberEmails.add(m.email));
-    }
-  }
-  // Project-level shares
-  if (video.projectId) {
-    const projShares = await ctx.db.query('contentShares').withIndex('byProject', (q: any) => q.eq('projectId', video.projectId)).collect();
-    for (const s of projShares) {
-      if (s.groupId) {
-        const members = await ctx.db.query('shareGroupMembers').withIndex('byGroup', (q: any) => q.eq('groupId', s.groupId)).collect();
-        members.forEach((m: any) => memberEmails.add(m.email));
-      }
-    }
-  }
   const user = await ctx.db.get(userId);
-  return user ? memberEmails.has(user.email) || videoShares.some((s: any) => s.linkToken && s.isActive) : false;
+  if (!user) return false;
+
+  const userGroupIds = await getUserGroupIds(ctx, user.email);
+  const videoShares = await getActiveVideoShares(ctx, videoId);
+  if (videoShares.some((share: any) => share.linkToken || (share.groupId && userGroupIds.has(share.groupId as string)))) {
+    return true;
+  }
+
+  if (video.projectId) {
+    const projectShares = await getActiveProjectLevelShares(ctx, video.projectId);
+    return projectShares.some((share: any) => share.groupId && userGroupIds.has(share.groupId as string));
+  }
+
+  return false;
 }
 
 async function canCommentOnVideo(ctx: any, userId: Id<'users'>, videoId: Id<'videos'>) {
   const video = await ctx.db.get(videoId);
   if (!video) return false;
   if (video.ownerId === userId) return true;
-  const shares = await ctx.db.query('contentShares').withIndex('byVideo', (q: any) => q.eq('videoId', videoId)).collect();
   const user = await ctx.db.get(userId);
   if (!user) return false;
-  // Group membership with allowComments
-  for (const s of shares) {
-    if (s.groupId && s.isActive && s.allowComments) {
-      const member = await ctx.db
-        .query('shareGroupMembers')
-        .withIndex('byGroup', (q: any) => q.eq('groupId', s.groupId))
-        .filter((q: any) => q.eq(q.field('email'), user.email))
-        .first();
-      if (member) return true;
-    }
+
+  const userGroupIds = await getUserGroupIds(ctx, user.email);
+  const shares = await getActiveVideoShares(ctx, videoId);
+  if (shares.some((share: any) => share.linkToken && share.allowComments)) {
+    return true;
   }
-  // Public link with allowComments
-  if (shares.some((s: any) => s.linkToken && s.isActive && s.allowComments)) return true;
-  // Project-level shares with allowComments
+  if (shares.some((share: any) => share.groupId && share.allowComments && userGroupIds.has(share.groupId as string))) {
+    return true;
+  }
+
   if (video.projectId) {
-    const projShares = await ctx.db.query('contentShares').withIndex('byProject', (q: any) => q.eq('projectId', video.projectId)).collect();
-    for (const s of projShares) {
-      if (s.groupId && s.isActive && s.allowComments) {
-        const member = await ctx.db
-          .query('shareGroupMembers')
-          .withIndex('byGroup', (q: any) => q.eq('groupId', s.groupId))
-          .filter((q: any) => q.eq(q.field('email'), user.email))
-          .first();
-        if (member) return true;
-      }
-    }
+    const projectShares = await getActiveProjectLevelShares(ctx, video.projectId);
+    return projectShares.some((share: any) => share.groupId && share.allowComments && userGroupIds.has(share.groupId as string));
   }
+
   return false;
 }
 
@@ -89,7 +102,7 @@ async function getUserByEmail(ctx: any, email: string | null | undefined) {
   const users = await ctx.db
     .query('users')
     .withIndex('byEmail', (q: any) => q.eq('email', normalized))
-    .collect();
+    .take(MAX_USERS_PER_EMAIL);
   if (!users.length) return null;
   // Prefer a user bound to Clerk (has clerkId), then most recently updated.
   users.sort((a: any, b: any) => {
@@ -116,6 +129,7 @@ async function collectMentionCandidates(ctx: any, userId: Id<'users'>, videoId: 
       if (!existing.name && name) existing.name = name;
       return;
     }
+    if (emails.size >= MAX_MENTION_CANDIDATES) return;
     emails.set(normalized, { name: name ?? null });
   };
 
@@ -125,34 +139,47 @@ async function collectMentionCandidates(ctx: any, userId: Id<'users'>, videoId: 
   const owner = await ctx.db.get(video.ownerId);
   enqueue(owner?.email, owner?.name);
 
-  const friends = await ctx.db.query('friends').withIndex('byOwner', (q: any) => q.eq('ownerId', userId)).collect();
+  const friends = await ctx.db.query('friends').withIndex('byOwner', (q: any) => q.eq('ownerId', userId)).take(MAX_MENTION_FRIENDS);
   friends.forEach((friend: any) => enqueue(friend.contactEmail, friend.contactName));
 
+  const includedGroupIds = new Set<string>();
+
   const collectGroupMembers = async (groupId: Id<'shareGroups'>) => {
-    const members = await ctx.db.query('shareGroupMembers').withIndex('byGroup', (q: any) => q.eq('groupId', groupId)).collect();
+    if (emails.size >= MAX_MENTION_CANDIDATES) return;
+    const remaining = MAX_MENTION_CANDIDATES - emails.size;
+    const members = await ctx.db
+      .query('shareGroupMembers')
+      .withIndex('byGroup', (q: any) => q.eq('groupId', groupId))
+      .take(Math.min(MAX_MENTION_GROUP_MEMBERS_PER_GROUP, remaining));
     members.forEach((member: any) => enqueue(member.email, null));
   };
 
   const includeShareMembers = async (shares: Array<any>) => {
-    for (const share of shares) {
-      if (share.groupId && share.isActive) {
-        await collectGroupMembers(share.groupId);
-      }
+    const groupIds = Array.from(
+      new Set(
+        shares
+          .filter((share) => share.groupId && share.isActive)
+          .map((share) => share.groupId as Id<'shareGroups'>),
+      ),
+    ).slice(0, MAX_MENTION_GROUPS);
+
+    for (const groupId of groupIds) {
+      const key = groupId as string;
+      if (includedGroupIds.has(key)) continue;
+      includedGroupIds.add(key);
+      await collectGroupMembers(groupId);
     }
   };
 
-  const videoShares = await ctx.db.query('contentShares').withIndex('byVideo', (q: any) => q.eq('videoId', videoId)).collect();
+  const videoShares = await getActiveVideoShares(ctx, videoId);
   await includeShareMembers(videoShares);
 
   if (video.projectId) {
-    const projectShares = await ctx.db
-      .query('contentShares')
-      .withIndex('byProject', (q: any) => q.eq('projectId', video.projectId))
-      .collect();
+    const projectShares = await getActiveProjectLevelShares(ctx, video.projectId);
     await includeShareMembers(projectShares);
   }
 
-  const comments = await ctx.db.query('comments').withIndex('byVideo', (q: any) => q.eq('videoId', videoId)).collect();
+  const comments = await ctx.db.query('comments').withIndex('byVideo', (q: any) => q.eq('videoId', videoId)).take(MAX_MENTION_COMMENT_AUTHORS);
   const authorIds = new Set<Id<'users'>>(comments.map((comment: any) => comment.authorId));
   for (const authorId of authorIds) {
     const author = await ctx.db.get(authorId);
