@@ -219,7 +219,16 @@ const VideoReviewer: React.FC<VideoReviewerProps> = ({ video, sourceUrl, onGoBac
   const syncFriends = useMutation(api.shareGroups.syncFriendsFromGroups);
   // Sharing data (reuse Dashboard flows)
   const shareGroups = useQuery(api.shareGroups.list, clerkUser ? {} : undefined);
-  const shareRecords = useQuery(api.shares.list, clerkUser ? {} : undefined);
+  const shareRecords = useQuery(
+    api.shares.list,
+    clerkUser
+      ? {
+          videoId: video.id as any,
+          activeOnly: true,
+          limit: 256,
+        }
+      : undefined,
+  );
   const mentionableOptions = useQuery(api.comments.mentionables, { videoId });
   const generateShareLink = useMutation(api.shares.generateLink);
   const shareToGroup = useMutation(api.shares.shareToGroup);

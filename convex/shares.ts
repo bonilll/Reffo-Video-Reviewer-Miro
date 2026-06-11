@@ -17,14 +17,90 @@ const sanitizeShare = (share: any) => ({
   expiresAt: share.expiresAt ?? null,
 });
 
+const DEFAULT_SHARE_LIST_LIMIT = 1024;
+const MAX_SHARE_LIST_LIMIT = 4096;
+
+const normalizeShareListLimit = (limit?: number) => {
+  if (!Number.isFinite(limit)) return DEFAULT_SHARE_LIST_LIMIT;
+  return Math.min(Math.max(Math.floor(limit as number), 1), MAX_SHARE_LIST_LIMIT);
+};
+
+const collectActiveSharesForGroups = async (ctx: any, groupIds: Array<Id<"shareGroups">>) => {
+  const sharesByGroup = await Promise.all(
+    groupIds.map((groupId) =>
+      ctx.db
+        .query("contentShares")
+        .withIndex("byGroupActive", (q: any) => q.eq("groupId", groupId).eq("isActive", true))
+        .take(MAX_SHARE_LIST_LIMIT),
+    ),
+  );
+  return sharesByGroup.flat();
+};
+
+const pickResolvableShare = (shares: Array<any>) => {
+  const now = Date.now();
+  const activeShares = shares.filter((share) => share.isActive && (!share.expiresAt || share.expiresAt >= now));
+  return activeShares.find((share) => share.projectId && !share.videoId) ?? activeShares[0] ?? null;
+};
+
 export const list = query({
-  args: {},
-  async handler(ctx) {
+  args: {
+    videoId: v.optional(v.id("videos")),
+    projectId: v.optional(v.id("projects")),
+    activeOnly: v.optional(v.boolean()),
+    linkOnly: v.optional(v.boolean()),
+    dashboardRelevantOnly: v.optional(v.boolean()),
+    includeVideoShares: v.optional(v.boolean()),
+    limit: v.optional(v.number()),
+  },
+  async handler(ctx, args) {
     const user = await getCurrentUserOrThrow(ctx);
-    const shares = await ctx.db
-      .query("contentShares")
-      .withIndex("byOwner", (q) => q.eq("ownerId", user._id))
-      .collect();
+    const limit = normalizeShareListLimit(args.limit);
+
+    let queryBuilder: any;
+    if (args.videoId) {
+      queryBuilder = ctx.db
+        .query("contentShares")
+        .withIndex("byOwnerVideo", (q) => q.eq("ownerId", user._id).eq("videoId", args.videoId));
+    } else if (args.projectId) {
+      queryBuilder = ctx.db
+        .query("contentShares")
+        .withIndex("byOwnerProject", (q) => q.eq("ownerId", user._id).eq("projectId", args.projectId));
+    } else if (args.activeOnly) {
+      queryBuilder = ctx.db
+        .query("contentShares")
+        .withIndex("byOwnerActive", (q) => q.eq("ownerId", user._id).eq("isActive", true));
+    } else {
+      queryBuilder = ctx.db
+        .query("contentShares")
+        .withIndex("byOwner", (q) => q.eq("ownerId", user._id));
+    }
+
+    if (args.activeOnly && (args.videoId || args.projectId)) {
+      queryBuilder = queryBuilder.filter((q: any) => q.eq(q.field("isActive"), true));
+    }
+
+    if (args.linkOnly) {
+      queryBuilder = queryBuilder.filter((q: any) => q.neq(q.field("linkToken"), undefined));
+    }
+
+    if (args.dashboardRelevantOnly) {
+      queryBuilder = queryBuilder.filter((q: any) =>
+        q.or(
+          q.neq(q.field("linkToken"), undefined),
+          q.and(
+            q.neq(q.field("projectId"), undefined),
+            q.eq(q.field("videoId"), undefined),
+          ),
+        ),
+      );
+    }
+
+    if (args.includeVideoShares === false) {
+      queryBuilder = queryBuilder.filter((q: any) => q.eq(q.field("videoId"), undefined));
+    }
+
+    const shares = await queryBuilder.take(limit);
 
     return shares.map(sanitizeShare);
   },
@@ -282,14 +358,12 @@ export const resolveToken = query({
   },
   async handler(ctx, { token }) {
     if (!token) return null;
-    const share = await ctx.db
+    const shares = await ctx.db
       .query("contentShares")
       .withIndex("byLinkToken", (q) => q.eq("linkToken", token))
-      .unique();
-    if (!share || !share.isActive) {
-      return null;
-    }
-    if (share.expiresAt && share.expiresAt < Date.now()) {
+      .take(16);
+    const share = pickResolvableShare(shares);
+    if (!share) {
       return null;
     }
 
@@ -307,10 +381,10 @@ export const videosSharedWithMe = query({
       .withIndex('byEmail', (q) => q.eq('email', user.email))
       .collect();
     if (!memberships.length) return [] as any[];
-    const groupIds = new Set(memberships.map((m) => m.groupId));
-    const shares = await ctx.db.query('contentShares').collect();
-    const eligible = shares.filter(s => s.isActive && s.groupId && groupIds.has(s.groupId as Id<'shareGroups'>) && s.videoId);
-    const uniqueVideoIds = Array.from(new Set(eligible.map(s => s.videoId as Id<'videos'>)));
+    const groupIds = Array.from(new Set(memberships.map((m) => m.groupId as Id<'shareGroups'>)));
+    const shares = await collectActiveSharesForGroups(ctx, groupIds);
+    const eligible = shares.filter((s) => s.videoId);
+    const uniqueVideoIds = Array.from(new Set(eligible.map((s) => s.videoId as Id<'videos'>))).slice(0, MAX_SHARE_LIST_LIMIT);
     const videos = await Promise.all(uniqueVideoIds.map(id => ctx.db.get(id)));
     // Exclude edit-only assets from shared listing as well
     return videos.filter((v: any) => !!v && !(v as any).isEditAsset).map((video: any) => ({
@@ -341,10 +415,10 @@ export const projectsSharedWithMe = query({
       .withIndex('byEmail', (q) => q.eq('email', user.email))
       .collect();
     if (!memberships.length) return [] as any[];
-    const groupIds = new Set(memberships.map((m) => m.groupId));
-    const shares = await ctx.db.query('contentShares').collect();
-    const eligible = shares.filter(s => s.isActive && s.groupId && groupIds.has(s.groupId as Id<'shareGroups'>) && s.projectId);
-    const uniqueProjectIds = Array.from(new Set(eligible.map(s => s.projectId as Id<'projects'>)));
+    const groupIds = Array.from(new Set(memberships.map((m) => m.groupId as Id<'shareGroups'>)));
+    const shares = await collectActiveSharesForGroups(ctx, groupIds);
+    const eligible = shares.filter((s) => s.projectId && !s.videoId);
+    const uniqueProjectIds = Array.from(new Set(eligible.map((s) => s.projectId as Id<'projects'>))).slice(0, MAX_SHARE_LIST_LIMIT);
     const projects = await Promise.all(uniqueProjectIds.map(id => ctx.db.get(id)));
     return projects.filter(Boolean).map((p: any) => ({ _id: p._id, name: p.name, createdAt: p.createdAt, updatedAt: p.updatedAt }));
   },
@@ -359,30 +433,44 @@ export const autoShareVideo = mutation({
     if (!projectId) return;
     const video = await ctx.db.get(videoId);
     if (!video) return;
-    const shares = await ctx.db
+    const projectShares = await ctx.db
       .query("contentShares")
       .withIndex("byProject", (q) => q.eq("projectId", projectId))
+      .filter((q) => q.eq(q.field("videoId"), undefined))
       .collect();
 
     const now = Date.now();
 
     await Promise.all(
-      shares
-        .filter((share) => share.isActive)
-        .map((share) =>
-          ctx.db.insert("contentShares", {
+      projectShares
+        .filter((share) => share.isActive && share.groupId)
+        .map(async (share) => {
+          const existingVideoShare = await ctx.db
+            .query("contentShares")
+            .withIndex("byOwnerVideo", (q) => q.eq("ownerId", share.ownerId).eq("videoId", videoId))
+            .filter((q) => q.eq(q.field("groupId"), share.groupId))
+            .first();
+
+          const payload = {
             ownerId: share.ownerId,
             videoId,
             projectId,
             groupId: share.groupId,
-            linkToken: share.linkToken,
+            linkToken: undefined,
             allowDownload: share.allowDownload,
             allowComments: share.allowComments,
             isActive: share.isActive,
             createdAt: now,
             expiresAt: share.expiresAt,
-          })
-        )
+          };
+
+          if (existingVideoShare) {
+            await ctx.db.patch(existingVideoShare._id, payload);
+            return;
+          }
+
+          await ctx.db.insert("contentShares", payload);
+        })
     );
   },
 });

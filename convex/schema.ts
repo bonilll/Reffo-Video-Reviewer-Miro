@@ -670,6 +670,10 @@ export default defineSchema({
     expiresAt: v.optional(v.number()),
   })
     .index("byOwner", ["ownerId"]) 
+    .index("byOwnerActive", ["ownerId", "isActive"])
+    .index("byOwnerVideo", ["ownerId", "videoId"])
+    .index("byOwnerProject", ["ownerId", "projectId"])
+    .index("byGroupActive", ["groupId", "isActive"])
     .index("byLinkToken", ["linkToken"]) 
     .index("byVideo", ["videoId"]) 
     .index("byProject", ["projectId"]),

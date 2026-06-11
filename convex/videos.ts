@@ -117,10 +117,16 @@ export const getByShareToken = query({
   },
   async handler(ctx, { token }) {
     if (!token) return null as any;
-    const share = await ctx.db
+    const shares = await ctx.db
       .query("contentShares")
       .withIndex("byLinkToken", (q) => q.eq("linkToken", token))
-      .unique();
+      .take(16);
+    const now = Date.now();
+    const share = shares.find((candidate: any) =>
+      candidate.videoId &&
+      candidate.isActive &&
+      (!candidate.expiresAt || candidate.expiresAt >= now)
+    );
     if (!share || !share.isActive || (share.expiresAt && share.expiresAt < Date.now())) {
       throw new ConvexError("SHARE_NOT_FOUND");
     }

@@ -338,7 +338,16 @@ const ProjectWorkspace: React.FC<{
   }, [onDismissHighlight]);
 
   const shareGroups = useQuery(api.shareGroups.list, {});
-  const shareRecords = useQuery(api.shares.list, {});
+  const selectedVideoShareRecords = useQuery(
+    api.shares.list,
+    videoToShare
+      ? {
+          videoId: videoToShare.id as any,
+          activeOnly: true,
+          limit: 256,
+        }
+      : 'skip',
+  );
   const workspaceSettings = useQuery(api.settings.getOrNull, {});
   const boardsQuery = useQuery(api.boards.listByProject, { projectId: project.id as any });
   const shareToGroup = useMutation(api.shares.shareToGroup);
@@ -353,15 +362,10 @@ const ProjectWorkspace: React.FC<{
   const getMultipartUrls = useAction((api as any).storage.getMultipartUploadUrls);
   const completeMultipart = useAction((api as any).storage.completeMultipartUpload);
 
-  const activeShares = useMemo(
-    () => (shareRecords ?? []).filter((share) => share.isActive),
-    [shareRecords],
-  );
-
-  const getVideoShares = useCallback(
-    (videoId: string): ContentShare[] => activeShares.filter((share) => share.videoId === videoId),
-    [activeShares],
-  );
+  const selectedVideoShares = useMemo<ContentShare[]>(() => {
+    if (!videoToShare || !selectedVideoShareRecords) return [];
+    return selectedVideoShareRecords.filter((share) => share.videoId === videoToShare.id);
+  }, [selectedVideoShareRecords, videoToShare]);
 
   const projectVideos = useMemo(() => {
     const getTime = (video: Video) => {
@@ -1682,7 +1686,7 @@ const ProjectWorkspace: React.FC<{
         <ShareModal
           video={videoToShare}
           groups={shareGroups}
-          existingShares={getVideoShares(videoToShare.id)}
+          existingShares={selectedVideoShares}
           isDark={isDark}
           onShareToGroup={(args) =>
             shareVideoToGroup(videoToShare, args.groupId, args.allowDownload, args.allowComments)
