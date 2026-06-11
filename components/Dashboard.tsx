@@ -345,7 +345,21 @@ const Dashboard: React.FC<DashboardProps> = ({
   const ensuredDefaultProject = useRef(false);
 
   const shareGroups = useQuery(api.shareGroups.list, {});
-  const shareRecords = useQuery(api.shares.list, {});
+  const shareRecords = useQuery(api.shares.list, {
+    activeOnly: true,
+    dashboardRelevantOnly: true,
+    limit: 4096,
+  });
+  const selectedVideoShareRecords = useQuery(
+    api.shares.list,
+    videoToShare
+      ? {
+          videoId: videoToShare.id as any,
+          activeOnly: true,
+          limit: 256,
+        }
+      : 'skip',
+  );
   const workspaceSettings = useQuery(api.settings.getOrNull, {});
   const isDark = useThemePreference((workspaceSettings?.workspace.theme as any) ?? 'system');
 
@@ -895,6 +909,11 @@ const Dashboard: React.FC<DashboardProps> = ({
     return shareRecords.filter((share) => share.isActive);
   }, [shareRecords]);
 
+  const selectedVideoShares = useMemo(() => {
+    if (!videoToShare || !selectedVideoShareRecords) return [];
+    return selectedVideoShareRecords.filter((share) => share.videoId === videoToShare.id);
+  }, [selectedVideoShareRecords, videoToShare]);
+
   // Quick lookups for labeling share links with human-friendly names
   const videosById = useMemo(() => {
     const map = new Map<string, Video>();
@@ -906,9 +925,6 @@ const Dashboard: React.FC<DashboardProps> = ({
     for (const p of projects) map.set(p.id, p);
     return map;
   }, [projects]);
-
-  const getVideoShares = (videoId: string) =>
-    activeShares.filter((share) => share.videoId === videoId);
 
   const getGroupById = (groupId: string) =>
     shareGroups?.find((group) => group.id === groupId) ?? null;
@@ -1587,7 +1603,7 @@ const Dashboard: React.FC<DashboardProps> = ({
           video={videoToShare}
           projectName={videoToShare.projectId ? (projects.find(p => p.id === videoToShare.projectId)?.name) : undefined}
           groups={shareGroups}
-          existingShares={getVideoShares(videoToShare.id)}
+          existingShares={selectedVideoShares}
           isDark={isDark}
           onGenerateLink={(options) =>
             generateVideoLink(
@@ -1987,12 +2003,20 @@ export const ShareModal: React.FC<ShareModalProps> = ({
   const [allowComments, setAllowComments] = useState(true);
   const [linkToken, setLinkToken] = useState<string | null>(() => existingShares.find((share) => share.linkToken)?.linkToken ?? null);
   const [generating, setGenerating] = useState(false);
+  const existingLinkToken = useMemo(
+    () => existingShares.find((share) => share.linkToken)?.linkToken ?? null,
+    [existingShares],
+  );
   const assetKind = video ? 'review' : 'project';
   const assetTitle = video ? video.title : project?.name ?? '';
   const shareArgs = {
     videoId: video?.id,
     projectId: project?.id,
   };
+
+  useEffect(() => {
+    setLinkToken(existingLinkToken);
+  }, [existingLinkToken]);
 
   // Deduplicate visible shares: one row per group or link
   const visibleShares = React.useMemo(() => {
